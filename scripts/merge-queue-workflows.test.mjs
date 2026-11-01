@@ -2,12 +2,16 @@
 
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { commentFilterExpression } from "./ovd-merge-gate.mjs";
 
 // Required (and future-required) checks must report on merge_group, or the
 // merge queue stalls until it times out. See docs/runbooks/merge-queue.md.
 const REQUIRED_CHECKS = [
   { workflow: "ci.yml", job: "ci", noOp: false },
   { workflow: "pr-body-gate.yml", job: "provider-go-live", noOp: true },
+  // Scans base..head for real on the queue commit: never a no op, so the queue
+  // cannot pass a range the pull_request run would not have scanned.
+  { workflow: "secret-scan.yml", job: "secret-scan", range: true },
 ];
 // A writer check is not a job's own status: the job (named differently on
 // purpose) writes the check run through the Checks API, also on merge_group.
@@ -47,12 +51,22 @@ describe("merge queue workflows", () => {
         expect(onBlock(text)).toMatch(/^ {2}merge_group:/m);
       });
 
+      it("triggers on merge_group checks_requested and has no paths filter", () => {
+        expect(onBlock(text)).toMatch(/^ {2}merge_group:\n {4}types:\n {6}- checks_requested\n/m);
+        expect(onBlock(text)).not.toMatch(/^ {4}paths(?:-ignore)?:/m);
+      });
+
       if (check.writer) {
         it("writes the check from a job with another name and no job-level if", () => {
           const block = jobBlock(text, check.writer);
           expect(block).toMatch(new RegExp(`^ {4}name: ${check.writer}$`, "m"));
-          // The only job-level if allowed is always() (OVD-959 F1: run even when a needed job failed).
-          for (const line of block.match(/^ {4}if:.*$/gm) ?? []) expect(line).toBe("    if: ${{ always() && github.event_name != 'merge_group' }}");
+          // The only job-level if allowed is always() (OVD-959 F1: run even when a needed job failed),
+          // narrowed only for issue_comment to comments with a verdict marker or approval fence (OVD-1144).
+          for (const line of block.match(/^ {4}if:.*$/gm) ?? []) {
+            expect(line).toBe(
+              `    if: "\${{ always() && github.event_name != 'merge_group' && ${commentFilterExpression()} }}"`,
+            );
+          }
           expect(text).not.toMatch(new RegExp(`^ {2}${check.job}:\\n`, "m"));
           expect(text).not.toMatch(new RegExp(`^ {4}name: ${check.job}$`, "m"));
         });
@@ -71,7 +85,26 @@ describe("merge queue workflows", () => {
         expect(jobBlock(text, check.job)).toMatch(new RegExp(`^ {4}name: ${check.job}$`, "m"));
       });
 
-      if (check.noOp) {
+      if (check.range) {
+        it("has no job-level if and no step gated on the event", () => {
+          const block = jobBlock(text, check.job);
+          expect(block).not.toMatch(/^ {4}if:/m);
+          for (const condition of stepIfs(block)) {
+            expect(condition ?? "").not.toMatch(/event_name|pull_request|merge_group/);
+          }
+        });
+
+        it("diffs the merge group's base and head on merge_group", () => {
+          const block = jobBlock(text, check.job);
+          expect(block).toContain(
+            "BASE_SHA: ${{ github.event_name == 'merge_group' && github.event.merge_group.base_sha || github.event.pull_request.base.sha }}",
+          );
+          expect(block).toContain(
+            "HEAD_SHA: ${{ github.event_name == 'merge_group' && github.event.merge_group.head_sha || github.event.pull_request.head.sha }}",
+          );
+          expect(text).toMatch(/^ {2}group: [^\n]*\|\| github\.ref \}\}$/m);
+        });
+      } else if (check.noOp) {
         it("has no job-level if that could skip the job", () => {
           expect(jobBlock(text, check.job)).not.toMatch(/^ {4}if:/m);
         });
@@ -114,6 +147,17 @@ describe("merge queue workflows", () => {
       expect(queuedCheck).toContain("from './base/scripts/vendor-pr-serialization.mjs'");
       expect(queuedCheck).toContain("'base/scripts/vendor-pr-serialization.mjs', '--pr', String(pr)");
       expect(queuedCheck).not.toMatch(/['"](?:\.\/)?scripts\/vendor-pr-serialization\.mjs['"]/);
+    });
+
+    it("re-checks all open PRs on schedule/push in report-only mode but keeps pull_request blocking", () => {
+      const recheck = steps.find((step) => step.startsWith("name: Re-check all open vendor PRs\n"));
+      const prCheck = steps.find((step) => step.startsWith("name: Check open vendor PRs\n"));
+      expect(recheck).toContain("if: github.event_name == 'schedule' || github.event_name == 'push'");
+      expect(recheck).toContain("node scripts/vendor-pr-serialization.mjs --all --report-only");
+      expect(recheck).not.toContain("continue-on-error");
+      expect(prCheck).toContain("if: github.event_name == 'pull_request'");
+      expect(prCheck).not.toContain("--report-only");
+      expect(queuedCheck).not.toContain("--report-only");
     });
 
     it("keeps only read access to contents and pull requests", () => {

@@ -71,6 +71,7 @@ import { buildExtractionCompletionPayload } from "./extractionObservability.js";
 import { createSpendGuard, SpendCapExceededError } from "./spendGuard.js";
 import {
   ExportMarkingRescanTaskInvalidError,
+  VendorQuoteBookkeepingError,
   failureCodeForError,
   isRetryableExportRescanError,
   isRetryableVendorTaskError,
@@ -461,7 +462,66 @@ async function persistVendorArtifacts(
   return storagePaths;
 }
 
-async function syncJobStatusAfterVendorUpdate(
+/** Derive statuses only from stored results. Terminal/later states never regress. */
+export async function syncRunStatus(
+  supabase: SupabaseClient,
+  jobId: string,
+  quoteRunId: string,
+) {
+  try {
+    await syncStoredRunStatus(supabase, jobId, quoteRunId);
+  } catch (error) {
+    throw new VendorQuoteBookkeepingError(error);
+  }
+}
+
+/**
+ * Syncs each quote run the kill-switch sweep cancelled. A failure on one run is
+ * logged and the rest still sync: later sweeps do not return these runs again.
+ */
+export async function syncSweptQuoteRuns(
+  supabase: SupabaseClient,
+  quoteRuns: readonly { jobId: string; quoteRunId: string }[],
+  runtimeState: WorkerRuntimeState,
+) {
+  for (const run of quoteRuns) {
+    try {
+      await syncRunStatus(supabase, run.jobId, run.quoteRunId);
+    } catch (syncError) {
+      logWorkerEvent(runtimeState, {
+        level: "error",
+        source: "worker.kill_switch",
+        message: `Run status sync failed for quote run ${run.quoteRunId}: ${summarizeWorkerError(syncError)}`,
+        error: syncError,
+      });
+    }
+  }
+}
+
+function jobStatusPredecessors(nextJobStatus: string): string[] {
+  if (nextJobStatus === "quoting") return ["ready_to_quote"];
+  if (nextJobStatus === "awaiting_vendor_manual_review") return ["ready_to_quote", "quoting"];
+  return ["ready_to_quote", "quoting", "awaiting_vendor_manual_review"];
+}
+
+/** Guarded status write: only moves a row forward from a predecessor status. */
+async function advanceStatus(
+  supabase: SupabaseClient,
+  table: "quote_runs" | "jobs",
+  id: string,
+  currentStatus: string,
+  nextStatus: string,
+  predecessors: string[],
+): Promise<boolean> {
+  if (!predecessors.includes(currentStatus)) return false;
+  const { data, error } = await supabase.from(table)
+    .update({ status: nextStatus }).eq("id", id)
+    .in("status", predecessors).select("id");
+  if (error) throw error;
+  return Boolean(data?.length);
+}
+
+async function syncStoredRunStatus(
   supabase: SupabaseClient,
   jobId: string,
   quoteRunId: string,
@@ -497,23 +557,12 @@ async function syncJobStatusAfterVendorUpdate(
     failedVendorQuotes,
   } = aggregateQuoteRunStatus(statuses);
 
-  await supabase
-    .from("quote_runs")
-    .update({
-      status: nextQuoteRunStatus,
-    })
-    .eq("id", quoteRunId);
-
-  await supabase
-    .from("jobs")
-    .update({
-      status: nextJobStatus,
-    })
-    .eq("id", jobId);
-
-  if (quoteRun.status === nextQuoteRunStatus && job.status === nextJobStatus) {
-    return;
-  }
+  const runPredecessors = nextQuoteRunStatus === "running" ? ["queued"] : ["queued", "running"];
+  const runChanged = await advanceStatus(supabase, "quote_runs", quoteRunId, quoteRun.status,
+    nextQuoteRunStatus, runPredecessors);
+  const jobChanged = await advanceStatus(supabase, "jobs", jobId, job.status,
+    nextJobStatus, jobStatusPredecessors(nextJobStatus));
+  if (!runChanged && !jobChanged) return;
 
   const basePayload = {
     quoteRunId,
@@ -777,6 +826,15 @@ async function runDrawingExtractionForTask(
   }
 }
 
+// Keep in sync with the extract_part cases in processClaimedTask's shouldRetry.
+function isRetryableExtractError(error: unknown): boolean {
+  return (
+    error instanceof CanonicalArtifactsPendingError ||
+    error instanceof ExportControlLookupError ||
+    error instanceof ExportControlStepScanRetryableError
+  );
+}
+
 async function handleExtractTask(supabase: SupabaseClient, task: QueueTaskRecord, config: WorkerConfig) {
   let runDir: string | null = null;
   let organizationIdForError: string | null = null;
@@ -786,6 +844,8 @@ async function handleExtractTask(supabase: SupabaseClient, task: QueueTaskRecord
   const exportScanOutcomes: ExportScanOutcomes = {};
   try {
     const identityContext = await fetchPartContext(supabase, task.part_id!);
+    organizationIdForError = identityContext.part.organization_id;
+    partIdForError = identityContext.part.id;
     const identityStageDir = await createRunDir(config, ["identity", task.id]);
     runDir = identityStageDir;
     const identityStagedCad = await stageStorageObject(supabase, identityContext.cadFile, identityStageDir);
@@ -862,9 +922,26 @@ async function handleExtractTask(supabase: SupabaseClient, task: QueueTaskRecord
               : null,
           extractText: extractPdfText,
         }, exportScanOutcomes);
-        // OVD-1067: 0 approved is a review hold (fields need review; the job
-        // stays 'extracting'), so the task completes with reviewRequired.
-        const autoApproval = await autoApproveJobRequirements(supabase, task.job_id!);
+        // A missing approval for this part is a review hold, even when the
+        // job-wide RPC count includes approvals for other parts.
+        const autoApproval = await autoApproveJobRequirements(
+          supabase,
+          task.job_id!,
+          identityContext.part.id,
+          identityContext.part.organization_id,
+        );
+        await logWorkerAuditEvent(supabase, {
+          organizationId: identityContext.part.organization_id,
+          jobId: task.job_id!,
+          eventType: "worker.extraction_completed",
+          payload: {
+            partId: identityContext.part.id,
+            reusedCanonicalPartVersion: true,
+            sourcePartId,
+            autoApprovedPartCount: autoApproval.approvedCount,
+            reviewRequired: autoApproval.reviewHold,
+          },
+        });
         await markTaskCompleted(supabase, task, {
           canonicalPartVersionId: partVersionId,
           reusedCanonicalPartVersion: true,
@@ -942,8 +1019,13 @@ async function handleExtractTask(supabase: SupabaseClient, task: QueueTaskRecord
         logCadPreviewWarning(task, enqueueError);
       }
     }
-    // OVD-1067: 0 approved is a review hold, not a failure (see above).
-    const autoApproval = await autoApproveJobRequirements(supabase, task.job_id!);
+    // A missing approval for this part is a review hold, not a failure.
+    const autoApproval = await autoApproveJobRequirements(
+      supabase,
+      task.job_id!,
+      context.part.id,
+      context.part.organization_id,
+    );
     const completedAt = new Date().toISOString();
     const completionPayload = buildExtractionCompletionPayload({
       extraction,
@@ -975,17 +1057,26 @@ async function handleExtractTask(supabase: SupabaseClient, task: QueueTaskRecord
       // The failed task records the STEP outcome with the unread drawing.
       error.exportScanOutcomes = { ...exportScanOutcomes, ...error.exportScanOutcomes };
     }
-    if (organizationIdForError && task.job_id) {
-      await logWorkerAuditEvent(supabase, {
-        organizationId: organizationIdForError,
-        jobId: task.job_id,
-        eventType: "worker.extraction_failed",
-        payload: {
-          partId: partIdForError,
-          failureCode: failureCodeForError(error),
-          failureMessage: summarizeWorkerError(error),
-        },
-      });
+    // A retryable error requeues the task, so it is not an extraction failure.
+    // Once the retry schedule is exhausted the task is failed instead, and
+    // that terminal failure is audited like any other.
+    const requeued = isRetryableExtractError(error) && nextRetryAt(task.attempts) !== null;
+    if (organizationIdForError && task.job_id && !requeued) {
+      try {
+        await logWorkerAuditEvent(supabase, {
+          organizationId: organizationIdForError,
+          jobId: task.job_id,
+          eventType: "worker.extraction_failed",
+          payload: {
+            partId: partIdForError,
+            failureCode: failureCodeForError(error),
+            failureMessage: summarizeWorkerError(error),
+          },
+        });
+      } catch (auditError) {
+        // Never let a failed audit write mask the original extraction error.
+        console.warn(`extract_part ${task.id}: extraction_failed audit write failed: ${summarizeWorkerError(auditError)}`);
+      }
     }
     throw error;
   } finally {
@@ -1211,27 +1302,15 @@ export async function handleVendorQuoteTask(
     return;
   }
 
-  const context = await fetchPartContext(supabase, task.part_id);
-
-  if (!context.requirement) {
-    throw new Error(`No approved requirement found for part ${task.part_id}.`);
-  }
-  const requirementCapturedAt = context.requirement.updated_at;
-  if (!requirementCapturedAt) {
-    throw new Error(
-      `Approved requirement ${context.requirement.id} is missing its update timestamp.`,
-    );
-  }
-
   const currentResultRequest = vendorQuoteResultId
     ? supabase
         .from("vendor_quote_results")
-        .select("id, requested_quantity")
+        .select("id, requested_quantity, status, raw_payload, notes")
         .eq("id", vendorQuoteResultId)
         .single()
     : supabase
         .from("vendor_quote_results")
-        .select("id, requested_quantity")
+        .select("id, requested_quantity, status, raw_payload, notes")
         .eq("quote_run_id", task.quote_run_id)
         .eq("part_id", task.part_id)
         .eq("vendor", vendor)
@@ -1242,6 +1321,29 @@ export async function handleVendorQuoteTask(
 
   if (currentResultError || !currentResult) {
     throw currentResultError ?? new Error("Vendor quote result row was not found.");
+  }
+
+  // The terminal row is the durable settled marker, including manual/failed
+  // outcomes. Recovery must not load files, reserve spend or call a provider.
+  if (SETTLED_VENDOR_QUOTE_RESULT_STATUSES.has(currentResult.status)) {
+    await syncRunStatus(supabase, task.job_id, task.quote_run_id);
+    if (currentResult.status === "failed" && currentResult.raw_payload?.exportControlHold !== true) {
+      await markTaskFailed(supabase, task, currentResult.notes?.[0] ?? "Vendor quote failed.", {
+        failureCode: currentResult.raw_payload?.failureCode ?? "task_failure",
+      });
+    } else {
+      await markTaskCompleted(supabase, task, { vendorStatus: currentResult.status });
+    }
+    return;
+  }
+
+  const context = await fetchPartContext(supabase, task.part_id);
+  if (!context.requirement) {
+    throw new Error(`No approved requirement found for part ${task.part_id}.`);
+  }
+  const requirementCapturedAt = context.requirement.updated_at;
+  if (!requirementCapturedAt) {
+    throw new Error(`Approved requirement ${context.requirement.id} is missing its update timestamp.`);
   }
 
   const retryCount = retryCountForAttempts(task.attempts);
@@ -1272,7 +1374,7 @@ export async function handleVendorQuoteTask(
             retryCount,
             requestedQuantity: currentResult.requested_quantity,
           });
-          await syncJobStatusAfterVendorUpdate(supabase, task.job_id, task.quote_run_id);
+          await syncRunStatus(supabase, task.job_id, task.quote_run_id);
         } catch (settleError) {
           console.warn(
             JSON.stringify({
@@ -1288,7 +1390,7 @@ export async function handleVendorQuoteTask(
       throw error;
     }
     if (claimCheck === "cancelled") {
-      await syncJobStatusAfterVendorUpdate(supabase, task.job_id, task.quote_run_id);
+      await syncRunStatus(supabase, task.job_id, task.quote_run_id);
       return;
     }
   }
@@ -1318,7 +1420,7 @@ export async function handleVendorQuoteTask(
       await settleUnwrittenProviderOutcome(supabase, task, pauseWrite, false);
       return;
     }
-    await syncJobStatusAfterVendorUpdate(supabase, task.job_id, task.quote_run_id);
+    await syncRunStatus(supabase, task.job_id, task.quote_run_id);
     await markTaskCompleted(supabase, task, {
       vendorStatus: "manual_vendor_followup",
       manualVendor: true,
@@ -1327,7 +1429,7 @@ export async function handleVendorQuoteTask(
     return;
   }
 
-  await supabase
+  const { error: runningError } = await supabase
     .from("vendor_quote_results")
     .update({
       status: "running",
@@ -1342,7 +1444,9 @@ export async function handleVendorQuoteTask(
         requestedQuantity: currentResult.requested_quantity,
       },
     })
-    .eq("id", currentResult.id);
+    .eq("id", currentResult.id)
+    .in("status", [...UNSETTLED_VENDOR_QUOTE_RESULT_STATUSES]);
+  if (runningError) throw vendorQuoteWriteError(runningError);
 
   const operationalScope = Object.freeze({ organizationId: task.organization_id, taskId: task.id,
     quoteRunId: task.quote_run_id, provider: vendor, sourceRevision: advisory?.sourceRevision ?? "" });
@@ -1376,9 +1480,9 @@ export async function handleVendorQuoteTask(
   const laneQuoteRunId = task.quote_run_id;
   const handleLaneFailure = async (error: unknown): Promise<void> => {
     if (advisory) await observeBoundOperationalFailure({ ...advisory, scope: operationalScope }, operationalScope, error);
+    if (error instanceof VendorQuoteBookkeepingError) throw error;
     if (resultPersisted) {
-      await settlePostPersistBookkeepingFailure(supabase, task, error);
-      return;
+      throw new VendorQuoteBookkeepingError(error);
     }
     // OVD-722: an engaged switch at any checkpoint (before launch, or inside
     // the adapter before navigation/upload/configure) ends the task as
@@ -1390,7 +1494,7 @@ export async function handleVendorQuoteTask(
         requestedQuantity: currentResult.requested_quantity,
         providerMutationPossible: providerMutationEvidence().providerMutationPossible === true,
       });
-      await syncJobStatusAfterVendorUpdate(supabase, laneJobId, laneQuoteRunId);
+      await syncRunStatus(supabase, laneJobId, laneQuoteRunId);
       return;
     }
     const vendorError =
@@ -1450,7 +1554,7 @@ export async function handleVendorQuoteTask(
         await settleUnwrittenProviderOutcome(supabase, task, holdWrite, providerMutationStarted);
         return;
       }
-      await syncJobStatusAfterVendorUpdate(supabase, laneJobId, laneQuoteRunId);
+      await syncRunStatus(supabase, laneJobId, laneQuoteRunId);
       await markTaskCompleted(supabase, task, {
         vendorStatus: "failed",
         exportControlHold: true,
@@ -1542,15 +1646,13 @@ export async function handleVendorQuoteTask(
         requiresManualVendorFollowUp,
         manualFollowUpReason: manualReasonCode,
       },
-    }).catch(() => "written" as const); // The failure write was never checked here; an error keeps the old flow.
-    if (laneWrite === "persisted") {
-      // The atomic write committed but its acknowledgement was lost: the result
-      // and offers stand, and the task must not be retried into a second quote.
-      await settlePersistedResultTask(supabase, task, error, "persist_ack_lost");
+    });
+    if (laneWrite !== "written") {
+      await settleUnwrittenProviderOutcome(supabase, task, laneWrite, providerMutationStarted);
       return;
     }
 
-    await syncJobStatusAfterVendorUpdate(supabase, laneJobId, laneQuoteRunId);
+    await syncRunStatus(supabase, laneJobId, laneQuoteRunId);
 
     if (requiresManualVendorFollowUp) {
       await markTaskCompleted(supabase, task, {
@@ -1599,29 +1701,30 @@ export async function handleVendorQuoteTask(
     await cleanupPaths([stageDir]);
     const manualReasonCode = "adapter_not_enabled";
 
-    await supabase
-      .from("vendor_quote_results")
-      .update({
-        status: "manual_vendor_followup",
-        notes: [
-          config.workerMode === "live"
-            ? `${vendor} is disabled by WORKER_LIVE_ADAPTERS and requires manual vendor follow-up.`
-            : `${vendor} is configured as a manual/import quote source in this environment.`,
-        ],
-        raw_payload: {
-          mode: config.workerMode,
-          source: "manual-import-vendor",
-          requiresManualVendorFollowUp: true,
-          manualFollowUpReason: manualReasonCode,
-          requestedQuantity: currentResult.requested_quantity,
-          retryCount,
-          failureCode: manualReasonCode,
-          configuredLiveAdapters: config.workerLiveAdapters,
-        },
-      })
-      .eq("id", currentResult.id);
+    const manualWrite = await writeUnsettledVendorQuoteResult(supabase, currentResult.id, {
+      status: "manual_vendor_followup",
+      notes: [
+        config.workerMode === "live"
+          ? `${vendor} is disabled by WORKER_LIVE_ADAPTERS and requires manual vendor follow-up.`
+          : `${vendor} is configured as a manual/import quote source in this environment.`,
+      ],
+      raw_payload: {
+        mode: config.workerMode,
+        source: "manual-import-vendor",
+        requiresManualVendorFollowUp: true,
+        manualFollowUpReason: manualReasonCode,
+        requestedQuantity: currentResult.requested_quantity,
+        retryCount,
+        failureCode: manualReasonCode,
+        configuredLiveAdapters: config.workerLiveAdapters,
+      },
+    });
+    if (manualWrite !== "written") {
+      await settleUnwrittenProviderOutcome(supabase, task, manualWrite, false);
+      return;
+    }
 
-    await syncJobStatusAfterVendorUpdate(supabase, task.job_id, task.quote_run_id);
+    await syncRunStatus(supabase, task.job_id, task.quote_run_id);
     await markTaskCompleted(supabase, task, {
       vendorStatus: "manual_vendor_followup",
       manualVendor: true,
@@ -1652,26 +1755,29 @@ export async function handleVendorQuoteTask(
       // terminal path here moves it on; without this it would sit reporting
       // "running" forever on a lane that was never going to run -- a
       // customer-facing quote that silently never resolves.
-      const writeSpendCapLane = () =>
-        supabase
-          .from("vendor_quote_results")
-          .update({
-            status: retryAt ? "queued" : "manual_vendor_followup",
-            notes: [
-              retryAt
-                ? `Spend cap reached; this lane will retry. ${error.message}`
-                : `Spend cap reached and retries are exhausted; this lane needs manual vendor follow-up. ${error.message}`,
-            ],
-            raw_payload: {
-              mode: config.workerMode,
-              requiresManualVendorFollowUp: !retryAt,
-              manualFollowUpReason: "spend_cap_reached",
-              spendCapReasonCode: error.reasonCode,
-              requestedQuantity: currentResult.requested_quantity,
-              failureCode: "spend_cap_reached",
-            },
-          })
-          .eq("id", currentResult.id);
+      const writeSpendCapLane = async () => {
+        const laneWrite = await writeUnsettledVendorQuoteResult(supabase, currentResult.id, {
+          status: retryAt ? "queued" : "manual_vendor_followup",
+          notes: [
+            retryAt
+              ? `Spend cap reached; this lane will retry. ${error.message}`
+              : `Spend cap reached and retries are exhausted; this lane needs manual vendor follow-up. ${error.message}`,
+          ],
+          raw_payload: {
+            mode: config.workerMode,
+            requiresManualVendorFollowUp: !retryAt,
+            manualFollowUpReason: "spend_cap_reached",
+            spendCapReasonCode: error.reasonCode,
+            requestedQuantity: currentResult.requested_quantity,
+            failureCode: "spend_cap_reached",
+          },
+        });
+        if (laneWrite !== "written") {
+          await settleUnwrittenProviderOutcome(supabase, task, laneWrite, false);
+        }
+        await syncRunStatus(supabase, laneJobId, laneQuoteRunId);
+        return laneWrite === "written";
+      };
 
       if (retryAt) {
         // Requeue first: the lane may only advertise a retry that is actually
@@ -1682,7 +1788,16 @@ export async function handleVendorQuoteTask(
         });
         if (requeued) await writeSpendCapLane();
       } else {
-        await writeSpendCapLane();
+        // A failed lane write must not skip the cancellation: record it, cancel,
+        // then rethrow. markTaskFailed never overwrites a cancelled task.
+        let laneWritten = false;
+        let laneWriteFailure: { error: unknown } | null = null;
+        try {
+          laneWritten = await writeSpendCapLane();
+        } catch (writeError) {
+          laneWriteFailure = { error: writeError };
+        }
+        if (!laneWritten && !laneWriteFailure) return;
         // Retries are exhausted, but nothing about this lane is broken -- it was
         // priced out. Cancelling rather than failing keeps the distinction, so it
         // reads as "not run" instead of "tried and defective" and can simply be
@@ -1690,6 +1805,7 @@ export async function handleVendorQuoteTask(
         await markTaskCancelled(supabase, task, `Spend cap reached: ${error.message}`, {
           spendCapReasonCode: error.reasonCode,
         });
+        if (laneWriteFailure) throw laneWriteFailure.error;
       }
       return;
     }
@@ -2051,7 +2167,7 @@ export async function handleVendorQuoteTask(
       return;
     }
 
-    await syncJobStatusAfterVendorUpdate(supabase, task.job_id, task.quote_run_id);
+    await syncRunStatus(supabase, task.job_id, task.quote_run_id);
     await markTaskCompleted(supabase, task, {
       vendorStatus: gatedResult.status,
       artifactCount: artifactStoragePaths.length,
@@ -2118,30 +2234,14 @@ export async function handleExportMarkingRescanTask(
 }
 
 /**
- * A failure after the atomic result write (request status read, job status
- * sync, task completion). The persisted result and its offers stay as they
- * are; the task is marked failed with a stable code, best effort, and the
- * failure is logged. Never rethrown, so the generic catch cannot overwrite the
- * result and the generic task retry cannot rerun a completed provider quote.
- */
-async function settlePostPersistBookkeepingFailure(
-  supabase: SupabaseClient,
-  task: QueueTaskRecord,
-  error: unknown,
-) {
-  await settlePersistedResultTask(supabase, task, error, "post_persist_bookkeeping_failed");
-}
-
-/**
  * Settles the task of a run whose result is persisted, without touching the
- * result row: syncs the job status and marks the task failed with a stable
- * code. Best effort and never rethrown.
+ * result row. A failed sync is retried from the stored result on the next claim.
  */
 async function settlePersistedResultTask(
   supabase: SupabaseClient,
   task: QueueTaskRecord,
   error: unknown,
-  failureCode: "post_persist_bookkeeping_failed" | "persist_ack_lost",
+  failureCode: "persist_ack_lost",
 ) {
   console.error(
     JSON.stringify({
@@ -2149,24 +2249,15 @@ async function settlePersistedResultTask(
       level: "error",
       source: "worker.vendor_quote.post_persist",
       message: `${failureCode}: the vendor quote result was persisted; ${summarizeWorkerError(error)}`,
-      context: { taskId: task.id, quoteRunId: task.quote_run_id },
+      context: { taskId: task.id, jobId: task.job_id, quoteRunId: task.quote_run_id },
     }),
   );
-  try {
-    if (failureCode === "persist_ack_lost" && task.job_id && task.quote_run_id) {
-      await syncJobStatusAfterVendorUpdate(supabase, task.job_id, task.quote_run_id);
-    }
-  } catch {
-    // The job status catches up on the next lane update; the task is still settled below.
+  if (task.job_id && task.quote_run_id) {
+    await syncRunStatus(supabase, task.job_id, task.quote_run_id);
   }
-  try {
-    const note = failureCode === "persist_ack_lost"
-      ? "The vendor quote result was persisted but its acknowledgement was lost."
-      : "Bookkeeping failed after the vendor quote result was persisted.";
-    await markTaskFailed(supabase, task, note, { failureCode, vendorQuoteResultPersisted: true });
-  } catch {
-    // The stale task reaper settles a task left running; the persisted result is untouched either way.
-  }
+  await markTaskFailed(supabase, task, "The vendor quote result was persisted but its acknowledgement was lost.", {
+    failureCode, vendorQuoteResultPersisted: true,
+  });
 }
 
 const UNSETTLED_VENDOR_QUOTE_RESULT_STATUSES = ["queued", "running"] as const;
@@ -2174,6 +2265,15 @@ const PERSISTED_VENDOR_QUOTE_RESULT_STATUSES: ReadonlySet<unknown> = new Set([
   "instant_quote_received",
   "official_quote_received",
 ]);
+const SETTLED_VENDOR_QUOTE_RESULT_STATUSES: ReadonlySet<unknown> = new Set([
+  ...PERSISTED_VENDOR_QUOTE_RESULT_STATUSES,
+  "manual_review_pending", "manual_vendor_followup", "failed", "stale",
+]);
+
+function vendorQuoteWriteError(error: unknown) {
+  return new VendorAutomationError(`Vendor quote result write failed: ${summarizeWorkerError(error)}`,
+    "persistence_failure");
+}
 
 /**
  * Writes a non persisted outcome to the lane as a compare and set: only while
@@ -2193,7 +2293,7 @@ async function writeUnsettledVendorQuoteResult(
     .eq("id", vendorQuoteResultId)
     .in("status", [...UNSETTLED_VENDOR_QUOTE_RESULT_STATUSES])
     .select("id");
-  if (error) throw error;
+  if (error) throw vendorQuoteWriteError(error);
   if (Array.isArray(data) && data.length > 0) return "written";
   const { data: row, error: readError } = await supabase
     .from("vendor_quote_results")
@@ -2311,7 +2411,7 @@ async function recordGenericProviderOutcome(
       });
       return;
     }
-    await syncJobStatusAfterVendorUpdate(supabase, jobId, quoteRunId);
+    await syncRunStatus(supabase, jobId, quoteRunId);
     await markTaskCompleted(supabase, task, {
       vendorStatus: outcome.persisted?.status ?? null,
       artifactCount: outcome.persisted?.artifactCount ?? 0,
@@ -2345,7 +2445,7 @@ async function recordGenericProviderOutcome(
     await settleUnwrittenProviderOutcome(supabase, task, laneWrite, outcome.adapterStarted);
     return;
   }
-  await syncJobStatusAfterVendorUpdate(supabase, jobId, quoteRunId);
+  await syncRunStatus(supabase, jobId, quoteRunId);
 
   if (outcome.disposition === "cancelled_provider_disabled" && outcome.killSwitch) {
     await markTaskCancelledForDisabledProvider(supabase, task, outcome.killSwitch.error);
@@ -2824,9 +2924,7 @@ export async function main(operationalHost?: OperationalJevHost) {
       if (config.workerMode === "live") {
         try {
           const sweep = await sweepProviderDisabledTasks(supabase);
-          for (const run of sweep.quoteRuns) {
-            await syncJobStatusAfterVendorUpdate(supabase, run.jobId, run.quoteRunId);
-          }
+          await syncSweptQuoteRuns(supabase, sweep.quoteRuns, runtimeState);
           for (const warning of providerKillSwitchSweepWarnings(sweep)) {
             logWorkerEvent(runtimeState, {
               level: "warn",

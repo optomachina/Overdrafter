@@ -42,9 +42,39 @@ name: OVD merge gate
 # that runs started after its own run's record was written, and the last
 # writer to run sees every record. See docs/verdict-format.md.
 #
-# No paths filter: separate jobs cover PR events and merge groups. Writer runs queue per PR and are never cancelled;
+# No paths filter: separate jobs cover PR events and merge groups. Writer runs queue per PR (queue: max) and are never cancelled;
 # each re-reads the head right before writing and writes nothing for a head
-# that moved (the run for the new head writes it).
+# that moved (the run for the new head writes it). Accepted trade-off: a
+# burst of comments or pushes queues one writer per event (GitHub caps a
+# group at 100 pending; beyond that new ones are cancelled), so the final
+# result can arrive later; each writer is bounded by timeout-minutes.
+#
+# Comment filter (secondary rate limit fix). The gate reads only two kinds of
+# comment: verdicts (```overdrafter-verdict fences, scripts/verdict-schema.mjs)
+# and approval records (```overdrafter-approval fences,
+# scripts/approval-record.mjs). Both jobs run on issue_comment only when the
+# comment body, or for an edit its previous body, contains one of those fence
+# openers anywhere (a verdict comment starts with a summary line, not the
+# fence, so a starts-with test would drop every verdict). contains() is
+# case-insensitive, so the filter is a superset of what the parsers accept.
+# Every other comment cannot change the gate and starts no job, so a comment
+# burst no longer queues a writer per comment. The other triggers are
+# unchanged.
+#
+# OVD-1144 (verdict-only trigger, sticky status). The filter is built from
+# TRIGGER_COMMENT_MARKERS in scripts/ovd-merge-gate.mjs by
+# commentFilterExpression(), and a test pins both jobs' if: to it (double
+# quoted: the markers contain ": ", which a plain YAML scalar cannot hold). Besides the
+# two fences it also matches the plain verdict markers "VERDICT: PASS" (also
+# PASS_NOTES), "VERDICT: FAIL", "VERDICT: CHANGES_REQUIRED" (Architect
+# headers), "QA PASS" and "QA FAIL". Relay, progress and status comments
+# match none of them, so they start no job and spend no run.
+# The writer posts no progress or relay comments: after the check run it
+# keeps exactly one status comment per PR, found by the hidden marker
+# <!-- ovd-merge-gate-status --> from github-actions[bot], and edits it in
+# place (REST PATCH); it never posts a new comment per run. That is the only
+# reason the writer has pull-requests: write. The comment is advisory (the
+# check run is the gate) and a failed edit only warns.
 
 on:
   pull_request_target:
@@ -78,17 +108,19 @@ jobs:
     # F1: run even when the history job failed, and pass its result in, so a
     # failed history write fails the gate instead of skipping the writer and
     # leaving an earlier (possibly passing) result on the head.
-    if: ${{ always() && github.event_name != 'merge_group' }}
+    # Comment filter: see the header.
+    if: "${{ always() && github.event_name != 'merge_group' && (github.event_name != 'issue_comment' || contains(github.event.comment.body, '```overdrafter-verdict') || contains(github.event.comment.body, '```overdrafter-approval') || contains(github.event.comment.body, 'VERDICT: PASS') || contains(github.event.comment.body, 'VERDICT: FAIL') || contains(github.event.comment.body, 'VERDICT: CHANGES_REQUIRED') || contains(github.event.comment.body, 'QA PASS') || contains(github.event.comment.body, 'QA FAIL') || contains(github.event.changes.body.from, '```overdrafter-verdict') || contains(github.event.changes.body.from, '```overdrafter-approval') || contains(github.event.changes.body.from, 'VERDICT: PASS') || contains(github.event.changes.body.from, 'VERDICT: FAIL') || contains(github.event.changes.body.from, 'VERDICT: CHANGES_REQUIRED') || contains(github.event.changes.body.from, 'QA PASS') || contains(github.event.changes.body.from, 'QA FAIL')) }}"
     permissions:
       checks: write
       actions: read
-      pull-requests: write
-      contents: write
+      pull-requests: write # OVD-1144 sticky status comment, and the guarded squash merge
+      contents: write # the guarded squash merge only (off unless DOOR_AUTOMERGE is exactly true)
     runs-on: ubuntu-latest
     timeout-minutes: 10
     concurrency:
       group: ovd-merge-gate-${{ github.event.pull_request.number || github.event.issue.number || inputs.pr || github.sha }}
       cancel-in-progress: false
+      queue: max # see header: writers queue per PR and are never cancelled
 
     steps:
       # Refuse non-default dispatch refs before checkout or any token-bearing step.
@@ -158,7 +190,8 @@ jobs:
 
   ovd-merge-gate-history:
     name: ovd-merge-gate-history
-    if: github.event_name != 'merge_group'
+    # Comment filter: see the header. Same condition as the writer, so the two are skipped together.
+    if: "${{ github.event_name != 'merge_group' && (github.event_name != 'issue_comment' || contains(github.event.comment.body, '```overdrafter-verdict') || contains(github.event.comment.body, '```overdrafter-approval') || contains(github.event.comment.body, 'VERDICT: PASS') || contains(github.event.comment.body, 'VERDICT: FAIL') || contains(github.event.comment.body, 'VERDICT: CHANGES_REQUIRED') || contains(github.event.comment.body, 'QA PASS') || contains(github.event.comment.body, 'QA FAIL') || contains(github.event.changes.body.from, '```overdrafter-verdict') || contains(github.event.changes.body.from, '```overdrafter-approval') || contains(github.event.changes.body.from, 'VERDICT: PASS') || contains(github.event.changes.body.from, 'VERDICT: FAIL') || contains(github.event.changes.body.from, 'VERDICT: CHANGES_REQUIRED') || contains(github.event.changes.body.from, 'QA PASS') || contains(github.event.changes.body.from, 'QA FAIL')) }}"
     permissions:
       checks: write
       actions: read
