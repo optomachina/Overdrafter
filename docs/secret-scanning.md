@@ -13,11 +13,14 @@ Blaine approved the pinned gitleaks v8.30.1 binary and this report-mode
 workflow on 2026-10-16: "secret scanning tool is approved".
 
 The job runs in **report mode** for one week: findings are printed and never
-fail it. Branch protection lists `secret-scan` as a required check
-(2026-10-31), so a scanner crash (download or git error) fails the job closed
-and blocks the PR; findings alone do not. The `ci` aggregate does not need it.
-Making it required, or switching either layer to enforce, is a **later,
-separate approval**; this approval does not cover it.
+fail it. The `ci` aggregate does not need it. A read-only check on
+2026-10-31 found that branch protection on `main` already lists `secret-scan`
+as a required check. No approval for making it required is recorded in this
+repo; the 2026-10-16 approval does not cover it. Switching either layer to
+enforce is still a **later, separate approval**. A scanner that cannot run
+(download, checksum or git error) turns the job red. Whether that red job,
+under job-level `continue-on-error`, blocks the PR is not confirmed yet (see the
+[workflow section](#workflow-githubworkflowssecret-scanyml)).
 
 ## Path block
 
@@ -306,10 +309,12 @@ stop a step before it writes its step summary.
 - A step that fails (exit 1) turns the job red, but continue-on-error keeps the
   run green. gitleaks still runs when the path block step fails. Branch
   protection lists `secret-scan` as required (read-only check, 2026-10-31).
-  Put plainly: findings are reported and never fail the job, but if the
-  scanner itself crashes (a gitleaks download, checksum or start failure, or
-  a git error), the required `secret-scan` job fails closed and blocks the
-  PR.
+  Findings are reported and never fail the job. A scanner crash (a gitleaks
+  download, checksum or start failure, or a git error) turns the job red, but
+  whether a red job under continue-on-error blocks a merge depends on the
+  reported check conclusion. No run has had a failed step yet (the last 100
+  runs all concluded `success`), so this is not confirmed. Confirm it on a
+  live run before relying on either answer.
 
 ### Later, separate approval (not covered by the 2026-10-16 approval)
 
