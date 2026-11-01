@@ -12,6 +12,9 @@ import { markProviderMutationStarted } from "./providerMutationPhase";
 import { runGenericProviderTask } from "./providerTaskRoute";
 import type { QueueTaskRecord, VendorQuoteAdapterInput, WorkerConfig } from "./types";
 import { providerDispatchReservation } from "../test-support/providerDispatchReservation";
+import {
+  ACCEPTANCE_BACKOFF_MS, ACCEPTANCE_SCENARIOS, CLAIMED_LOCKED_AT, expectClaimBoundary, prepareAcceptanceScenario, stubAcceptanceRpc,
+} from "../test-support/claimFencedAcceptance";
 
 /**
  * OVD-722 on the OVD-464 generic route: a live Fictiv task carrying a generic
@@ -160,7 +163,7 @@ function database() {
   };
   const rpc = (name: string, args: Record<string, unknown>) => {
     writes.push({ rpc: name });
-    const data = name === "api_worker_provider_kill_switch_state"
+    const data = name === "accept_vendor_quote_result" ? { outcome: "accepted" } : name === "api_worker_provider_kill_switch_state"
       ? { schema: "provider-kill-switch-state.v1", provider: args.p_provider, engaged: switches.fictiv, globalEngaged: switches.global }
       : name === "api_reserve_spend" ? { allowed: true, reservationId: "r" }
         : name === "api_worker_reserve_provider_dispatch" ? providerDispatchReservation(args.p_provider)
@@ -185,7 +188,8 @@ const cancelledTask = expect.objectContaining({
   payload: expect.objectContaining({ cancellationReason: "cancelled_provider_disabled" }),
 });
 
-afterEach(() => { vi.restoreAllMocks(); vi.mocked(runGenericProviderTask).mockClear(); });
+afterEach(() => {
+  vi.useRealTimers(); vi.restoreAllMocks(); vi.mocked(runGenericProviderTask).mockClear(); });
 
 describe("handleVendorQuoteTask on the generic provider route with the kill switch (OVD-722, OVD-464)", () => {
   it("engaged after the claim check, before launch: no adapter call, cancelled_provider_disabled, no requeue", async () => {
@@ -299,7 +303,7 @@ describe("handleVendorQuoteTask on the generic provider route with the kill swit
     const rpc = db.client.rpc.bind(db.client);
     (db.client as unknown as { rpc: typeof rpc }).rpc = ((name: string, args: Record<string, unknown>) => {
       if (name === "api_worker_provider_kill_switch_state") order.push("switch_read");
-      if (name === "reconcile_vendor_quote_offers") order.push("persist");
+      if (name === "accept_vendor_quote_result") order.push("persist");
       return rpc(name, args);
     }) as typeof rpc;
     const adapterCheckpoints = ["before_navigation", "before_upload", "before_configure", "before_save"] as const;
@@ -334,7 +338,7 @@ describe("handleVendorQuoteTask on the generic provider route with the kill swit
       "switch_read", "before_configure", "switch_read", "before_save",
       "persist",
     ]);
-    expect(db.updates("work_queue")).toEqual([expect.objectContaining({ status: "completed" })]);
+    expect(db.updates("work_queue")).toEqual([]);
     expect(db.updates("vendor_quote_results")).not.toEqual(expect.arrayContaining([
       expect.objectContaining({ status: "failed" }),
       expect.objectContaining({ status: "manual_vendor_followup" }),
@@ -471,5 +475,31 @@ describe("handleVendorQuoteTask on the generic provider route with the supplier 
       raw_payload: expect.objectContaining({ failureCode: "cancelled_provider_disabled", killSwitchCheckpoint: "before_launch" }),
     })]));
     expect(db.updates("work_queue")).toEqual([cancelledTask]);
+  });
+});
+
+
+describe("claim-fenced acceptance route", () => {
+  it.each(ACCEPTANCE_SCENARIOS)("$name preserves the claim boundary", async (scenario) => {
+    prepareAcceptanceScenario();
+    vi.spyOn(FictivAdapter.prototype, "quote").mockResolvedValue({
+      vendor: "fictiv", status: "instant_quote_received", unitPriceUsd: 12, totalPriceUsd: 12,
+      leadTimeBusinessDays: 8, quoteUrl: "https://app.fictiv.com/quotes/abc", dfmIssues: [], notes: [], artifacts: [],
+      rawPayload: { source: "fictiv-live-adapter", requestedQuantity: ENVELOPE.scope.requestedQuantity },
+    });
+    const db = database();
+    const stub = stubAcceptanceRpc(db.client, scenario);
+    const claimed = { ...task, locked_by: "worker", locked_at: CLAIMED_LOCKED_AT };
+    const run = handleVendorQuoteTask(db.client, claimed, live);
+    const assertion = expect(run).resolves.toBeUndefined();
+    await vi.advanceTimersByTimeAsync(ACCEPTANCE_BACKOFF_MS);
+    await assertion;
+    if (scenario.failed) expect(db.updates("vendor_quote_results")).toEqual(expect.arrayContaining([
+      expect.objectContaining({ raw_payload: expect.objectContaining({ failureCode: "persistence_failure" }) }),
+    ]));
+    if (scenario.failed) expect(db.updates("work_queue")).toEqual(expect.arrayContaining([
+      expect.objectContaining({ status: "failed" }),
+    ]));
+    expectClaimBoundary({ scenario, stub, claimed, taskPayloadPatch: { vendorStatus: "instant_quote_received", artifactCount: 0, offerCount: 1 }, writes: db.writes });
   });
 });
