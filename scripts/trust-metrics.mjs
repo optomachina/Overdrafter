@@ -661,25 +661,28 @@ const sidesAgree = (sides) => sides["+"].block === sides["-"].block && sides["+"
 // An unchanged context line must read the same on both sides, and each hunk must end with both sides
 // in the same block/template state, so adding or removing a bare `/*`…`*/` pair around unchanged
 // code (commenting it out or back in) is a code change, not a comments-only one.
+// Scans one patch line into `scan` and returns false as soon as the patch is not comments-only.
+function scanCommentsOnlyLine(line, scan) {
+  const marker = line[0];
+  if (line.startsWith("@@")) {
+    if (!sidesAgree(scan.sides)) return false;
+    scan.sides = freshSides();
+    return true;
+  }
+  const text = line.slice(1);
+  if (marker === " ") {
+    return scanPatchLine(text, scan.sides["+"], scan.prefixes) === scanPatchLine(text, scan.sides["-"], scan.prefixes);
+  }
+  if (!(marker in scan.changed)) return true;
+  scan.changed[marker] += 1;
+  return scanPatchLine(text, scan.sides[marker], scan.prefixes);
+}
+
 function isCommentsOnlyPatch(file) {
   if (!["modified", "added", "removed"].includes(file.status) || typeof file.patch !== "string") return false;
-  const changed = { "+": 0, "-": 0 };
-  let sides = freshSides();
-  const prefixes = lineCommentPrefixes(file.filename);
-  for (const line of file.patch.split("\n")) {
-    const marker = line[0];
-    if (line.startsWith("@@")) {
-      if (!sidesAgree(sides)) return false;
-      sides = freshSides();
-    } else if (marker === " ") {
-      const added = scanPatchLine(line.slice(1), sides["+"], prefixes);
-      if (added !== scanPatchLine(line.slice(1), sides["-"], prefixes)) return false;
-    } else if (marker in changed) {
-      if (!scanPatchLine(line.slice(1), sides[marker], prefixes)) return false;
-      changed[marker] += 1;
-    }
-  }
-  if (!sidesAgree(sides)) return false;
+  const scan = { changed: { "+": 0, "-": 0 }, sides: freshSides(), prefixes: lineCommentPrefixes(file.filename) };
+  if (!file.patch.split("\n").every((line) => scanCommentsOnlyLine(line, scan)) || !sidesAgree(scan.sides)) return false;
+  const { changed } = scan;
   return changed["+"] + changed["-"] > 0 && changed["+"] === file.additions && changed["-"] === file.deletions;
 }
 
