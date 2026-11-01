@@ -1,11 +1,12 @@
 #!/usr/bin/env node
+import { assertSupportedPlatform, resolveFixedBinary } from "./lib/fixed-binaries.mjs";
 // OVD-857: Release bot merge-plan read-back and show-me-your-work decision log.
 // Local git plumbing on a given repo path. This script never merges, pushes,
 // fetches, moves a ref, or touches a remote; the operator refreshes refs first.
 // The rebased read-back runs `git merge-tree --write-tree` (git >= 2.38), which
 // writes loose tree/blob objects into the object store but no refs.
 // Exit codes: 0 ok, 1 tree mismatch / unverified / refused / log rewritten,
-// 2 usage error.
+// 2 usage, platform or git error.
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
@@ -32,14 +33,29 @@ export function gitEnv(env = process.env) {
 }
 
 /** Absolute path of `name` in the first SAFE_BIN_DIRS entry that has it. */
-export function resolveBinary(name, { dirs = SAFE_BIN_DIRS, exists = fs.existsSync } = {}) {
-  const found = dirs.map((dir) => path.join(dir, name)).find((candidate) => exists(candidate));
-  if (!found) throw new Error(`${name} not found in ${dirs.join(", ")}`);
-  return found;
+export function resolveBinary(name, options = {}) {
+  return resolveFixedBinary(name, { dirs: SAFE_BIN_DIRS, ...options });
 }
 
+export { assertSupportedPlatform };
+
 let gitBinary = null;
-const gitBin = () => (gitBinary ??= resolveBinary("git"));
+const gitBin = () => {
+  assertSupportedPlatform();
+  return (gitBinary ??= resolveBinary("git"));
+};
+
+/** Test hook: use this git binary (null restores normal resolution). */
+export function setGitBinaryForTesting(binary) {
+  gitBinary = binary;
+}
+
+// git answers "no" (unknown revision, not an ancestor, no common ancestor) with
+// exit status 1 and an empty stderr. Anything else, including a missing or
+// failing git binary, is an error and must never be read as "no".
+function gitSaidNo(error) {
+  return error?.status === 1 && !error.signal && !String(error.stderr ?? "").trim();
+}
 
 function git(repo, args, input) {
   return execFileSync(gitBin(), ["-C", repo, ...args], {
@@ -53,18 +69,20 @@ function git(repo, args, input) {
 
 function gitOk(repo, args) {
   try {
-    execFileSync(gitBin(), ["-C", repo, ...args], { env: gitEnv(), stdio: "ignore" });
+    execFileSync(gitBin(), ["-C", repo, ...args], { encoding: "utf8", env: gitEnv(), stdio: ["ignore", "ignore", "pipe"] });
     return true;
-  } catch {
-    return false;
+  } catch (error) {
+    if (gitSaidNo(error)) return false;
+    throw error;
   }
 }
 
 function resolveCommit(repo, rev) {
   try {
     return git(repo, ["rev-parse", "--verify", "--quiet", `${rev}^{commit}`]);
-  } catch {
-    return null;
+  } catch (error) {
+    if (gitSaidNo(error)) return null;
+    throw error;
   }
 }
 
@@ -165,8 +183,9 @@ const OVERRIDE_REMOVED = "the verified base is always derived (plan base or the 
 function mergeBase(repo, a, b) {
   try {
     return git(repo, ["merge-base", "--end-of-options", a, b]);
-  } catch {
-    return null;
+  } catch (error) {
+    if (gitSaidNo(error)) return null;
+    throw error;
   }
 }
 
@@ -375,6 +394,10 @@ function readBackPlanned({ repo, merge, plan, mainRef, rows = [] }) {
     const prior = rows.findLast((row) => row.action === "readback" && row.tree_match === "true" && row.pr === String(lower.pr) && row.head_sha === lower.head_sha);
     const commit = resolveCommit(repo, merge.merge_sha);
     const parent = commit ? resolveCommit(repo, `${commit}^1`) : null;
+    // A logged lower merge missing from this clone is a recorded STOP, not a git error.
+    if (prior && !resolveCommit(repo, prior.merge_sha)) {
+      return { tree_match: false, reason: `lower-merge-missing: PR ${lower.pr} below ${merge.pr}` };
+    }
     // Array order cannot prove landing order: the lower squash must precede this parent.
     if (!prior || !isAncestor(repo, prior.merge_sha, parent)) {
       return { tree_match: false, reason: `lower-merge-not-ancestor-of-parent: PR ${lower.pr} below ${merge.pr}` };
@@ -712,7 +735,8 @@ const COMMANDS = {
   "verify-log": cmdVerifyLog,
 };
 
-export function runCli(argv, out = process.stdout) {
+export function runCli(argv, out = process.stdout, platform = process.platform) {
+  assertSupportedPlatform(platform);
   const { command, options } = parseArgs(argv);
   validateRevOptions(options);
   const handler = Object.hasOwn(COMMANDS, command ?? "") ? COMMANDS[command] : null;

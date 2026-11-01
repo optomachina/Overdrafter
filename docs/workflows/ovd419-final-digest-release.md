@@ -115,7 +115,8 @@ built image's environment. Release attestation tests separately reject both
 
 `scripts/ovd527-build-packet.mjs` produces the bundle that `attestBuildOnly`
 accepts. It reads Git and hashes files; it never runs `gcloud` or `docker`.
-Blaine runs these from a clean checkout of the release candidate:
+Blaine runs these from a clean checkout of the release candidate, or runs them
+all with [one command](#one-command-from-a-merged-sha-to-a-plan-valid-bundle):
 
 1. `node scripts/ovd527-build-packet.mjs source --sha <full sha>` refuses a
    dirty checkout (untracked files included) or a HEAD that differs from the
@@ -143,6 +144,45 @@ provenance; the manifest is the toolchain independent identity of the same
 files. The inspection also requires the image user `pwuser`, no `*.mmdb`
 files and the required runtime assets. A passing bundle is build evidence only;
 promotion still needs its own exact approval.
+
+### One command: from a merged SHA to a plan-valid bundle
+
+`scripts/ovd527-qualify-candidate.mjs` runs the three steps above for one SHA
+and stops only where GCP access is needed. Run it from any checkout of this
+repository whose `origin/main` contains the SHA:
+
+```bash
+node scripts/ovd527-qualify-candidate.mjs --sha <full sha>
+```
+
+Each run resumes from the files already in the packet:
+
+1. It refuses a SHA that is not on `origin/main` (fetch first). It creates a
+   clean detached worktree at `~/ovd527-wt-<sha>`, the path the OVD-419 kit
+   uses, if none exists, and refuses one that is dirty or at another commit.
+2. It runs the `source` step into `~/ovd527-packet/<sha>`, or re-verifies the
+   packet already there.
+3. It writes and prints `gcp-1-build.sh` (steps 1 to 3 of `commands`) and
+   `gcp-2-inspect.sh` (steps 4 and 5), then exits 3. These are the only steps
+   that need GCP access, and the tool never runs `gcloud` or `docker`. Run
+   them with `bash`, then run the command again.
+   - `gcp-1-build.sh` saves the build id to `build-id.txt`. A rerun follows
+     that build and never submits a second billed one. To start a new build,
+     delete `build-id.txt` and `build.json`.
+   - `gcp-2-inspect.sh` needs `build.json` and stops if Docker is not running.
+   - Both scripts write through a `.partial` file, so a failed command never
+     leaves a half-written `build.json` or `inspect.json`.
+4. Once `build.json` and `inspect.json` exist, it assembles the bundle (the
+   `bundle` step). The candidate worktree's own
+   `scripts/run-ovd419-final-digest-release.mjs --plan-stdin`, the code the
+   controller will run, must report `plan-valid` before `bundle.json` is
+   written. It refuses to overwrite a different `bundle.json`. It exits 0 and
+   prints the SHA, digest and worktree values the OVD-419 kit needs.
+
+Exit codes: 0 plan-valid, 3 a GCP script must run next, 1 refused (each
+failure listed), 2 usage. `--worktree` and `--out` override the default paths.
+The build is billed, and a plan-valid bundle is build evidence only. Promotion
+is still a protected action that needs its own exact approval.
 
 ### Worker dependency remediation before requalification
 

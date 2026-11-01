@@ -8,6 +8,9 @@ import { test, expect } from "../test";
 const STEP_TIMEOUT = 5_000;
 const PROMPT = "design a 4 inch square plate";
 
+const ANDROID_CHROME =
+  "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36";
+
 const PHONES = [
   { name: "375x812", viewport: { width: 375, height: 812 } },
   { name: "430x932", viewport: { width: 430, height: 932 } },
@@ -35,30 +38,20 @@ async function openPublicRoot(page: Page) {
 
 for (const phone of PHONES) {
   test.describe(`Jarvis front door on a ${phone.name} phone`, { tag: "@fixture" }, () => {
-    test.use({ viewport: phone.viewport, isMobile: true, hasTouch: true });
+    // Android Chrome, so the result offers Scene Viewer AR the way it does on a real phone.
+    test.use({ viewport: phone.viewport, isMobile: true, hasTouch: true, userAgent: ANDROID_CHROME });
 
-    // Boot guard: a normal test, so a broken app or fixture is red instead of hiding behind test.fail() below.
+    // Boot guard: a normal test, so a broken app or fixture is red on its own.
     test("boot guard: fixture loads and the client shell mounts", async ({ page }) => {
       await page.goto("/?fixture=client-quoted&debug=1");
       await expect(page.locator("[data-client-shell]")).toBeVisible({ timeout: 30_000 });
     });
 
-    // Flips red when OVD-805 adds the public Jarvis link: delete this test and the test.fail() below together.
-    test("OVD-805 guard: no public Jarvis link on / yet", async ({ page }) => {
-      await openPublicRoot(page);
-      await expect(
-        jarvisDoor(page),
-        "Jarvis link now exists on /: OVD-805 landed, remove test.fail() from the journey and delete this guard",
-      ).toHaveCount(0);
-    });
-
     test("public root -> Jarvis -> 4 inch plate -> PNG, GLB/USDZ and AR link", async ({ page }) => {
-      test.fail(true, "Expected to fail until OVD-805 lands (no public Jarvis link): https://linear.app/overdrafter/issue/OVD-805");
       test.setTimeout(60_000);
 
       await openPublicRoot(page);
 
-      // First assertion on purpose: the expected failure is a missing front door, with its own message.
       const door = jarvisDoor(page);
       await expect(door, "no public link to Jarvis on /").toBeVisible({ timeout: STEP_TIMEOUT });
       await door.tap();

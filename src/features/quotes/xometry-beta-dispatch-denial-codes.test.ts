@@ -40,13 +40,22 @@ describe("getXometryBetaScopeDenialCode", () => {
 });
 
 describe("getXometryBetaScopeFailureMessage", () => {
-  it("points a missing confirmed destination at Settings", () => {
+  it("asks for a confirmed destination without sending the customer to Settings", () => {
     const message = getXometryBetaScopeFailureMessage(
       postgrestError("xometry_beta_confirmed_sourcing_address_required"),
     );
-    expect(message).toContain("confirmed shipping address");
-    expect(message).toContain("Settings");
-    expect(message).not.toContain("xometry_beta_");
+    expect(message).toBe(
+      "Xometry needs a confirmed shipping address for supplier quotes. Review and confirm your organization's shipping address.",
+    );
+  });
+
+  it("reads the generic path's missing destination and names its provider (OVD-1068)", () => {
+    const denial = postgrestError("provider_dispatch_confirmed_destination_required");
+    expect(getXometryBetaScopeDenialCode(denial)).toBe("provider_dispatch_confirmed_destination_required");
+    const message = getXometryBetaScopeFailureMessage(denial, "fictiv");
+    expect(message).toContain("Fictiv needs a confirmed shipping address");
+    expect(message).not.toContain("provider_dispatch_");
+    expect(message).not.toContain("Xometry");
   });
 
   it("explains the beta tolerance floor", () => {

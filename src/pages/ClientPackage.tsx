@@ -31,7 +31,7 @@ import { formatCurrency, formatLeadTime, optionLabelForKind } from "@/features/q
 const refreshedQuoteMessage = "This option needs a refreshed quote before it can be selected. Please contact the estimating team.";
 
 function getSelectionButtonLabel(isSelected: boolean, hasSourceOffer: boolean, hasSelection: boolean) {
-  if (isSelected) return hasSourceOffer ? "Save note" : "Selected";
+  if (isSelected) return hasSourceOffer ? "Save decision note" : "Selected";
   return hasSelection ? "Select another option" : "Select this option";
 }
 
@@ -357,7 +357,7 @@ const ClientPackage = () => {
                       <CardHeader className="flex flex-col items-start justify-between gap-4 sm:flex-row">
                         <div>
                           <div className="flex flex-wrap gap-2">
-                            {isSelected ? <span className="font-mono text-xs uppercase text-primary">Selected</span> : null}
+                            {isSelected ? <span className="rounded-full bg-primary px-2 py-0.5 font-mono text-[11px] uppercase tracking-wide text-primary-foreground">Selected</span> : null}
                             <Badge className="border border-border bg-accent text-foreground">
                               {optionLabelForKind(option.option_kind)}
                             </Badge>
