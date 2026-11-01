@@ -1,0 +1,11 @@
+PR #1008 QA at cf1684c5ee2ec86235790df999bea37e67265fb9
+bash -n scripts/cloud-qa-boot.sh                     exit 0
+shellcheck scripts/cloud-qa-boot.sh                  exit 0
+bash scripts/cloud-qa-boot.sh check                  exit 0
+bash scripts/preflight.sh lint                       exit 0 (PASS)
+bash scripts/preflight.sh typecheck                  exit 0 (PASS)
+bash scripts/cloud-qa-boot.sh run e2e/smoke.spec.ts e2e/intake.spec.ts --workers=1 --reporter=line   exit 0
+  github: 0s ok | docker: 0s ok (already running) | supabase-cli: 1s ok (2.78.1) | playwright: 0s ok (1.58.2)
+  copy: 9s ok | images: 0s ok | supabase-start: 0s exit=0 | db-reset: 41s exit=0 | seed-dev: 3s exit=0
+  playwright: 115s exit=0 -- 15 passed (1.9m)
+Screenshot: client.demo signed in on /parts against local loopback Supabase (Vite dev, sandboxed Chromium as user qa)
