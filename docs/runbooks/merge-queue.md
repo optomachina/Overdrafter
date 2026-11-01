@@ -20,8 +20,13 @@ state as unconfirmed and rely on neither answer. To re-verify the live
 settings, run:
 
 ```bash
-gh api repos/optomachina/Overdrafter/branches/main/protection --jq '{strict: .required_status_checks.strict, enforce_admins: .enforce_admins.enabled}'
+gh api repos/optomachina/Overdrafter/branches/main/protection --jq '{strict: .required_status_checks.strict, enforce_admins: .enforce_admins.enabled, required_checks: [.required_status_checks.checks[]?.context]}'
 ```
+
+The read-back passes only if `required_checks` lists exactly `ci`,
+`provider-go-live` and `secret-scan`. The land helper takes its required
+checks from protection at run time, so a context dropped from protection would
+otherwise go unnoticed until after a merge.
 
 The `land` skill and its eval (`evals/skills/land/spec.json`) are written for
 strict mode, and the helper's stale-base protection depends on it. **Do not
