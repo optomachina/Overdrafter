@@ -3,8 +3,9 @@
 Posts one Claude review comment per head SHA on open, non-draft, same-repo PRs
 from `cursor/*` or `grok/*` branches, or labelled `grok-built`. Risky tier uses
 Opus; everything else uses Sonnet. Risky means the classifier reports door
-`one-way`, gate loosening, or an error. A PR whose files match no sensitive
-class gets `door: null` and is not risky. Comments start with
+`one-way`, any sensitive-path file (`sensitive_count` above 0, so a
+`revertable` sensitive PR still gets Opus), gate loosening, or an error. A PR
+whose files match no sensitive class gets `door: null` and is not risky. Comments start with
 `Claude auto-review (<model>, <tier> tier) @ <sha>` and the first body line is
 `VERDICT: PASS` or `VERDICT: CHANGES_REQUIRED`.
 
@@ -12,6 +13,18 @@ class gets `door: null` and is not risky. Comments start with
 but are not owner sign-off. They are not the sized review in AGENTS.md either,
 and they are not a gate. Reviewer routing stays with `model-routing.v2.yaml`
 and `built-by.mjs`.
+
+The owner's login (`optomachina`) is in the merge gate's trusted approver and
+verifier lists, and no separate untrusted login exists on the mini. So the
+script never posts a block the gate could read: before posting, every line
+that opens a ```` ``` ```` or `~~~` fence with an `overdrafter*` info string
+(any case, any indent, after LF, lone CR, U+2028 or U+2029) is rewritten to
+`neutralized-overdrafter-…`. `run.test.mjs` runs the real sanitizer and the
+real `extractApprovalBlocks` / `extractVerdictBlocks` on the result. If a
+dedicated review login is added later, post from it instead.
+
+Claude is told to judge the PR against `AGENTS.md` from `origin/main`, copied
+into the per-PR dir, not the PR head's copy.
 
 Claude runs with `--restricted --safe-mode` and no MCP servers. Its only
 working directories are the PR checkout and a per-PR dir holding the body,
@@ -30,7 +43,7 @@ Print the claude argv and settings without network or git: `run.sh --print-argv 
 
 Log: `/tmp/ovd-claude-review.log`. State and worktrees: `~/.cache/ovd-claude-review`.
 The state dir must not be under `~/Documents`, `~/Desktop`, `~/Downloads`, `~/Library`,
-`~/.config`, `~/.ssh`, `~/.aws`, `~/.gnupg`, `~/.kube` or `~/.docker`, because those are denied. Worktrees, refs and files of closed PRs are pruned each run.
+`~/.config`, `~/.ssh`, `~/.aws`, `~/.gnupg`, `~/.kube` or `~/.docker`, because those are denied. Worktrees, refs and files of closed PRs are pruned each run, and a PR's try/post budgets and saved reviews for older heads are dropped when it is next processed.
 Needs `gh` and Claude Code signed in on the mini, plus `node`. No repository-level credentials.
 A finished review is kept until it posts. A failed post or head re-check retries only the post, up to 3 times per head SHA, and never reruns Claude.
 After 3 failed posts the SHA is skipped. To retry once the outage is over, delete only
