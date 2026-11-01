@@ -431,10 +431,12 @@ orphaned. Re-applying re-seeds the control at revision 0.
   precondition and a pgTAP case for acceptance at quantity 5 with the switch ON,
   before the switch is turned on or before any caller starts using the fenced
   acceptance for Xometry beta results, whichever comes first.
-- `node scripts/lint-security-definer.mjs` on the migration reports `grant`
-  missing for S1, S5 and S6 (report mode). They are owner-only private helpers
-  whose current definitions are baselined with the same finding; the grants are
-  restated verbatim and the baseline is not grown.
+- `node scripts/lint-security-definer.mjs` on the migration reports 0 failing
+  and 0 baselined (7 SECURITY DEFINER functions). S1, S5 and S6 are owner-only
+  private helpers; commit 892a7e9 added their owner-only
+  `grant execute ... to postgres` lines (migration around lines 650 and
+  1328-1329), which closed the earlier report-mode `grant` finding. The rollback
+  does not revoke those grants; with postgres as the owner they change nothing.
 - **Consumers that pin exactly four rollout controls (review round 1, finding 1).**
   Once this migration is applied in production,
   `public.api_get_commercial_rollout_controls()` returns five controls and

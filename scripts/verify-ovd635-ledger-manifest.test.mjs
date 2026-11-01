@@ -8,20 +8,26 @@ import { MANIFEST_PATH, MIGRATION_ROOT, PRE_CHECK_PATH, SUFFIX_PATH, AUTHORIZATI
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 let scratch;
 
-// The scratch tree holds the deploy-commit shape: exactly the frozen baseline
-// plus the next-window suffix. Later repository migrations are legitimate (the
-// default mode admits them), so they are left out here; otherwise every new
-// migration on main would break the exact-mode fixture.
 function copyRepoSubset() {
   scratch = mkdtempSync(path.join(tmpdir(), "ovd635-"));
-  const manifest = JSON.parse(readFileSync(path.join(repo, MANIFEST_PATH), "utf8"));
   const suffix = JSON.parse(readFileSync(path.join(repo, SUFFIX_PATH), "utf8"));
   const rollbacks = suffix.migrations.map((entry) => entry.rollback);
-  const migrations = [...manifest.migrations, ...suffix.migrations].map((entry) => path.join(MIGRATION_ROOT, entry.file));
-  for (const relative of [MANIFEST_PATH, PRE_CHECK_PATH, SUFFIX_PATH, AUTHORIZATION_PATH, ...migrations, ...rollbacks]) {
+  for (const relative of [MANIFEST_PATH, PRE_CHECK_PATH, SUFFIX_PATH, AUTHORIZATION_PATH, MIGRATION_ROOT, ...rollbacks]) {
     cpSync(path.join(repo, relative), path.join(scratch, relative), { recursive: true });
   }
   return scratch;
+}
+
+// Exact mode is the deploy-commit check: the window's tree holds only the
+// baseline and the suffix. Open PRs may add later migrations to the live repo,
+// so trim the scratch copy to that window instead of asserting the repo's count.
+function trimToWindow(root) {
+  const manifest = JSON.parse(readFileSync(path.join(root, MANIFEST_PATH), "utf8"));
+  const suffix = JSON.parse(readFileSync(path.join(root, SUFFIX_PATH), "utf8"));
+  const window = new Set([...manifest.migrations, ...suffix.migrations].map((entry) => entry.file));
+  for (const name of readdirSync(path.join(root, MIGRATION_ROOT))) {
+    if (name.endsWith(".sql") && !window.has(name)) rmSync(path.join(root, MIGRATION_ROOT, name));
+  }
 }
 
 afterEach(() => {
@@ -40,15 +46,9 @@ describe("OVD-635 ledger manifest", () => {
     expect(verifyOvd635LedgerManifest(root)).toEqual([]);
   });
 
-  it("rejects a later repository migration in exact mode", () => {
-    const later = readdirSync(path.join(repo, MIGRATION_ROOT)).filter((name) => name.endsWith(".sql")).sort().slice(162);
-    const violations = verifyOvd635LedgerManifest(repo, { exact: true });
-    const expected = later.length === 0 ? [] : [`exact: expected 162 migrations, found ${162 + later.length} (${later.join(", ")})`];
-    expect(violations).toEqual(expected);
-  });
-
   it("rejects a later migration in exact mode", () => {
     const root = copyRepoSubset();
+    trimToWindow(root);
     expect(verifyOvd635LedgerManifest(root, { exact: true })).toEqual([]);
     writeFileSync(path.join(root, MIGRATION_ROOT, "29991231235959_later.sql"), "select 1;\n");
     expect(verifyOvd635LedgerManifest(root, { exact: true })).toEqual([
