@@ -15,7 +15,7 @@ const attemptReuseSignature = "public.api_reuse_trusted_part_version_artifacts_f
 describe("api_auto_approve_job_requirements U4 migration", () => {
   it("replaces auto approval, adds the attempt-fenced writes, and its generated rollback restores U2 exactly", () => {
     expect(scanFunctionEvents(migrationSql).map((event) => event.signature)).toEqual([signature, saveSignature, attemptReuseSignature]);
-    const u2 = read("supabase/migrations/20261031034700_ovd979u2_canonical_requirement_lock_order.sql");
+    const u2 = read("supabase/migrations/20261101115900_ovd979u2_canonical_requirement_lock_order.sql");
     const rollback = rollbackSql("20261101120100_ovd979u4_attempt_bound_auto_approval.sql");
     expect(body(u2)).toBeTypeOf("string");
     expect(body(rollback)).toBe(body(u2));

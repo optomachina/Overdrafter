@@ -342,9 +342,9 @@ answered by the tests below and stays for the operator's final check.
 - **Rename.** U4 is now `20261101120100_ovd979u4_attempt_bound_auto_approval.sql`,
   after main's `20261101110559` and U3's planned `20261101120000` (#985).
   U3 (#985) has since moved to `20261101120000`, and this branch merged it.
-  U2 still uses `20261031034700`, which sorts before main's head, so
-  `verify:migration-lineage --against-base` flags only that inherited file
-  (not U4) until #984 renames it.
+  U2 (#984) was renamed to `20261101115900` on 2026-11-01 and this branch
+  merged it, so `verify:migration-lineage --against-base` passes for the
+  whole stack: U2 `20261101115900` < U3 `20261101120000` < U4 `20261101120100`.
 - Local proof: disposable PostgreSQL 16 (unix socket only),
   `scripts/window-1/supabase-shim.sql` plus all 168 migrations on this branch
   (main merged), pgTAP and dblink from the distribution packages.
