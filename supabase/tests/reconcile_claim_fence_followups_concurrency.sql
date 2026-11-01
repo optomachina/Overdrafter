@@ -21,8 +21,8 @@ do $$ begin
   raise exception 's11b fixture ownership collision';
  end if;
 end $$;
-create temporary table s11b_control_before as select to_jsonb(c) row from private.commercial_rollout_controls c;
-create temporary table s11b_policy_before as select to_jsonb(p) row from private.quote_provider_admission_policies p where provider='fictiv';
+create temporary table s11b_control_before as select to_jsonb(c) as row from private.commercial_rollout_controls c;
+create temporary table s11b_policy_before as select to_jsonb(p) as row from private.quote_provider_admission_policies p where provider='fictiv';
 create temporary table s11b_envelope_before as select id,withdrawn_at from private.provider_dispatch_envelope_reviews where provider='fictiv';
 create temporary table s11b_switch_before as select * from private.provider_kill_switches where provider='fictiv';
 
@@ -457,8 +457,8 @@ insert into s11b_races select 'offer',pg_temp.s11b_busy(format(
  from s11b_calls where job_id='00000000-0000-4000-8000-0000001199a1';
 -- Uncommitted DML elsewhere on hot tables must not serialize acceptance.
 create temporary table s11b_unrelated as
- select 'job' name,pg_temp.s11b_busy(
- 'update public.jobs set title=title where id=''00000000-0000-4000-8000-0000001199a2'' returning to_jsonb(jobs)',sql) response
+ select 'job' as name,pg_temp.s11b_busy(
+ 'update public.jobs set title=title where id=''00000000-0000-4000-8000-0000001199a2'' returning to_jsonb(jobs)',sql) as response
  from s11b_calls where job_id='00000000-0000-4000-8000-0000001199a1';
 insert into s11b_unrelated
  select 'offer',pg_temp.s11b_busy(format(
