@@ -1,7 +1,7 @@
 {
   "schema": "free-quote-ci-source.v1",
   "scope": "fresh-full-head; baseline126 comparison; not production/live112 upgrade qualification",
-  "migrationCount": 165,
+  "migrationCount": 166,
   "baselineCount": 126,
   "migrations": [
     "supabase/migrations/20251106035356_483321a4-d45c-47bd-bdae-71625fcdec1a.sql",
@@ -168,7 +168,8 @@
     "supabase/migrations/20261030204050_ovd1018_restrict_project_jobs_writes.sql",
     "supabase/migrations/20261031052436_ovd746_client_rpc_auth_gate.sql",
     "supabase/migrations/20261031184522_worker_wake_throttle.sql",
-    "supabase/migrations/20261101110559_reconcile_claim_fence_followups.sql"
+    "supabase/migrations/20261101110559_reconcile_claim_fence_followups.sql",
+    "supabase/migrations/20261101130000_ovd987_controlled_beta_user_quantity.sql"
   ],
   "contractMigrationCount": 133,
   "reviewedAppendedMigrations": [
@@ -331,6 +332,11 @@
       "path": "supabase/migrations/20261101110559_reconcile_claim_fence_followups.sql",
       "issue": "OVD-1073",
       "sha256": "f12dca6fbe11cd29b7f6c753192f8b92cdc44fc558895ab62ded01cb35ca62aa"
+    },
+    {
+      "path": "supabase/migrations/20261101130000_ovd987_controlled_beta_user_quantity.sql",
+      "issue": "OVD-987",
+      "sha256": "e674bc081e5fe53a0513a00030781ccfd8c1032e4d0f4318769bb5c408540362"
     }
   ],
   "baselineSuites": [
@@ -758,6 +764,7 @@
     "supabase/migrations/20261030204050_ovd1018_restrict_project_jobs_writes.sql": "18bea12e4b6719143d46d219a0569e9fced25ebe4cc3df178051c3a67654e4f6",
     "supabase/migrations/20261031052436_ovd746_client_rpc_auth_gate.sql": "d4a7adf61ca5bb4fa6001d1617a1e1db8b27637a61366f14e7a8cde736bd6f9f",
     "supabase/migrations/20261031184522_worker_wake_throttle.sql": "e77fd771ba363970069c96178e3e0d74e6ec4ecb69e3211ba1a2857c8ae6799e",
-    "supabase/migrations/20261101110559_reconcile_claim_fence_followups.sql": "f12dca6fbe11cd29b7f6c753192f8b92cdc44fc558895ab62ded01cb35ca62aa"
+    "supabase/migrations/20261101110559_reconcile_claim_fence_followups.sql": "f12dca6fbe11cd29b7f6c753192f8b92cdc44fc558895ab62ded01cb35ca62aa",
+    "supabase/migrations/20261101130000_ovd987_controlled_beta_user_quantity.sql": "e674bc081e5fe53a0513a00030781ccfd8c1032e4d0f4318769bb5c408540362"
   }
 }

@@ -39,6 +39,23 @@
 -- and the three argument resolver, so the single provider path is unchanged.
 -- No DROP statements.
 
+-- Require the OVD-987 quantity checks before wrapping or replacing this body.
+do $xometry_quantity_precondition$
+declare
+  v_md5 text;
+begin
+  select pg_catalog.md5(p.prosrc) into v_md5
+  from pg_catalog.pg_proc p
+  where p.oid = pg_catalog.to_regprocedure(
+    'public.api_authorize_xometry_beta_worker_dispatch(uuid,uuid,jsonb,text,timestamptz)'
+  );
+  if v_md5 is distinct from '0fef772880a4122f72475a9905b7ed19' then
+    raise exception 'OVD-762 refused: Xometry preflight is not the OVD-987 body (md5 %)',
+      coalesce(v_md5, 'missing') using errcode = 'P0001';
+  end if;
+end;
+$xometry_quantity_precondition$;
+
 create table private.xometry_beta_fanout_markers (
   permit_id uuid primary key
     references private.xometry_beta_dispatch_permits (id),
@@ -766,7 +783,12 @@ begin
     or v_lane.vendor_quote_result_id <> v_permit.vendor_quote_result_id
     or v_lane.part_id <> v_permit.part_id
     or v_lane.vendor <> v_provider
-    or v_lane.requested_quantity <> 1
+    -- OVD-987: the lane quantity must be the one its own scope snapshot states,
+    -- and the result and the task payload the worker reads must name it too.
+    or v_lane.requested_quantity::text is distinct from (v_lane.scope_snapshot ->> 'quantity')
+    or v_result.requested_quantity is distinct from v_lane.requested_quantity
+    or (v_task.payload ? 'requestedQuantity'
+      and v_task.payload ->> 'requestedQuantity' is distinct from v_lane.requested_quantity::text)
     or v_lane.scope_version <> v_permit.scope_version
     or v_lane.scope_fingerprint <> v_permit.scope_fingerprint
     or v_task.payload ->> 'quoteLaneScopeFingerprint' is distinct from v_permit.scope_fingerprint then
@@ -849,6 +871,21 @@ begin
     );
   end if;
 
+  -- OVD-987: a lane above quantity 1 dispatches only while the
+  -- controlled_beta_user_quantity switch is on. The shared lock makes an
+  -- audited disable wait for this check, like the rollout check above.
+  if v_lane.requested_quantity <> 1 then
+    perform pg_catalog.pg_advisory_xact_lock_shared(
+      pg_catalog.hashtextextended('commercial-rollout:controlled_beta_user_quantity', 0)
+    );
+    if not private.xometry_beta_user_quantity_enabled() then
+      return pg_catalog.jsonb_build_object(
+        v_authorized_key, false,
+        v_reason_key, 'dispatch_quantity_not_admitted'
+      );
+    end if;
+  end if;
+
   if not exists (
     select 1
     from public.org_vendor_configs config_row
@@ -896,7 +933,7 @@ begin
   where candidate.organization_id = v_permit.organization_id
     and candidate.part_id = v_permit.part_id
     and candidate.vendor = v_provider
-    and candidate.requested_quantity = 1;
+    and candidate.requested_quantity = v_lane.requested_quantity; -- OVD-987
 
   select count(*)::integer into v_current_candidate_count
   from private.quote_lane_candidates(
