@@ -1,4 +1,3 @@
-import { xometryCardFingerprint } from "./xometryOffers.js";
 import { captureFreshOperationalRecovery, observeBoundOperationalFailure, type OperationalJevBinding } from "../jev/operationalSession.js";
 import { assertCamoufoxAssetsPresent } from "../camoufoxAssets.js";
 import fs from "node:fs/promises";
@@ -84,6 +83,7 @@ import {
 import {
   collectXometryOffers,
   selectCompatibilityOffer,
+  xometryCardFingerprint,
 } from "./xometryOffers.js";
 
 import { admitPrice, sourceShowsQuantity, type PageQuantity, type PriceVerdict } from "../quotes/pricedQuantity.js";
@@ -2296,6 +2296,27 @@ type PageQuantityRead =
   | { ok: true; value: PageQuantity }
   | Extract<PriceVerdict, { ok: false }>;
 
+type PricedCardText = { quantityTexts: string[]; priceText: string; fingerprint: string };
+
+/** One card's visible quantity-labelled summary fields, its summary text and its fingerprint. */
+async function readPricedCardText(card: Locator): Promise<PricedCardText> {
+  const summaries = card.locator('[kind="discount"]');
+  const visible = await card.isVisible() && await summaries.count() === 1 && await summaries.first().isVisible();
+  const fields = summaries.first().locator(":scope > *");
+  const quantityTexts: string[] = [];
+  for (let fieldIndex = 0; visible && fieldIndex < await fields.count(); fieldIndex++) {
+    const field = fields.nth(fieldIndex);
+    if (!await field.isVisible()) continue;
+    const text = await field.innerText();
+    if (/qty|quantit|q[^a-z0-9]{0,2}t[^a-z0-9]{0,2}y/i.test(text)) quantityTexts.push(text);
+  }
+  return {
+    quantityTexts,
+    priceText: visible ? await summaries.first().innerText() : "",
+    fingerprint: xometryCardFingerprint(await card.innerText()),
+  };
+}
+
 /**
  * Read the printed quantity in the price summaries, independently of the stepper.
  * All offered cards must agree, including the card selected for publication.
@@ -2305,24 +2326,10 @@ type PageQuantityRead =
 export async function readPricedCardQuantity(page: Page, offers?: readonly VendorQuoteAdapterOffer[]): Promise<PageQuantityRead> {
   const read = async () => {
     const cards = page.locator(XOMETRY_LOCATORS.priceTierCard);
-    const texts: Array<{ quantityTexts: string[]; priceText: string; fingerprint: string }> = [];
+    const texts: PricedCardText[] = [];
+    // Sequential reads on purpose: card order is the offer order checked below.
     for (let index = 0; index < await cards.count(); index++) {
-      const card = cards.nth(index);
-      const summaries = card.locator('[kind="discount"]');
-      const visible = await card.isVisible() && await summaries.count() === 1 && await summaries.first().isVisible();
-      const fields = summaries.first().locator(":scope > *");
-      const quantityTexts: string[] = [];
-      for (let fieldIndex = 0; visible && fieldIndex < await fields.count(); fieldIndex++) {
-        const field = fields.nth(fieldIndex);
-        if (!await field.isVisible()) continue;
-        const text = await field.innerText();
-        if (/qty|quantit|q[^a-z0-9]{0,2}t[^a-z0-9]{0,2}y/i.test(text)) quantityTexts.push(text);
-      }
-      texts.push({
-        quantityTexts,
-        priceText: visible ? await summaries.first().innerText() : "",
-        fingerprint: xometryCardFingerprint(await card.innerText()),
-      });
+      texts.push(await readPricedCardText(cards.nth(index)));
     }
     return texts;
   };
@@ -2341,7 +2348,7 @@ export async function readPricedCardQuantity(page: Page, offers?: readonly Vendo
         return { ok: false, reason: "page_qty_unstable", detail: {} };
       }
       const fields = second.flatMap(({ quantityTexts }) => quantityTexts);
-      const quantities = fields.flatMap((text) => [...text.matchAll(/[0-9]+/g)].map((hit) => Number(hit[0])));
+      const quantities = fields.flatMap((text) => [...text.matchAll(/\d+/g)].map((hit) => Number(hit[0])));
       const distinct = new Set(quantities);
       const [value] = distinct;
       if (distinct.size !== 1 || !Number.isSafeInteger(value) || value < 1 ||

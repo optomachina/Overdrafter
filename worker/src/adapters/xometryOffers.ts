@@ -8,7 +8,7 @@ import { PROVIDER_CATALOG } from "../generated/provider-catalog.js";
 import { createHash } from "node:crypto";
 
 export const xometryCardFingerprint = (text: string) => createHash("sha256").update(text.trim()).digest("hex");
-const printedQuantityLine = /^(?:Qty|Quantity):?[ \t]+([1-9][0-9]*)(?:[ \t]+(?:pc|pcs))?$/i;
+const printedQuantityLine = /^(?:Qty|Quantity):?[ \t]+([1-9]\d*)(?:[ \t]+(?:pc|pcs))?$/i;
 const statedCardQuantity = (text: string) => {
   const values = text.split(/\r?\n/).map(line => printedQuantityLine.exec(line.trim())?.[1]).filter(Boolean).map(Number);
   return values.length > 0 && values.every(value => Number.isSafeInteger(value) && value === values[0]) ? values[0] : undefined;
