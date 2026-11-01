@@ -53,8 +53,9 @@ release mechanism, or backstop change. The one-hour backstop decision stands.
   transaction. Both support repeat application.
 - The unchanged collision checker passes without a `function-supersessions.json`
   entry. The plan's convention lists one for a replaced deployed body
-  (`api_claim_next_task`); that entry is tracked in U6 against the sha256 of
-  `20260324120000_add_api_claim_next_task.sql`.
+  (`api_claim_next_task`). U6 adds no entry: with the U3 draft deleted there
+  is no draft body to supersede the deployed one, so the checker needs none
+  (see the status section below).
 - Only `worker/src/queue.ts` `markTaskQueuedForRetry` clears `attempt_id` on
   requeue. Other paths that set `status = 'queued'` (SQL resets, stale-lock
   and backstop recovery, U5's deferred release) keep the old id. Claims stay
@@ -168,13 +169,21 @@ generator proof below.
 - Deploy order and rollback order are stated above.
 
 Exact-head independent review and hosted release qualification remain separate
-integration work. U4 must add the attempt gate, and U5 must handle request
-deduplication and deferred release; neither is claimed by U3.
+integration work. At the time of writing, U3 left the attempt gate to U4 and
+request deduplication and deferred release to U5; both are now implemented in
+their PRs (#986, #988), which are still open. See the status section below.
 
 ## Timestamp (2026-11-01)
 
 Renamed from `20261031034754` to `20261101120000` so U3 sorts after main's
 newest migration, `20261101110559_reconcile_claim_fence_followups.sql`, and
 before U4's `20261101120100`. File bytes and sha256 (`7f767f26…a16d`) are
-unchanged; the free-quote pin and manifest follow the new path. U2's file is
-owned by #984 and is renamed there.
+unchanged; the free-quote pin and manifest follow the new path. U2 (#984) was
+renamed to `20261101115900` the same day, so the stack is U2 `20261101115900` <
+U3 `20261101120000` < U4 `20261101120100` < U5 `20261101120200`.
+
+## Status (OVD-979 U6)
+
+Retired, together with U2. See the status section of
+[`ovd-979u2-notes.md`](ovd-979u2-notes.md#status-ovd-979-u6) for how the drafts
+were retired and how `scripts/ovd979-drafts-retired.test.mjs` keeps them so.
