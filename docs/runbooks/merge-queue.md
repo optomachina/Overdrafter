@@ -24,9 +24,19 @@ gh api repos/optomachina/Overdrafter/branches/main/protection --jq '{strict: .re
 ```
 
 The `land` skill and its eval (`evals/skills/land/spec.json`) are written for
-strict mode. They stay safe if `strict` is off: updating a behind branch by
-merge and re-checking the pinned head is still correct, only no longer forced
-by GitHub.
+strict mode, and the helper's stale-base protection depends on it. **Do not
+treat land as safe with `strict` off.** The helper checks that the base is in
+the pinned head before it waits for checks, but its final mergeability loop
+accepts `CLEAN` (also `HAS_HOOKS` and `UNSTABLE`) without fetching the base
+again; only a `BEHIND` state triggers a fresh base check
+(`.codex/skills/land/land_strict_merge.sh`, step 5). With `strict` off,
+GitHub reports `CLEAN` even after `main` has moved during the check wait, and
+`--match-head-commit` pins only the PR head, so a combination no check ran on
+can merge. The tree read-back catches that only after landing. Until a direct
+read-back shows `strict: true`, land only with exclusive serialization over
+the whole update, check and merge sequence (no other merge to `main` from
+the update until this merge lands), or re-fetch `main` and confirm it is
+still an ancestor of the pinned head immediately before merging.
 
 The `land` skill (`.codex/skills/land/SKILL.md`, step 8) handles strict mode
 through `.codex/skills/land/land_strict_merge.sh` (OVD-889). It brings an
