@@ -45,6 +45,12 @@ import "./App.css";
 
 // JARVIS_PWA_ENABLED must be exactly "1" at build time. Otherwise the PWA route is absent.
 const jarvisPwaEnabled = import.meta.env.JARVIS_PWA_ENABLED === "1";
+// Rollback path: with the flag off, retire a Jarvis worker a browser installed while the flag was on.
+if (!jarvisPwaEnabled && typeof navigator !== "undefined" && "serviceWorker" in navigator) {
+  void navigator.serviceWorker.getRegistration("/jarvis/")
+    .then((registration) => (registration?.scope.endsWith("/jarvis/") ? registration.unregister() : false))
+    .catch(() => undefined);
+}
 const JarvisPwaGate = jarvisPwaEnabled ? lazy(() => import("./pages/JarvisPwaGate")) : null;
 const JarvisSample = import.meta.env.DEV && !jarvisPwaEnabled ? lazy(() => import("./pages/Jarvis")) : null;
 const JarvisThreadPreview = import.meta.env.DEV ? lazy(() => import("./pages/JarvisThreadPreview")) : null;

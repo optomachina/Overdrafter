@@ -3,7 +3,7 @@
   "name": "Jarvis",
   "short_name": "Jarvis",
   "start_url": "/jarvis/",
-  "scope": "/",
+  "scope": "/jarvis/",
   "display": "standalone",
   "background_color": "#0E0E10",
   "theme_color": "#0E0E10",

@@ -76,7 +76,7 @@ describe("Jarvis PWA installable files", () => {
   });
 
   it("registers a fetch handler and does not cache API responses", () => {
-    const worker = readFileSync(new URL("../../../public/jarvis-sw.js", import.meta.url), "utf8");
+    const worker = readFileSync(new URL("../../../public/jarvis/sw.js", import.meta.url), "utf8");
     expect(worker).toContain('addEventListener("fetch"');
     expect(worker).toContain('pathname.startsWith("/api/")');
     expect(worker).not.toContain("caches");

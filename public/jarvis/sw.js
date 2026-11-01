@@ -1,4 +1,4 @@
-// Installable shell only. This worker does not cache API or thread data.
+// Installable shell only, scoped to /jarvis/. This worker does not cache API or thread data.
 self.addEventListener("install", (event) => {
   event.waitUntil(self.skipWaiting());
 });

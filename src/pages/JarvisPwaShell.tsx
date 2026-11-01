@@ -46,7 +46,7 @@ function installPwaChrome(): () => void {
   const previousViewport = viewport?.getAttribute("content") ?? null;
   viewport?.setAttribute("content", "width=device-width, initial-scale=1.0, viewport-fit=cover");
   if ("serviceWorker" in navigator) {
-    void navigator.serviceWorker.register("/jarvis-sw.js").catch(() => undefined);
+    void navigator.serviceWorker.register("/jarvis/sw.js", { scope: "/jarvis/" }).catch(() => undefined);
   }
   return () => {
     for (const node of nodes) node.remove();

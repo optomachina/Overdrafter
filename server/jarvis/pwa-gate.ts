@@ -129,7 +129,7 @@ function httpsOrigin(value: string | undefined): string {
 }
 
 function requiredSecret(value: string | undefined): string {
-  if (!value || value.trim() !== value) throw new Error("unavailable");
+  if (!value?.trim() || value.trim() !== value) throw new Error("unavailable");
   return value;
 }
 

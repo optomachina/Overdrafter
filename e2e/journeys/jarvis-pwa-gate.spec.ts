@@ -1,13 +1,9 @@
-import { readdirSync, readFileSync } from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
-import { build, preview, type PreviewServer } from "vite";
+import type { PreviewServer } from "vite";
 import type { Page, Route } from "@playwright/test";
 import { test, expect } from "../test";
 import { createJarvisPwaHandler, type JarvisGateCaller } from "../../server/jarvis/pwa-gate";
+import { buildProductionApp, servePreviewBuild } from "../vite-preview-build";
 
-const root = fileURLToPath(new URL("../..", import.meta.url));
-const configFile = path.join(root, "vite.config.ts");
 const notFound = "The route you requested does not exist in this app.";
 const threadSentinel = "design a 4 inch square plate";
 const shellSentinel = "data-jarvis-pwa-shell";
@@ -35,47 +31,12 @@ const handler = createJarvisPwaHandler({
   },
 }, "session");
 
-async function withEnv<T>(vars: Record<string, string | undefined>, run: () => Promise<T>): Promise<T> {
-  const saved = Object.fromEntries(Object.keys(vars).map((key) => [key, process.env[key]]));
-  const apply = (values: Record<string, string | undefined>) => {
-    for (const [key, value] of Object.entries(values)) {
-      if (value === undefined) delete process.env[key];
-      else process.env[key] = value;
-    }
-  };
-  apply(vars);
-  try {
-    return await run();
-  } finally {
-    apply(saved);
-  }
+function buildApp(outDir: string, flag: string | undefined) {
+  return buildProductionApp(outDir, { ...baseEnv, JARVIS_PWA_ENABLED: flag });
 }
 
-async function buildApp(outDir: string, flag: string | undefined) {
-  await withEnv({ ...baseEnv, JARVIS_PWA_ENABLED: flag }, () => build({
-    configFile, root, mode: "production", logLevel: "silent",
-    build: { outDir, emptyOutDir: true, manifest: true },
-  }));
-  const manifest = JSON.parse(readFileSync(path.join(outDir, ".vite/manifest.json"), "utf8")) as Record<string, {
-    file: string; imports?: string[]; dynamicImports?: string[];
-  }>;
-  const assets = readdirSync(path.join(outDir, "assets"));
-  const read = (file: string) => readFileSync(path.join(outDir, file), "utf8");
-  const staticClosure = (key: string, seen = new Set<string>()): Set<string> => {
-    if (seen.has(key)) return seen;
-    seen.add(key);
-    for (const next of manifest[key]?.imports ?? []) staticClosure(next, seen);
-    return seen;
-  };
-  return { manifest, assets, read, entryClosure: [...staticClosure("index.html")].map((key) => manifest[key].file) };
-}
-
-async function servePreview(outDir: string, port: number): Promise<PreviewServer> {
-  return withEnv(baseEnv, () => preview({
-    configFile, root, logLevel: "silent",
-    build: { outDir },
-    preview: { host: "127.0.0.1", port, strictPort: true },
-  }));
+function servePreview(outDir: string, port: number): Promise<PreviewServer> {
+  return servePreviewBuild(outDir, port, baseEnv);
 }
 
 async function fulfillGate(route: Route, statuses: number[]) {
@@ -203,11 +164,11 @@ test.describe("Jarvis PWA shell and gate", { tag: "@fixture" }, () => {
       expect(manifest.display).toBe("standalone");
       expect(manifest.icons.map((icon) => icon.sizes)).toEqual(expect.arrayContaining(["192x192", "512x512"]));
       await page.waitForFunction(async () => {
-        const registration = await navigator.serviceWorker?.getRegistration();
-        return Boolean(registration);
+        const registration = await navigator.serviceWorker?.getRegistration("/jarvis/");
+        return registration?.scope.endsWith("/jarvis/") ?? false;
       });
       const worker = await page.evaluate(async () => {
-        const response = await fetch("/jarvis-sw.js");
+        const response = await fetch("/jarvis/sw.js");
         return response.text();
       });
       expect(worker).toContain('addEventListener("fetch"');
