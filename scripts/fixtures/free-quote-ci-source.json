@@ -167,10 +167,10 @@
     "supabase/migrations/20261029165751_reconcile_claim_fence.sql",
     "supabase/migrations/20261030204050_ovd1018_restrict_project_jobs_writes.sql",
     "supabase/migrations/20261031034700_ovd979u2_canonical_requirement_lock_order.sql",
-    "supabase/migrations/20261031034754_ovd979u3_extraction_attempt_identity.sql",
     "supabase/migrations/20261031052436_ovd746_client_rpc_auth_gate.sql",
     "supabase/migrations/20261031184522_worker_wake_throttle.sql",
     "supabase/migrations/20261101110559_reconcile_claim_fence_followups.sql",
+    "supabase/migrations/20261101120000_ovd979u3_extraction_attempt_identity.sql",
     "supabase/migrations/20261101120100_ovd979u4_attempt_bound_auto_approval.sql"
   ],
   "contractMigrationCount": 133,
@@ -326,11 +326,6 @@
       "sha256": "572066174ddb087f2c20149759f339be12e6408bc3d44ca4e3eb8dadbb59906f"
     },
     {
-      "path": "supabase/migrations/20261031034754_ovd979u3_extraction_attempt_identity.sql",
-      "issue": "OVD-979",
-      "sha256": "7f767f268129cf32872f87491e3f56f1e409ebde0b59ab8e35abaaf6f472a16d"
-    },
-    {
       "path": "supabase/migrations/20261031052436_ovd746_client_rpc_auth_gate.sql",
       "issue": "OVD-746",
       "sha256": "d4a7adf61ca5bb4fa6001d1617a1e1db8b27637a61366f14e7a8cde736bd6f9f"
@@ -344,6 +339,11 @@
       "path": "supabase/migrations/20261101110559_reconcile_claim_fence_followups.sql",
       "issue": "OVD-1073",
       "sha256": "f12dca6fbe11cd29b7f6c753192f8b92cdc44fc558895ab62ded01cb35ca62aa"
+    },
+    {
+      "path": "supabase/migrations/20261101120000_ovd979u3_extraction_attempt_identity.sql",
+      "issue": "OVD-979",
+      "sha256": "7f767f268129cf32872f87491e3f56f1e409ebde0b59ab8e35abaaf6f472a16d"
     },
     {
       "path": "supabase/migrations/20261101120100_ovd979u4_attempt_bound_auto_approval.sql",
@@ -774,11 +774,11 @@
     "supabase/migrations/20261025194414_ovd1097_refresh_job_extraction_status.sql": "68bff7415c8e5a930f99021e587bc44b0515b7cfb9b98477005f0687ea8895ef",
     "supabase/migrations/20261029165751_reconcile_claim_fence.sql": "67343518f02276127bbdfd2b9ed52dee35a0b4af72bab53d61de54bf6b8cb7ac",
     "supabase/migrations/20261030204050_ovd1018_restrict_project_jobs_writes.sql": "18bea12e4b6719143d46d219a0569e9fced25ebe4cc3df178051c3a67654e4f6",
-    "supabase/migrations/20261031034700_ovd979u2_canonical_requirement_lock_order.sql": "572066174ddb087f2c20149759f339be12e6408bc3d44ca4e3eb8dadbb59906f",
-    "supabase/migrations/20261031034754_ovd979u3_extraction_attempt_identity.sql": "7f767f268129cf32872f87491e3f56f1e409ebde0b59ab8e35abaaf6f472a16d",
     "supabase/migrations/20261031052436_ovd746_client_rpc_auth_gate.sql": "d4a7adf61ca5bb4fa6001d1617a1e1db8b27637a61366f14e7a8cde736bd6f9f",
     "supabase/migrations/20261031184522_worker_wake_throttle.sql": "e77fd771ba363970069c96178e3e0d74e6ec4ecb69e3211ba1a2857c8ae6799e",
     "supabase/migrations/20261101110559_reconcile_claim_fence_followups.sql": "f12dca6fbe11cd29b7f6c753192f8b92cdc44fc558895ab62ded01cb35ca62aa",
+    "supabase/migrations/20261031034700_ovd979u2_canonical_requirement_lock_order.sql": "572066174ddb087f2c20149759f339be12e6408bc3d44ca4e3eb8dadbb59906f",
+    "supabase/migrations/20261101120000_ovd979u3_extraction_attempt_identity.sql": "7f767f268129cf32872f87491e3f56f1e409ebde0b59ab8e35abaaf6f472a16d",
     "supabase/migrations/20261101120100_ovd979u4_attempt_bound_auto_approval.sql": "3c46872db181f81badc96e2565c21398541b9fbac492a34a97ac54adba764652"
   }
 }
