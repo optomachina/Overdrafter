@@ -12,7 +12,7 @@ import { describe, expect, it } from "vitest";
  */
 
 const MIGRATIONS = "supabase/migrations";
-const MIGRATION_FILE = "20261031224054_ovd987_controlled_beta_user_quantity.sql";
+const MIGRATION_FILE = "20261101130000_ovd987_controlled_beta_user_quantity.sql";
 const migrationSql = readFileSync(`${MIGRATIONS}/${MIGRATION_FILE}`, "utf8");
 const rollbackSql = readFileSync("docs/migration-drafts/ovd-987.rollback.sql", "utf8");
 const sqlFiles = readdirSync(MIGRATIONS).filter((name) => name.endsWith(".sql")).sort();

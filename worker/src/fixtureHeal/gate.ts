@@ -15,7 +15,7 @@ import type { SanityHistoryReader } from "./sanityHistory.js";
  * OVD-813: the sanity gate both live persist paths call before the result is
  * written: the generic pipeline (`deps.sanity`, between validate and persist)
  * and the Xometry path in `handleVendorQuoteTask` (before
- * `finalizeVendorQuoteResult` and before routing scores).
+ * `acceptVendorQuoteResult` and before routing scores).
  *
  * A held result is persisted as `manual_review_pending` with no prices and no
  * offers, so nothing reaches `vendor_quote_offers` (the publishable table) and
