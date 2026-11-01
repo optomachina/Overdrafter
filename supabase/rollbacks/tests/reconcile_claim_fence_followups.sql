@@ -13,14 +13,14 @@ insert into private.vendor_quote_acceptance_receipts(id,work_queue_task_id,claim
 values('00000000-0000-4000-8000-000000009830',gen_random_uuid(),now(),1,gen_random_uuid(),'followups-rollback-fixture','accepted');
 insert into private.quote_run_rollup_followups(receipt_id,job_id,quote_run_id)
 values('00000000-0000-4000-8000-000000009830',gen_random_uuid(),gen_random_uuid());
-\ir ../../migrations/20261030170000_reconcile_claim_fence_followups.sql
+\ir ../../migrations/20261101110559_reconcile_claim_fence_followups.sql
 commit;
 create temporary table followups_upgraded_drain as
  select pg_get_functiondef('public.drain_quote_run_rollup_followups(integer)'::regprocedure) definition;
 select ok(exists(select 1 from pg_trigger where tgrelid='public.quote_runs'::regclass
  and tgname='quote_runs_job_id_immutable'),'upgrade installs job binding trigger');
 begin;
-\ir ../20261030170000_reconcile_claim_fence_followups.rollback.sql
+\ir ../20261101110559_reconcile_claim_fence_followups.rollback.sql
 commit;
 select ok(to_regprocedure('private.reject_quote_run_job_reassignment()') is null,'rollback removes trigger helper');
 select ok(not exists(select 1 from pg_trigger where tgrelid='public.quote_runs'::regclass
@@ -31,7 +31,7 @@ select ok(p.proowner=b.proowner and p.proacl=b.proacl and p.proconfig=b.proconfi
  'rollback preserves drain owner, grants, search_path and lock_timeout')
  from pg_proc p join followups_original_drain b using(oid);
 begin;
-\ir ../../migrations/20261030170000_reconcile_claim_fence_followups.sql
+\ir ../../migrations/20261101110559_reconcile_claim_fence_followups.sql
 commit;
 select is(pg_get_functiondef('public.drain_quote_run_rollup_followups(integer)'::regprocedure),definition,
  'reapply restores the exact upgraded drain definition') from followups_upgraded_drain;

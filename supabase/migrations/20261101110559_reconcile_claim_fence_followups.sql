@@ -1,5 +1,5 @@
 -- S1.1b follow-ups: immutable run/job binding and non-starving drain batches.
--- Rollback: supabase/rollbacks/20261030170000_reconcile_claim_fence_followups.rollback.sql
+-- Rollback: supabase/rollbacks/20261101110559_reconcile_claim_fence_followups.rollback.sql
 -- CREATE OR REPLACE retains the drain function identity and existing owner.
 set local lock_timeout = '1s';
 

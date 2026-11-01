@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { readFileSync, readdirSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
-const name = "20261030170000_reconcile_claim_fence_followups";
+const name = "20261101110559_reconcile_claim_fence_followups";
 const originalName = "20261029165751_reconcile_claim_fence";
 const read = (path: string) => readFileSync(path, "utf8");
 const original = read(`supabase/migrations/${originalName}.sql`);
