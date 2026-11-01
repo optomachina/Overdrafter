@@ -335,6 +335,38 @@ describe("main (CLI output)", () => {
     assert.ok((t.summary()).includes(ADAPTER));
   });
 
+  it("reports --all --report-only pairs as warnings and exits 0", async () => {
+    const t = setup([pr(1, [ADAPTER], false, at(15)), pr(2, [ADAPTER], true, at(5))]);
+    assert.equal(await main(["--all", "--report-only", "--prs-json", t.prsJson], { summaryFile: t.summaryFile, log: t.log }), 0);
+    assert.deepEqual(t.lines, [
+      "::warning::Open PR #1 is blocked by older PR #2 (1 shared vendor files).",
+      "Vendor PR serialization found 1 overlapping PR pairs (report-only; each newer PR's own check blocks it).",
+    ]);
+    assert.doesNotMatch(t.lines.join("\n"), /::error::|worker\/|adapters/);
+    assert.ok((t.summary()).includes(ADAPTER));
+  });
+
+  it("passes --all --report-only with no overlaps", async () => {
+    const t = setup([pr(1, [ADAPTER]), pr(2, ["worker/src/adapters/other.ts"])]);
+    assert.equal(await main(["--all", "--report-only", "--prs-json", t.prsJson], { summaryFile: t.summaryFile, log: t.log }), 0);
+    assert.deepEqual(t.lines, ["Vendor PR serialization passed for all 2 open PRs."]);
+  });
+
+  it("still fails closed on API errors in --report-only mode", async () => {
+    const t = setup([]);
+    const fetchImpl = async () => ({ ok: false, status: 502, json: async () => ({}) });
+    assert.equal(await main(["--all", "--report-only"], { repo: "o/r", token: "t", summaryFile: t.summaryFile, fetchImpl, log: t.log }), 1);
+    assert.deepEqual(t.lines, ["::error::Vendor PR serialization could not complete (failing closed); see the job summary for details."]);
+  });
+
+  it("keeps --pr blocking and rejects --report-only without --all", async () => {
+    const t = setup([pr(1, [ADAPTER]), pr(2, [ADAPTER])]);
+    assert.equal(await main(["--pr", "2", "--prs-json", t.prsJson], { summaryFile: t.summaryFile, log: t.log }), 1);
+    const lines = [];
+    assert.equal(await main(["--pr", "2", "--report-only", "--prs-json", t.prsJson], { log: (l) => lines.push(l) }), 2);
+    assert.match(lines[0], /^usage:/);
+  });
+
   it("works without a step summary file", async () => {
     const lines = [];
     const t = setup([pr(1, [ADAPTER], true), pr(2, [ADAPTER])]);

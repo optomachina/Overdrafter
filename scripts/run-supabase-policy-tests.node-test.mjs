@@ -119,14 +119,15 @@ test('OVD-736 pgTAP fixtures are byte copies of the migration draft and its roll
   }
 });
 
-test('project_jobs write path pgTAP fixtures are byte copies of the migration draft and its rollback', () => {
-  // Draft only until a migration window promotes it; the suite installs these copies.
-  for (const [fixture, draft] of [
-    ['project_jobs_write_path.inc', 'project-jobs-write-path.sql'],
-    ['project_jobs_write_path_rollback.inc', 'project-jobs-write-path.rollback.sql'],
+test('OVD-1018 pgTAP fixtures are byte copies of the promoted migration and its rollback', () => {
+  // The suite installs the migration copy in its rolled back transaction only while
+  // authenticated still holds INSERT, and applies the rollback copy twice.
+  for (const [fixture, file] of [
+    ['project_jobs_write_path.inc', 'supabase/migrations/20261030204050_ovd1018_restrict_project_jobs_writes.sql'],
+    ['project_jobs_write_path_rollback.inc', 'docs/migration-drafts/ovd-1018.rollback.sql'],
   ]) {
     assert.deepEqual(readFileSync(join(source, 'fixtures', fixture)),
-      readFileSync(fileURLToPath(new URL(`../docs/migration-drafts/${draft}`, import.meta.url))));
+      readFileSync(fileURLToPath(new URL(`../${file}`, import.meta.url))));
   }
   const suite = readFileSync(join(source, 'project_jobs_write_path.sql'), 'utf8');
   assert.match(suite, /\\ir fixtures\/project_jobs_write_path\.inc\n/);
