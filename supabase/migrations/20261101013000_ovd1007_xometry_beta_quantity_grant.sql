@@ -646,15 +646,15 @@ declare
 begin
   perform public.require_verified_auth();
 
+  -- user_can_edit_job is false for an absent job, so an absent and a foreign
+  -- id get the same answer before the job is read (the OVD-746 pattern).
+  if not public.user_can_edit_job(p_job_id) then
+    raise exception 'You do not have permission to request quotes for job %.', p_job_id;
+  end if;
+
   select job_row.* into v_job
   from public.jobs job_row
   where job_row.id = p_job_id;
-  if v_job.id is null then
-    raise exception 'Job % not found.', p_job_id;
-  end if;
-  if not public.user_can_edit_job(v_job.id) then
-    raise exception 'You do not have permission to request quotes for job %.', p_job_id;
-  end if;
 
   if private.xometry_beta_quantity_grant_id(v_job.id, null, null, null) is not null then
     v_grant := 'request';

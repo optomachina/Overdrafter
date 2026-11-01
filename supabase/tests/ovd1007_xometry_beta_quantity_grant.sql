@@ -9,7 +9,7 @@
 -- bodies and drops the tables; with history it keeps the tables.
 -- Synthetic rows only; the whole file rolls back.
 begin;
-select plan(58);
+select plan(59);
 
 -- ---------------------------------------------------------------- 0. rollback drill (no history)
 -- fixtures/ovd1007_xometry_beta_quantity_grant_rollback.inc is a byte copy of
@@ -296,6 +296,9 @@ select is(
   (select pg_catalog.jsonb_build_object('jobId', ovd1007_fixture.job('ten'), 'organizationId', organization_id, 'actorUserId', user_id)
    from free_meter_fixture.context),
   'the read echoes the job, organization and signed-in caller it checked');
+select throws_like($$select public.api_get_quantity_scope('00000000-0000-4000-8000-00000000d0e5'::uuid)$$,
+  'You do not have permission to request quotes for job %',
+  'an absent job gets the same permission refusal as a foreign one (no job-existence oracle)');
 select throws_ok($$select ovd1007_fixture.scope('ten')$$, 'P0001', 'xometry_beta_quantity_one_required',
   'no grant: a quantity-10 preview is denied');
 select throws_ok($$select ovd1007_fixture.request('ten', gen_random_uuid(), pg_catalog.repeat('f', 64))$$, 'P0001',
