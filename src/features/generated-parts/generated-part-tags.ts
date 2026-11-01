@@ -15,7 +15,7 @@ export const GENERATOR_TAG_PREFIX = "generator:";
 export type GeneratedPartInfo = { generator: string | null };
 
 export function getGeneratedPartInfo(tags: readonly string[] | null | undefined): GeneratedPartInfo | null {
-  if (!tags || !tags.includes(GENERATED_SOURCE_TAG)) {
+  if (!tags?.includes(GENERATED_SOURCE_TAG)) {
     return null;
   }
   const generatorTag = tags.find((tag) => tag.startsWith(GENERATOR_TAG_PREFIX));

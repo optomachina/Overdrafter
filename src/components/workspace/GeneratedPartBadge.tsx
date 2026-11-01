@@ -1,6 +1,6 @@
 import { getGeneratedPartInfo } from "@/features/generated-parts/generated-part-tags";
 
-export function GeneratedPartBadge({ tags }: { tags: readonly string[] | null | undefined }) {
+export function GeneratedPartBadge({ tags }: Readonly<{ tags: readonly string[] | null | undefined }>) {
   const info = getGeneratedPartInfo(tags);
   if (!info) {
     return null;

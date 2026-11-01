@@ -30,7 +30,7 @@
  * The rotated refresh token is written back to that file (mode 0600). Tokens
  * are never printed.
  */
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { readFile, writeFile, rename, rm, stat } from "node:fs/promises";
 import { basename, extname } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -55,8 +55,9 @@ export function sha256Hex(bytes) {
  * If the rename fails, the temp file is removed before the error is rethrown.
  */
 export async function writeSessionFileAtomically(sessionFile, refreshToken) {
-  const tmpFile = `${sessionFile}.tmp`;
-  await writeFile(tmpFile, JSON.stringify({ refresh_token: refreshToken }), { mode: 0o600 });
+  // A fresh random name with exclusive create: a stale or planted file (or symlink) is never reused.
+  const tmpFile = `${sessionFile}.${randomBytes(8).toString("hex")}.tmp`;
+  await writeFile(tmpFile, JSON.stringify({ refresh_token: refreshToken }), { mode: 0o600, flag: "wx" });
   try {
     await rename(tmpFile, sessionFile);
   } catch (error) {
@@ -89,6 +90,40 @@ function unwrap(response, step) {
   return response?.data;
 }
 
+async function uploadOneFile(client, jobId, declarationId, file) {
+  const common = {
+    p_job_id: jobId,
+    p_original_name: file.name,
+    p_file_kind: file.kind,
+    p_mime_type: file.mimeType,
+    p_size_bytes: file.bytes.byteLength,
+    p_content_sha256: sha256Hex(file.bytes),
+    p_export_declaration_id: declarationId,
+  };
+  const prepared = unwrap(await client.rpc("api_prepare_job_file_upload", common), `prepare ${file.name}`);
+  if (prepared?.status === "duplicate_in_job" || prepared?.status === "reused") {
+    return { name: file.name, status: prepared.status };
+  }
+  if (typeof prepared?.storageBucket !== "string" || typeof prepared?.storagePath !== "string") {
+    throw new Error(`prepare ${file.name} returned no storage location.`);
+  }
+  const { error: storageError } = await client.storage
+    .from(prepared.storageBucket)
+    .upload(prepared.storagePath, file.bytes, { upsert: false, contentType: file.mimeType ?? undefined });
+  if (storageError && !isStorageObjectExistsError(storageError)) {
+    throw new Error(`storage upload ${file.name} failed: ${storageError.message}`);
+  }
+  unwrap(
+    await client.rpc("api_finalize_job_file_upload", {
+      ...common,
+      p_storage_bucket: prepared.storageBucket,
+      p_storage_path: prepared.storagePath,
+    }),
+    `finalize ${file.name}`,
+  );
+  return { name: file.name, status: "uploaded" };
+}
+
 /**
  * @param {object} input
  * @param {{ rpc: Function, storage: { from: Function } }} input.client user-scoped Supabase client
@@ -111,7 +146,10 @@ export async function ingestGeneratedPart(input) {
     throw new Error("Exactly one STEP file (.step/.stp) is required.");
   }
 
-  const description = input.specText ? String(input.specText).slice(0, MAX_DESCRIPTION_CHARS) : null;
+  const description = input.specText ? String(input.specText) : null;
+  if (description && description.length > MAX_DESCRIPTION_CHARS) {
+    throw new Error(`The spec is ${description.length} characters; the limit is ${MAX_DESCRIPTION_CHARS}.`);
+  }
   const jobId = unwrap(
     await client.rpc("api_create_client_draft", {
       p_title: name,
@@ -142,37 +180,9 @@ export async function ingestGeneratedPart(input) {
   }
 
   const uploaded = [];
+  // Files upload one at a time, in order, like the browser; a failure stops the rest.
   for (const file of files) {
-    const contentSha256 = sha256Hex(file.bytes);
-    const common = {
-      p_job_id: jobId,
-      p_original_name: file.name,
-      p_file_kind: file.kind,
-      p_mime_type: file.mimeType,
-      p_size_bytes: file.bytes.byteLength,
-      p_content_sha256: contentSha256,
-      p_export_declaration_id: declarationId,
-    };
-    const prepared = unwrap(await client.rpc("api_prepare_job_file_upload", common), `prepare ${file.name}`);
-    if (prepared?.status === "duplicate_in_job" || prepared?.status === "reused") {
-      uploaded.push({ name: file.name, status: prepared.status });
-      continue;
-    }
-    const { error: storageError } = await client.storage
-      .from(prepared.storageBucket)
-      .upload(prepared.storagePath, file.bytes, { upsert: false, contentType: file.mimeType ?? undefined });
-    if (storageError && !isStorageObjectExistsError(storageError)) {
-      throw new Error(`storage upload ${file.name} failed: ${storageError.message}`);
-    }
-    unwrap(
-      await client.rpc("api_finalize_job_file_upload", {
-        ...common,
-        p_storage_bucket: prepared.storageBucket,
-        p_storage_path: prepared.storagePath,
-      }),
-      `finalize ${file.name}`,
-    );
-    uploaded.push({ name: file.name, status: "uploaded" });
+    uploaded.push(await uploadOneFile(client, jobId, declarationId, file)); // NOSONAR javascript:S9382 sequential on purpose
   }
 
   unwrap(await client.rpc("api_reconcile_job_parts", { p_job_id: jobId }), "api_reconcile_job_parts");
@@ -237,8 +247,10 @@ async function main() {
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
-  main().catch((error) => {
+  try {
+    await main();
+  } catch (error) {
     process.stderr.write(`${error.message}\n`);
     process.exit(1);
-  });
+  }
 }

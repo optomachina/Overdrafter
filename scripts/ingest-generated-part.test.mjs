@@ -1,5 +1,22 @@
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { buildGeneratedTags, ingestGeneratedPart, sha256Hex } from "./ingest-generated-part.mjs";
+import {
+  EXPORT_CONTROL_TERMS_VERSION,
+  GENERATED_SOURCE_TAG,
+  GENERATOR_TAG_PREFIX,
+  buildGeneratedTags,
+  ingestGeneratedPart,
+  isStorageObjectExistsError,
+  parseArgs,
+  sha256Hex,
+  thumbnailMimeType,
+  writeSessionFileAtomically,
+} from "./ingest-generated-part.mjs";
+import * as appTags from "../src/features/generated-parts/generated-part-tags.ts";
+
+const tempFilesIn = (dir) => readdirSync(dir).filter((name) => name.endsWith(".tmp"));
 
 function fakeClient(overrides = {}) {
   const calls = [];
@@ -93,18 +110,6 @@ describe("buildGeneratedTags", () => {
   });
 });
 
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
-import {
-  EXPORT_CONTROL_TERMS_VERSION,
-  GENERATED_SOURCE_TAG,
-  GENERATOR_TAG_PREFIX,
-  isStorageObjectExistsError,
-  parseArgs,
-  thumbnailMimeType,
-} from "./ingest-generated-part.mjs";
-import * as appTags from "../src/features/generated-parts/generated-part-tags.ts";
-
 describe("ingest constants stay in sync with the app", () => {
   it("matches the export-control terms version and tag contract", () => {
     const source = readFileSync(resolve(process.cwd(), "src/features/quotes/export-control.ts"), "utf8");
@@ -133,6 +138,17 @@ describe("ingest failure paths", () => {
     },
   );
 
+  it("refuses a spec over the description limit before any RPC", async () => {
+    const client = fakeClient();
+    await expect(ingestGeneratedPart({ ...base, specText: "x".repeat(4001), client, files: [step] })).rejects.toThrow(/limit is 4000/);
+    expect(client.calls).toHaveLength(0);
+  });
+
+  it("names the step when prepare returns no storage location", async () => {
+    const client = fakeClient({ api_prepare_job_file_upload: { data: null, error: null } });
+    await expect(ingestGeneratedPart({ ...base, client, files: [step] })).rejects.toThrow(/prepare bracket.STEP returned no storage location/);
+  });
+
   it("skips files already attached to the job", async () => {
     const client = fakeClient({ api_prepare_job_file_upload: { data: { status: "duplicate_in_job" }, error: null } });
     const result = await ingestGeneratedPart({ ...base, client, files: [step] });
@@ -149,11 +165,6 @@ describe("ingest failure paths", () => {
   });
 });
 
-import { existsSync, mkdirSync, mkdtempSync, statSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { writeSessionFileAtomically } from "./ingest-generated-part.mjs";
-
 describe("writeSessionFileAtomically", () => {
   it("replaces the session file with a 0600 token file", async () => {
     const dir = mkdtempSync(join(tmpdir(), "ingest-session-"));
@@ -161,7 +172,18 @@ describe("writeSessionFileAtomically", () => {
     await writeSessionFileAtomically(sessionFile, "rotated");
     expect(JSON.parse(readFileSync(sessionFile, "utf8"))).toEqual({ refresh_token: "rotated" });
     if (process.platform !== "win32") expect(statSync(sessionFile).mode & 0o777).toBe(0o600);
-    expect(existsSync(`${sessionFile}.tmp`)).toBe(false);
+    expect(tempFilesIn(dir)).toEqual([]);
+  });
+
+  it("never writes through a stale or planted temp file", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "ingest-session-"));
+    const sessionFile = join(dir, "session.json");
+    const target = join(dir, "elsewhere.txt");
+    writeFileSync(target, "untouched");
+    symlinkSync(target, `${sessionFile}.tmp`);
+    await writeSessionFileAtomically(sessionFile, "rotated");
+    expect(readFileSync(target, "utf8")).toBe("untouched");
+    expect(JSON.parse(readFileSync(sessionFile, "utf8"))).toEqual({ refresh_token: "rotated" });
   });
 
   it("removes the temp file when the rename fails", async () => {
@@ -169,6 +191,6 @@ describe("writeSessionFileAtomically", () => {
     const sessionFile = join(dir, "session.json");
     mkdirSync(join(sessionFile, "blocker"), { recursive: true });
     await expect(writeSessionFileAtomically(sessionFile, "rotated")).rejects.toThrow();
-    expect(existsSync(`${sessionFile}.tmp`)).toBe(false);
+    expect(tempFilesIn(dir)).toEqual([]);
   });
 });
