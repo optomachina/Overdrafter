@@ -1,8 +1,8 @@
 -- =====================================================================
--- ROLLBACK for supabase/migrations/20261101013000_ovd1007_xometry_beta_quantity_grant.sql
+-- ROLLBACK for supabase/migrations/20261101130100_ovd1007_xometry_beta_quantity_grant.sql
 -- NEEDS BLAINE MIGRATION WINDOW - staging first, production by approval card
 -- =====================================================================
--- Restores the OVD-987 (20261031224054) bodies of S1, S3 and S4 exactly, so a
+-- Restores the OVD-987 (20261101130000) bodies of S1, S3 and S4 exactly, so a
 -- quantity above 1 again needs the global controlled_beta_user_quantity
 -- switch. Drops the grant reader, consumer, setters and the quantity-scope
 -- read (the client then reads `unavailable` and keeps the field read only).

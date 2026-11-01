@@ -27,7 +27,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
           fetch-depth: 0
 
@@ -56,7 +56,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
 
       - name: Setup Node.js and install root dependencies
         uses: ./.github/actions/setup-root-dependencies
@@ -70,10 +70,13 @@ jobs:
     needs: ovd591-qualification
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write # OIDC for the ECR pull role; this job only
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
           fetch-depth: 0
 
@@ -82,8 +85,43 @@ jobs:
         with:
           version: 2.78.1
 
+      # Same-repo runs only: fork PRs get no OIDC token and keep the anonymous Docker Hub
+      # pull. Any same-repo run (including a future Dependabot run) attempts OIDC and fails
+      # closed if it cannot assume the role. AWS_ECR_PULL_ROLE_ARN is a repository variable
+      # (role ARN, not a secret).
+      - name: Configure AWS credentials for ECR Public (OIDC)
+        id: ecr-oidc
+        if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_ECR_PULL_ROLE_ARN }}
+          aws-region: us-east-1 # ECR Public auth is only served from us-east-1
+          role-session-name: ci-ecr-pull-${{ github.run_id }}
+          role-duration-seconds: 900
+
+      - name: Log in to ECR Public
+        id: ecr-login
+        if: ${{ steps.ecr-oidc.outcome == 'success' }}
+        run: |
+          aws ecr-public get-login-password --region us-east-1 \
+            | docker login --username AWS --password-stdin public.ecr.aws
+
+      - name: Cache Supabase images
+        uses: ./.github/actions/supabase-image-cache
+        with:
+          group: full
+          # Authenticated ECR is the primary source; Docker Hub/GHCR are digest-matched fallbacks.
+          registry: ${{ steps.ecr-login.outcome == 'success' && 'public.ecr.aws' || 'docker.io' }}
+
+      - name: Cache pgTAP client images
+        uses: ./.github/actions/supabase-image-cache
+        with:
+          group: tools
+          # Authenticated ECR is the primary source; Docker Hub/GHCR are digest-matched fallbacks.
+          registry: ${{ steps.ecr-login.outcome == 'success' && 'public.ecr.aws' || 'docker.io' }}
+
       - name: Setup Deno
-        uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2
+        uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
         with:
           deno-version: v2.x
 
@@ -95,6 +133,11 @@ jobs:
 
       - name: Test portable Node contracts
         run: npm run test:portable-node
+
+      - name: Test Supabase image cache contracts
+        env:
+          SUPABASE_CACHE_CLI: supabase
+        run: node --test .github/actions/supabase-image-cache/cache.node-test.mjs
 
       - name: Check provider integrations
         run: |
@@ -156,7 +199,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
           fetch-depth: 0
 
@@ -192,7 +235,8 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - name: Cache Playwright browsers
-        uses: actions/cache@v4
+        if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ runner.arch }}-${{ steps.playwright-version.outputs.version }}
@@ -221,18 +265,24 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
 
       - name: Setup Supabase CLI
         uses: supabase/setup-cli@b60b5899c73b63a2d2d651b1e90db8d4c9392f51 # v1.6.0
         with:
           version: 2.78.1
 
+      - name: Cache Supabase images
+        if: ${{ matrix.lane == 'authenticated' }}
+        uses: ./.github/actions/supabase-image-cache
+        with:
+          group: full
+
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 20
-          cache: npm
+          cache: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'npm' || '' }}
           cache-dependency-path: package-lock.json
 
       - name: Install root dependencies
@@ -252,7 +302,8 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - name: Cache Playwright browsers
-        uses: actions/cache@v4
+        if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ runner.arch }}-${{ steps.playwright-version.outputs.version }}
@@ -277,7 +328,7 @@ jobs:
 
       - name: Retain admin operations browser evidence
         if: ${{ always() && matrix.lane == 'synthetic' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: admin-operations-browser-evidence
           path: admin-operations-results/
@@ -292,7 +343,7 @@ jobs:
 
       - name: Retain Free quote confirmation browser evidence
         if: ${{ always() && matrix.lane == 'synthetic' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: quote-confirmation-browser-evidence
           path: quote-confirmation-results/
@@ -321,7 +372,7 @@ jobs:
 
       - name: Retain authenticated browser evidence
         if: ${{ failure() && matrix.lane == 'authenticated' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: authenticated-browser-evidence
           path: authenticated-results/
@@ -334,7 +385,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
 
       - name: Setup Node.js and install root dependencies
         uses: ./.github/actions/setup-root-dependencies
@@ -363,12 +414,12 @@ jobs:
       # pull_request checks out the PR merged into the base tip, so HEAD^1 is
       # the base as merged; push and merge_group commits have their base there too.
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
           fetch-depth: 2
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 20
 
@@ -401,7 +452,7 @@ jobs:
 
       - name: Upload RLS deny coverage report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: rls-deny-coverage
           path: ${{ runner.temp }}/rls-deny-coverage.json
@@ -413,13 +464,13 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 20
-          cache: npm
+          cache: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'npm' || '' }}
           cache-dependency-path: worker/package-lock.json
 
       - name: Install worker dependencies
@@ -449,24 +500,24 @@ jobs:
     # for that step's `if` condition, so gating on `env.OPENAI_API_KEY` there
     # always reads empty and the gate silently never runs.
     env:
-      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      OPENAI_API_KEY: ${{ (!github.event.pull_request || github.event.pull_request.head.repo.full_name == github.repository) && secrets.OPENAI_API_KEY || '' }}
+      ANTHROPIC_API_KEY: ${{ (!github.event.pull_request || github.event.pull_request.head.repo.full_name == github.repository) && secrets.ANTHROPIC_API_KEY || '' }}
+      OPENROUTER_API_KEY: ${{ (!github.event.pull_request || github.event.pull_request.head.repo.full_name == github.repository) && secrets.OPENROUTER_API_KEY || '' }}
       # The gate reads PDFs off disk and never contacts Supabase, but the shared
       # worker config loader validates these, so placeholders keep it runnable
       # without production credentials.
-      SUPABASE_URL: ${{ secrets.SUPABASE_URL || 'https://placeholder.supabase.co' }}
-      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY || 'placeholder-service-role-key' }}
+      SUPABASE_URL: ${{ (!github.event.pull_request || github.event.pull_request.head.repo.full_name == github.repository) && secrets.SUPABASE_URL || 'https://placeholder.supabase.co' }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ (!github.event.pull_request || github.event.pull_request.head.repo.full_name == github.repository) && secrets.SUPABASE_SERVICE_ROLE_KEY || 'placeholder-service-role-key' }}
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 20
-          cache: npm
+          cache: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'npm' || '' }}
           cache-dependency-path: worker/package-lock.json
 
       # The gate only reads PDFs and calls provider HTTP APIs; it never needs a
@@ -494,6 +545,7 @@ jobs:
       # one vendor's key would silently downgrade those deployments to
       # parser-only while reporting a full-path run.
       - name: Detect provider credentials
+        if: ${{ !github.event.pull_request || github.event.pull_request.head.repo.full_name == github.repository }}
         id: creds
         run: |
           if [ -n "$OPENAI_API_KEY" ] || [ -n "$ANTHROPIC_API_KEY" ] || [ -n "$OPENROUTER_API_KEY" ]; then
@@ -508,7 +560,7 @@ jobs:
       # is reproducible.
       - name: Run extraction gate (parser only)
         id: gate-parser
-        if: ${{ steps.corpus.outputs.present == 'true' && steps.creds.outputs.present == 'false' }}
+        if: ${{ steps.corpus.outputs.present == 'true' && steps.creds.outputs.present != 'true' }}
         env:
           DRAWING_EXTRACTION_ENABLE_MODEL_FALLBACK: "false"
         run: |
@@ -525,7 +577,7 @@ jobs:
 
       - name: Run extraction gate (full production path)
         id: gate-full
-        if: ${{ steps.corpus.outputs.present == 'true' && steps.creds.outputs.present == 'true' }}
+        if: ${{ (!github.event.pull_request || github.event.pull_request.head.repo.full_name == github.repository) && steps.corpus.outputs.present == 'true' && steps.creds.outputs.present == 'true' }}
         run: |
           set +e
           npm --prefix worker run eval:gate
@@ -543,7 +595,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
 
       - name: Install synthetic network proof dependencies
         run: sudo apt-get update -qq && sudo apt-get install -y -q dnsmasq-base haproxy iproute2 iptables jq openssl dnsutils util-linux
@@ -585,13 +637,13 @@ jobs:
       # pull_request checks out the PR merged into the base tip, so HEAD^1 is
       # the base as merged; push and merge_group commits have their base there too.
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
           fetch-depth: 2
           persist-credentials: false
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 20
 
@@ -655,7 +707,7 @@ jobs:
 
       - name: Upload migration immutability report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: migration-immutability
           path: ${{ runner.temp }}/migration-immutability.json
@@ -709,16 +761,17 @@ jobs:
           echo "ovd591-retention-qualification=$OVD591_RETENTION_SQL_RESULT"
           echo "free-quote-sql-qualification=$FREE_QUOTE_SQL_RESULT"
 
-          if [ "$LINT_RESULT" != "success" ] || \
-             [ "$TYPECHECK_RESULT" != "success" ] || \
-             [ "$TEST_RESULT" != "success" ] || \
-             [ "$UNIT_RESULT" != "success" ] || \
+          ok=success
+          if [ "$LINT_RESULT" != "$ok" ] || \
+             [ "$TYPECHECK_RESULT" != "$ok" ] || \
+             [ "$TEST_RESULT" != "$ok" ] || \
+             [ "$UNIT_RESULT" != "$ok" ] || \
              [ "$BROWSER_TEST_RESULT" != "success" ] || \
-             [ "$BUILD_RESULT" != "success" ] || \
-             [ "$WORKER_RESULT" != "success" ] || \
-             [ "$OVD420_NETWORK_RESULT" != "success" ] || \
+             [ "$BUILD_RESULT" != "$ok" ] || \
+             [ "$WORKER_RESULT" != "$ok" ] || \
+             [ "$OVD420_NETWORK_RESULT" != "$ok" ] || \
              [ "$OVD591_SQL_RESULT" != "success" ] || \
-             [ "$OVD591_RETENTION_SQL_RESULT" != "success" ] || \
+             [ "$OVD591_RETENTION_SQL_RESULT" != "$ok" ] || \
              [ "$FREE_QUOTE_SQL_RESULT" != "success" ]; then
             exit 1
           fi
@@ -731,7 +784,7 @@ jobs:
 
       - name: Checkout extraction gate decision script
         if: ${{ always() }}
-        uses: actions/checkout@v5
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
           persist-credentials: false
           sparse-checkout: |

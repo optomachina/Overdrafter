@@ -5,7 +5,7 @@
 Turning the switch on in production is a separate Blaine approval, after the
 separately authorized quantity-10 live run.
 
-- Migration: `supabase/migrations/20261031224054_ovd987_controlled_beta_user_quantity.sql`
+- Migration: `supabase/migrations/20261101130000_ovd987_controlled_beta_user_quantity.sql`
 - Rollback: `docs/migration-drafts/ovd-987.rollback.sql`
 - pgTAP: `supabase/tests/ovd987_controlled_beta_user_quantity.sql`
 - Text pins: `src/features/quotes/controlled-beta-user-quantity-migration.test.ts`
@@ -87,8 +87,8 @@ each body is this file's or the previous one.
 
 | File | sha256 | md5 |
 | --- | --- | --- |
-| `supabase/migrations/20261031224054_ovd987_controlled_beta_user_quantity.sql` | `e674bc081e5fe53a0513a00030781ccfd8c1032e4d0f4318769bb5c408540362` | `8e9f067e7c9849b53ac267833d74ad64` |
-| `docs/migration-drafts/ovd-987.rollback.sql` | `46b72d846442f0ec5ef8a7ceea2f2d3d325bbb78fc5319200e0b1b43fe671d6d` | `a24bfd73131c498b1f67c35de5259fb8` |
+| `supabase/migrations/20261101130000_ovd987_controlled_beta_user_quantity.sql` | `e674bc081e5fe53a0513a00030781ccfd8c1032e4d0f4318769bb5c408540362` | `8e9f067e7c9849b53ac267833d74ad64` |
+| `docs/migration-drafts/ovd-987.rollback.sql` | `2ad4e3c7c03baf7703d0ed88d45d55f29b64d42345d7d4a52a4df6cca97619c5` | `2d5beb4c6d982a45bc121880e3cf79f8` |
 
 The migration's sha256 is also pinned in `scripts/free-quote-ci-profile.mjs` and
 `scripts/fixtures/free-quote-ci-source.json`. The review-round-3 change (the
@@ -113,6 +113,13 @@ backdated. The migration is now `20261031224054`; its bytes (sha256 above) are
 unchanged. Only the version comments in the rollback and the OVD-762 rollback
 changed. Staging holds a `schema_migrations` row for the old version: the
 staging re-apply must account for that row (card-only; not done here).
+
+**Renamed 2026-11-01.** Main gained `20261031052436` (OVD-746), `20261031184522`
+(OVD-1127) and `20261101110559` (OVD-1073), and the OVD-979 U2–U5 stack
+(#984–#988) takes `20261101115900`–`20261101120200`, so `20261031224054` became
+backdated. The migration is now `20261101130000`; its bytes (sha256 above) are
+unchanged. Only the version comments in the rollback (sha256 in the table
+above) and the OVD-762 rollback changed; both pgTAP fixture copies follow.
 
 ## Read-only hosted checks (before the apply and before a rollback)
 

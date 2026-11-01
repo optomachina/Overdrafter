@@ -2,7 +2,7 @@
 -- NEEDS BLAINE MIGRATION WINDOW - not applied
 -- =====================================================================
 -- OVD-987 rollback for
--- supabase/migrations/20261031224054_ovd987_controlled_beta_user_quantity.sql
+-- supabase/migrations/20261101130000_ovd987_controlled_beta_user_quantity.sql
 --
 -- Audit history decides first. Every call of the audited setter for
 -- controlled_beta_user_quantity, a no-op call included, writes an immutable
