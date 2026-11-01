@@ -34,9 +34,10 @@ GitHub reports `CLEAN` even after `main` has moved during the check wait, and
 `--match-head-commit` pins only the PR head, so a combination no check ran on
 can merge. The tree read-back catches that only after landing. Until a direct
 read-back shows `strict: true`, land only with exclusive serialization over
-the whole update, check and merge sequence (no other merge to `main` from
-the update until this merge lands), or re-fetch `main` and confirm it is
-still an ancestor of the pinned head immediately before merging.
+the whole update, check and merge sequence: no other merge to `main` from
+the update until this merge lands. Re-checking `main` right before merging
+is not a substitute, because another PR can still merge between that check
+and this merge, and the helper has no hook for such a check anyway.
 
 The `land` skill (`.codex/skills/land/SKILL.md`, step 8) handles strict mode
 through `.codex/skills/land/land_strict_merge.sh` (OVD-889). It brings an
