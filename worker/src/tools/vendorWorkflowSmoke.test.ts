@@ -1546,7 +1546,8 @@ describe("runEvaluationBatch", () => {
     expect(vi.mocked(guardOperatorQuote)).not.toHaveBeenCalled();
   });
 
-  it.each(["weerg", "quickparts", "ponoko", "protolabsnetwork", "rapiddirect"] as const)("does not gate the offline %s batch on the kill switch with the real startup gate", async (vendor) => {
+  // Runs the batch with the real startup gate and an unreadable kill switch.
+  async function runWithUnreadableKillSwitch(vendor: string) {
     const args = parseSmokeArgs([
       "--vendor", vendor, "--cad", "./part.step",
       "--confirm-non-export-controlled",
@@ -1555,13 +1556,37 @@ describe("runEvaluationBatch", () => {
     vi.mocked(assertOperatorProvidersEnabled).mockImplementationOnce(actual.assertOperatorProvidersEnabled);
     const killSwitchReader = vi.fn(async () => { throw new Error("switch unreadable"); });
     const stageFiles = vi.fn(async () => { throw new Error("staging reached"); });
-
-    await expect(runEvaluationBatch(args, {
+    const result = runEvaluationBatch(args, {
       killSwitchReader,
       stageFiles,
       makeVendorConfig: () => ({} as WorkerConfig),
       buildRegistry: () => ({}),
-    })).rejects.not.toMatchObject({ reasonCode: "provider_kill_switch_unavailable" });
+    });
+    return { result, killSwitchReader, stageFiles };
+  }
+
+  it("gates the Quickparts batch on the kill switch before staging (OVD-1059)", async () => {
+    const { result, killSwitchReader, stageFiles } = await runWithUnreadableKillSwitch("quickparts");
+
+    await expect(result)
+      .rejects.toMatchObject({ reasonCode: "provider_kill_switch_unavailable", checkpoint: "before_launch" });
+    expect(killSwitchReader).toHaveBeenCalledWith("quickparts");
+    expect(stageFiles).not.toHaveBeenCalled();
+  });
+
+  it("evaluates Quickparts through the production portal definition that reaches the provider", () => {
+    const registry = buildLiveEvaluationAdapterRegistry({
+      workerMode: "dev", workerLiveAdapters: [], workerTempDir: os.tmpdir(),
+    } as unknown as WorkerConfig);
+    expect(OFFLINE_EVALUATION_PORTAL_VENDORS.has("quickparts")).toBe(false);
+    expect((registry.quickparts as { evaluateLocallyReachesProvider?: boolean }).evaluateLocallyReachesProvider)
+      .toBe(true);
+  });
+
+  it.each(["weerg", "ponoko", "protolabsnetwork", "rapiddirect"] as const)("does not gate the offline %s batch on the kill switch with the real startup gate", async (vendor) => {
+    const { result, killSwitchReader } = await runWithUnreadableKillSwitch(vendor);
+
+    await expect(result).rejects.not.toMatchObject({ reasonCode: "provider_kill_switch_unavailable" });
     expect(killSwitchReader).not.toHaveBeenCalled();
   });
 

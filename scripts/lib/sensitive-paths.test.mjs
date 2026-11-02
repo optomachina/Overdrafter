@@ -1,10 +1,10 @@
 // @vitest-environment node
 import { afterAll, describe, expect, it } from "vitest";
 import { execFileSync, spawnSync } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
@@ -473,7 +473,12 @@ describe("AGENTS.md parity", () => {
   });
 
   it("fails when AGENTS.md has a glob the JSON lacks", () => {
-    const agents = agentsText.replace("`**/*.key`", "`**/*.key`, `**/*.p12`");
+    // The fixture drops the trailing "## Agent graph" section so the injected glob
+    // cannot also trip the 24 KiB budget; the real AGENTS.md budget is unchanged.
+    const agents = agentsText
+      .replace("`**/*.key`", "`**/*.key`, `**/*.p12`")
+      .replace(/\n## Agent graph\n[\s\S]*$/, "\n");
+    expect(agents).not.toContain("## Agent graph");
     const errors = validateAgentContract(contractCopy({ agents }));
     expect(errors).toEqual([expect.stringMatching(/\*\*\/\*\.p12 \(secrets\) is in the AGENTS\.md list but not in docs\/sensitive-paths\.json/)]);
   });
@@ -686,6 +691,30 @@ describe("gate loosening", () => {
     expect(findGateLoosening({ baseText: before, headText: configText })).toMatchObject({ detected: false, reasons: [] });
   });
 
+  it("puts the agent graph and its validator on the list, so editing the merge gate spec is sensitive", () => {
+    const graphFiles = [
+      "docs/agent-graph/graph.v1.yaml",
+      "docs/agent-graph/graph.schema.json",
+      "docs/agent-graph/README.md",
+      "scripts/validate-agent-graph.mjs",
+      "scripts/validate-agent-graph.node-test.mjs",
+    ];
+    const matcher = createMatcher(config);
+    for (const file of graphFiles) expect(matcher.classify(file), file).toContain("infra_ci");
+    // A PR that edits only the graph (for example drops a merge gate requirement) is sensitive, not docs-only.
+    expect(classifyPaths(["docs/agent-graph/graph.v1.yaml"], config)).toMatchObject({ sensitive: true, classes: ["infra_ci"] });
+    // Adding these globs did not loosen anything.
+    const graphGlobs = ["docs/agent-graph/**", "scripts/validate-agent-graph*"];
+    expect(config.globs.filter((entry) => graphGlobs.includes(entry.glob))).toEqual(graphGlobs.map((glob) => ({ glob, class: "infra_ci" })));
+    const before = withGlobs((globs) => globs.splice(0, globs.length, ...globs.filter((entry) => !graphGlobs.includes(entry.glob))));
+    expect(findGateLoosening({ baseText: before, headText: configText })).toMatchObject({ detected: false, reasons: [] });
+    // Removing either glob is gate_loosening.
+    for (const glob of graphGlobs) {
+      const without = withGlobs((globs) => globs.splice(globs.findIndex((entry) => entry.glob === glob), 1));
+      expect(findGateLoosening({ baseText: configText, headText: without }).reasons, glob).toEqual([expect.objectContaining({ code: LOOSENING_GLOB_REMOVED, glob })]);
+    }
+  });
+
   it("classifies with the base checkout's JSON and reports loosening (report mode)", () => {
     const dir = tempDir("sensitive-report-");
     git(dir, "init", "-q");
@@ -782,5 +811,70 @@ describe("gate loosening", () => {
     expect(main(["report"], { stdout: () => {}, stderr: (line) => errors.push(line) })).toBe(2);
     expect(main(["nope"], { stdout: () => {}, stderr: (line) => errors.push(line) })).toBe(2);
     expect(errors).toHaveLength(2);
+  });
+});
+
+// Gate scripts that were already unclassified when this test was added.
+// Classify a new one in the same PR. Do not add it here.
+const KNOWN_UNCLASSIFIED_GATE_SCRIPTS = [
+  "scripts/check-compiled-worker-scope.mjs",
+  "scripts/lint-cli-test-helpers.mjs",
+  "scripts/verify-ovd372-pending-head.mjs",
+  "scripts/verify-ovd373-applied-prefix.mjs",
+  "scripts/verify-ovd373-database-target.mjs",
+  "scripts/verify-ovd373-deployment-plan.mjs",
+  "scripts/verify-ovd373-schema-fingerprint.mjs",
+  "scripts/verify-ovd418-release-state.mjs",
+  "scripts/verify-ovd635-ledger-manifest.mjs",
+  "scripts/verify-removed-public-assets.mjs",
+  "scripts/verify-snapshot-bucket-controls.mjs",
+  "scripts/verify-xometry-recovery-host.mjs",
+];
+
+const isGateScript = (name) => {
+  if (/\.(?:test|node-test)\.(?:mjs|sh)$/.test(name)) return false;
+  return /^(?:check|validate|lint|guard|verify)-[^/]+\.(?:mjs|sh)$/.test(name) || name === "ci-rerun-once.mjs" || name === "preflight.sh";
+};
+
+const privilegedEnv = /SUPABASE_SERVICE_ROLE_KEY|SERVICE_ROLE_KEY|SUPABASE_DB_URL/;
+
+function walkProductionSources(dir, acc = []) {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    if (entry.name === "node_modules") continue;
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) walkProductionSources(full, acc);
+    else if (/\.(?:ts|tsx|mjs|js)$/.test(entry.name) && !/\.(?:test|spec)\.(?:ts|tsx|mjs|js)$/.test(entry.name)) acc.push(full);
+  }
+  return acc;
+}
+
+describe("new gate and privileged files are classified", () => {
+  const matcher = createMatcher(config);
+
+  it("classifies the CI rerun gate and not its test", () => {
+    expect(matcher.classify("scripts/ci-rerun-once.mjs")).toEqual(["infra_ci"]);
+    expect(matcher.classify("scripts/ci-rerun-once.test.mjs")).toEqual([]);
+  });
+
+  it("fails when a new top-level gate script has no class", () => {
+    const unclassified = readdirSync(join(repoRoot, "scripts"))
+      .filter(isGateScript)
+      .map((name) => `scripts/${name}`)
+      .filter((file) => matcher.classify(file).length === 0)
+      .sort();
+    expect(unclassified).toEqual(KNOWN_UNCLASSIFIED_GATE_SCRIPTS);
+  });
+
+  it("fails when a privileged entry point has no auth or payments class", () => {
+    const files = readdirSync(join(repoRoot, "supabase/functions"))
+      .map((name) => join(repoRoot, "supabase/functions", name, "index.ts"))
+      .filter((file) => existsSync(file));
+    for (const root of ["api", "server"]) files.push(...walkProductionSources(join(repoRoot, root)));
+    const missing = files
+      .map((file) => relative(repoRoot, file))
+      .filter((file) => privilegedEnv.test(readFileSync(join(repoRoot, file), "utf8")))
+      .filter((file) => !matcher.classify(file).some((name) => name === "auth" || name === "payments"))
+      .sort();
+    expect(missing).toEqual([]);
   });
 });

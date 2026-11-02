@@ -82,6 +82,9 @@ test.each([
   ['PR body validation failure', logOf('PR body validation failed:', '- Verification: missing results', '##[error]Process completed with exit code 1.')],
   ['PR body validator without evidence (run 39051893521)', logOf('##[error]PR body validator exited successfully without validation evidence.')],
   ['empty log', ''],
+  ['slow Ubuntu apt mirror', logOf('Get:1 http://azure.archive.ubuntu.com/ubuntu noble/main amd64 tesseract-ocr amd64 5.3.4-1build5 [2345 kB]', 'Fetched 9,743 kB in 3min 43s (45.6 kB/s)')],
+  ['vitest default timeout on a real-module test', logOf('FAIL  scripts/pre-push.test.mjs > passes gate using real base modules', 'Test timed out in 5000ms')],
+  ['job hit its cap', logOf('##[error]The job running on runner hosted has exceeded the maximum execution time of 20 minutes.')],
 ])('refuses code failure, never infrastructure: %s', (_name, text) => expect(isInfraFailure(text)).toBe(false));
 test('a failed stage wins over an infrastructure signal in the same log', () => {
   expect(isInfraFailure(logOf(SHUTDOWN))).toBe(true);

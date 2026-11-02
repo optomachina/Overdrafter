@@ -154,23 +154,21 @@ export const XOMETRY_LOCATORS = {
   // has not finished). The uploader/geometry text above is not one: it says
   // nothing about pricing, so a page showing only that stays selector_drift.
   // Synthetic phrasing, not captured from the live page; add a pattern only
-  // from reviewed quote-page evidence.
+  // from reviewed quote-page evidence. The loading/refreshing phrasing comes
+  // from the OVD-1052 review of React re-pricing states, as does "Updating
+  // your quote..." in the order summary beside the parts list; no captured
+  // quote page shows any of it.
   quotePricingInProgressSignals: [
     /\b(?:re)?calculating (?:the |your )?(?:price|prices|pricing|quote)\b/i,
-    /\bupdating (?:the |your )?(?:price|prices|pricing)\b/i,
+    /\bupdating (?:the |your )?(?:price|prices|pricing|quote)\b/i,
+    /\b(?:loading|refreshing) (?:the |your )?(?:price|prices|pricing|quote)\b/i,
   ],
-  quantityInputs: [
-    'input[aria-label="Quantity"]',
-    'input[type="number"][pattern]',
-    '[data-testid*="quantity"] input',
-    'input[name*="quantity"]',
-    'input[id*="quantity"]',
-    'input[type="number"][pattern="^[0-9]*$"]',
-    'input[type="number"]',
-  ],
-  // OVD-776: the part row's own quantity input, read back before any price
-  // is captured. Row-scoped selectors come first; the generic number inputs
-  // above are deliberately excluded because they can belong to other widgets.
+  // The part row's own quantity input on the quote page: the adapter sets the
+  // requested quantity here (before Edit Configuration) and reads it back
+  // before any price is captured (OVD-776). Row-scoped selectors come first.
+  // Generic number inputs are excluded on purpose: they can belong to other
+  // widgets, and the configure view that Edit Configuration opens showed no
+  // number input at all on 2026-10-24 (production job 8c17931b).
   lineItemQuantityInputs: [
     '[data-testid*="line-item" i] input[aria-label="Quantity" i]',
     '[data-testid*="part-row" i] input[aria-label="Quantity" i]',
@@ -254,15 +252,14 @@ export const XOMETRY_LOCATORS = {
     // selector key doesn't collide with priceText[0] in the unit-test mock.
     '[data-testid="tierAndLeadTime"]',
   ],
-  // Every supported entry must scope one complete purchasable tier. The
-  // adapter reads only container text so a price cannot be paired with a lead
-  // time or sourcing label from another option.
-  offerContainers: [
-    ".price-tier",
-    'button:has([data-testid="tierAndLeadTime"])',
-    'label:has([data-testid="tierAndLeadTime"])',
-    '[role="button"]:has([data-testid="tierAndLeadTime"])',
-  ],
+  // OVD-1052: the only offer container. Each tier Xometry quotes is one
+  // card, and the adapter reads only that card's text so a price cannot be
+  // paired with a lead time or sourcing label from another option. A quote
+  // page without one fails closed as selector drift; no other element is
+  // ever read as an option.
+  priceTierCard: ".price-tier",
+  // Rendered commercial summary inside each offered card; never the part stepper.
+  pricedCardQuantity: '.price-tier [kind="discount"]',
   leadTimeText: [
     'button:has-text("Least Expensive")',
     '[data-testid="tierAndLeadTime"]',

@@ -44,6 +44,14 @@ export const REVIEWED_APPENDED_MIGRATIONS = Object.freeze([
   reviewedMigration('supabase/migrations/20261016004826_ovd770_quote_select_editor_guard.sql', 'OVD-770', 'e1ccedb3bc0b5655c2f63533330561377d4a5f5587cae7eea290e23f8e3e127b'),
   reviewedMigration('supabase/migrations/20261016013742_ovd736_revoke_anon_definer_execute.sql', 'OVD-736', 'b4ffdcced815f4ea877c177e9f41cec198530f078f0dec20be540e17cd1b351c'),
   reviewedMigration('supabase/migrations/20261016013832_ovd766e_job_editor_scope.sql', 'OVD-766', '73c33b06c2f7325f380076a7f7b70e724b56d5254bd7d6f93152172254d1b68f'),
+  reviewedMigration('supabase/migrations/20261025194414_ovd1097_refresh_job_extraction_status.sql', 'OVD-1097', '68bff7415c8e5a930f99021e587bc44b0515b7cfb9b98477005f0687ea8895ef'),
+  reviewedMigration('supabase/migrations/20261029165751_reconcile_claim_fence.sql', 'OVD-1073', '67343518f02276127bbdfd2b9ed52dee35a0b4af72bab53d61de54bf6b8cb7ac'),
+  reviewedMigration('supabase/migrations/20261030204050_ovd1018_restrict_project_jobs_writes.sql', 'OVD-1018', '18bea12e4b6719143d46d219a0569e9fced25ebe4cc3df178051c3a67654e4f6'),
+  reviewedMigration('supabase/migrations/20261031052436_ovd746_client_rpc_auth_gate.sql', 'OVD-746', 'd4a7adf61ca5bb4fa6001d1617a1e1db8b27637a61366f14e7a8cde736bd6f9f'),
+  reviewedMigration('supabase/migrations/20261031184522_worker_wake_throttle.sql', 'OVD-1127', 'e77fd771ba363970069c96178e3e0d74e6ec4ecb69e3211ba1a2857c8ae6799e'),
+  reviewedMigration('supabase/migrations/20261101110559_reconcile_claim_fence_followups.sql', 'OVD-1073', 'f12dca6fbe11cd29b7f6c753192f8b92cdc44fc558895ab62ded01cb35ca62aa'),
+  reviewedMigration('supabase/migrations/20261101115900_ovd979u2_canonical_requirement_lock_order.sql', 'OVD-979', '572066174ddb087f2c20149759f339be12e6408bc3d44ca4e3eb8dadbb59906f'),
+  reviewedMigration('supabase/migrations/20261101120000_ovd979u3_extraction_attempt_identity.sql', 'OVD-979', '7f767f268129cf32872f87491e3f56f1e409ebde0b59ab8e35abaaf6f472a16d'),
 ]);
 
 export function reviewedMigrationCount(reviewed = REVIEWED_APPENDED_MIGRATIONS) {

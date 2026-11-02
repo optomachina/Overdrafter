@@ -450,6 +450,7 @@ export function ExtractionLabCard({
           part_id: activePreviewRun.result.partId,
           organization_id: activePart.organization_id,
           extractor_version: activePreviewRun.result.extractorVersion,
+          source_attempt_id: null,
           extraction: activePreviewRun.result.extraction as never,
           confidence: 1,
           warnings: activePreviewRun.result.warnings as never,
