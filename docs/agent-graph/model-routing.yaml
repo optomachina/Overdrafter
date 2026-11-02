@@ -1,5 +1,5 @@
 # This file is the source of truth for model labels.
-# model: labels decide routing. Lead sets them using the usage balancer
+# model: labels decide routing. The Claude thread sets them using the usage balancer
 # (pstack-project-template scripts/usage-balancer).
 # Codex, Claude Code, and Cursor are peer build pools. Work goes to whichever
 # pool is furthest behind its weekly pace, according to the usage balancer

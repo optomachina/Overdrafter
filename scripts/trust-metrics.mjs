@@ -226,10 +226,10 @@ export function parseReviewVerdict(body) {
 }
 
 /**
- * Architect comments start with `Architect review (<model>) @ <40-hex sha>`. The header may carry a
+ * Model reviews coordinated by the Claude thread retain the legacy header `Architect review (<model>) @ <40-hex sha>`. The header may carry a
  * trailing `: VERDICT` and/or qualifiers (e.g. `(round 2)`, `— notes`). The verdict comes from the
  * header suffix or a later `Verdict:` line in any case, optionally bold. Short shas and
- * non-Architect comments are rejected.
+ * comments without that header are rejected.
  */
 const skipSeparator = (text) => text.trimStart().replace(/^[:\-\u2014]/, "").trimStart();
 
