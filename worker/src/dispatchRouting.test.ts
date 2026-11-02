@@ -9,6 +9,7 @@ import {
 } from "../test-support/genericDispatchResponse";
 import {
   dispatchAuthorizationFailure,
+  xometryDispatchDenialNote,
   providerDispatchClaimFromTask,
   quoteWithRoutedDispatchPreflight,
 } from "./dispatchRouting";
@@ -255,5 +256,19 @@ describe("dispatch routing upload capability checkpoint (OVD-414)", () => {
     const { quote, run } = harness({ data: admittedGenericResponse(), error: null });
     await run({ vendor: "fictiv" });
     expect(quote.mock.calls[0][0].uploadCapabilityCheckpoint).toBeUndefined();
+  });
+});
+
+describe("quantity denial lane note", () => {
+  it("is terminal and names the quantity refusal", () => {
+    const failure = dispatchAuthorizationFailure(new XometryDispatchAuthorizationError("dispatch_quantity_not_admitted"))!;
+    expect(failure).toEqual({ boundary: "xometry", reasonCode: "dispatch_quantity_not_admitted", retryable: false });
+    expect(xometryDispatchDenialNote(failure)).toContain("quantities above 1 are not enabled for this request");
+  });
+
+  it("does not borrow the note for another boundary, retry or denial", () => {
+    expect(xometryDispatchDenialNote({ boundary: "provider", reasonCode: "dispatch_quantity_not_admitted", retryable: false })).toBeNull();
+    expect(xometryDispatchDenialNote({ boundary: "xometry", reasonCode: "dispatch_quantity_not_admitted", retryable: true })).toBeNull();
+    expect(xometryDispatchDenialNote({ boundary: "xometry", reasonCode: "dispatch_rollout_disabled", retryable: false })).toBeNull();
   });
 });
