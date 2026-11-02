@@ -418,11 +418,13 @@ function followsNumber(text: string, index: number) {
   return position >= 0 && /[\d.]/.test(text.charAt(position));
 }
 
-// Only a checked leading box selects the following word. Do not consume the
-// next option as SECOND_DECLARED_UNIT: its own box determines its selection.
+// A checkbox declaration occupies its whole line: one standalone option or two
+// sibling options for different systems. Incidental bullets and dates are not choices.
+const UNIT_BOX = String.raw`(?:\[(?:[ \t]*[X✓✔][ \t]*|[ \t]*)\]|[☐□☑☒■✓✔])`;
 const LEADING_UNIT_BOX = new RegExp(
-  String.raw`(?:\[[ \t]*([X✓✔])[ \t]*\]|([☑☒■✓✔]))[ \t]*(${UNIT_WORD})`, "gi",
+  String.raw`^[ \t]*(${UNIT_BOX})[ \t]*(${UNIT_WORD})(?:[ \t]+(${UNIT_BOX})[ \t]*(${UNIT_WORD}))?[ \t]*$`, "gim",
 );
+const CHECKED_UNIT_BOX = /[X✓✔☑☒■]/i;
 
 function detectDeclaredUnits(text: string) {
   const declared = { inch: false, metric: METRIC_TOLERANCE_STANDARD.test(text) };
@@ -431,7 +433,11 @@ function detectDeclaredUnits(text: string) {
       declared[/^IN/i.test(word) ? "inch" : "metric"] = true;
     }
   };
-  for (const match of text.matchAll(LEADING_UNIT_BOX)) declare(match[3]);
+  for (const match of text.matchAll(LEADING_UNIT_BOX)) {
+    if (match[4] !== undefined && /^IN/i.test(match[2]) === /^IN/i.test(match[4])) continue;
+    if (CHECKED_UNIT_BOX.test(match[1])) declare(match[2]);
+    if (match[3] !== undefined && CHECKED_UNIT_BOX.test(match[3])) declare(match[4]);
+  }
   for (const pattern of DECLARATION_PATTERNS) {
     for (const match of text.matchAll(pattern)) {
       match.slice(1).forEach(declare);

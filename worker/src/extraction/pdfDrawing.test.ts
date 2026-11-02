@@ -1111,6 +1111,29 @@ describe("pdfDrawing tightest tolerance units (OVD-976)", () => {
       },
     );
 
+    it.each(["☑ MM ☐ INCH", "[x] MM [ ] INCH", "■ MM □ INCH"])(
+      "reads a complete leading units choice: %s", (field) => {
+        expect(tolerance([`  ${field}`, "BORE ±0.025"]))
+          .toMatchObject({ drawingUnits: "metric", valueInch: 0.0009 });
+      },
+    );
+
+    it.each(["☑ MM", "[x] MM", "■ MM"])(
+      "reads a standalone leading checked unit: %s", (field) => {
+        expect(tolerance([`\t${field}  `, "BORE ±0.025"]))
+          .toMatchObject({ drawingUnits: "metric", valueInch: 0.0009 });
+      },
+    );
+
+    it.each([
+      ["DIMENSIONS ARE IN INCHES\n■ METRIC THREADS PER ISO 965", "inch"],
+      ["■ MM/DD/YY", "unspecified"],
+      ["NOTE: ✓ MM", "unspecified"],
+    ])("rejects incidental checked unit text: %s", (text, drawingUnits) => {
+      expect(tolerance([text, "BORE ±0.025"]))
+        .toMatchObject({ drawingUnits, valueInch: 0.025 });
+    });
+
     it.each(["☐ INCH □ MM", "[ ] MM [ ] INCH", "☑ MM ☒ INCH"])(
       "does not invent a single selection in %s", (field) => {
         expect(tolerance([field, "BORE ±0.025"])).toMatchObject({
