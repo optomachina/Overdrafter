@@ -43,6 +43,7 @@ function SessionProbe() {
     <div>
       <span data-testid="data-user">{session.data?.user?.id ?? "none"}</span>
       <span data-testid="email">{session.user?.email ?? "anonymous"}</span>
+      <span data-testid="verified-auth">{session.isVerifiedAuth ? "yes" : "no"}</span>
       <span data-testid="auth-state">{session.authState}</span>
       <span data-testid="auth-initializing">{session.isAuthInitializing ? "yes" : "no"}</span>
       <span data-testid="has-cached-session">{session.hasCachedSession ? "yes" : "no"}</span>
@@ -238,6 +239,41 @@ describe("useAppSession", () => {
     expect(fetchAppSessionDataMock).toHaveBeenCalledTimes(1);
     expect(screen.getByTestId("membership-count")).toHaveTextContent("1");
     expect(screen.getByTestId("auth-initializing")).toHaveTextContent("no");
+  });
+
+  it("bounds a hung membership retry by the overall startup deadline", async () => {
+    vi.useFakeTimers();
+    const local = seedLocalSession(storageMock);
+    const first = deferredPromise<AppSessionData>();
+    fetchAppSessionDataMock.mockReturnValueOnce(first.promise).mockReturnValue(new Promise(() => undefined));
+    renderProbe();
+    await act(async () => { await vi.advanceTimersByTimeAsync(4000); });
+    await act(async () => {
+      first.resolve({ ...makeRestoredSession(local), memberships: [], membershipError: "Memberships unavailable" });
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    expect(fetchAppSessionDataMock).toHaveBeenCalledTimes(2);
+    expect(screen.getByTestId("auth-initializing")).toHaveTextContent("yes");
+    expect(screen.getByTestId("membership-error")).toHaveTextContent("Memberships unavailable");
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+    expect(screen.getByTestId("auth-state")).toHaveTextContent("session_error");
+    expect(screen.getByTestId("auth-initializing")).toHaveTextContent("no");
+    expect(fetchAppSessionDataMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("withholds verified auth from an email-confirmed seed while initializing", async () => {
+    const local = seedLocalSession(storageMock);
+    local.user.email_confirmed_at = "2026-03-11T00:00:00.000Z";
+    const pending = deferredPromise<AppSessionData>();
+    fetchAppSessionDataMock.mockReturnValueOnce(pending.promise);
+    const { queryClient } = renderProbe();
+    await waitFor(() => expect(screen.getByTestId("email")).toHaveTextContent(local.user.email!));
+    expect(queryClient.getQueryData<AppSessionData>(["app-session"])?.isVerifiedAuth).toBe(true);
+    expect(screen.getByTestId("auth-initializing")).toHaveTextContent("yes");
+    expect(screen.getByTestId("verified-auth")).toHaveTextContent("no");
+    await act(async () => pending.resolve(makeRestoredSession(local)));
+    await waitFor(() => expect(screen.getByTestId("auth-initializing")).toHaveTextContent("no"));
+    expect(screen.getByTestId("verified-auth")).toHaveTextContent("yes");
   });
 
   it("classifies a hung visitor fetch without a stored token as anonymous at both deadlines", async () => {
@@ -714,7 +750,7 @@ describe("useAppSession", () => {
     await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)); });
     expect(screen.getByText("Job for second@example.com")).toBeInTheDocument();
     expect(screen.getByTestId("email")).toHaveTextContent("second@example.com");
-    expect(renders.every((entry) => (!entry.ready || (entry.userId === "user-2" && entry.org === "org-2")))).toBe(true);
+    expect(renders.every((entry) => entry.userId === "user-2" && (!entry.ready || entry.org === "org-2"))).toBe(true);
   });
 
   it("revalidates when bootstrap seeds a different user over a completed cached projection", async () => {
