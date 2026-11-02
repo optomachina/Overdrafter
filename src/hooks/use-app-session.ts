@@ -39,9 +39,12 @@ const EMPTY_APP_SESSION: AppSessionData = {
 
 // Shared by every observer, including a queryFn owned by an unmounted observer.
 const sessionEpochs = new WeakMap<QueryClient, number>();
+const failedRestores = new WeakSet<QueryClient>();
+const pendingRestores = new WeakMap<QueryClient, { epoch: number; promise: Promise<AppSessionData>; timedOut: boolean }>();
 const getSessionEpoch = (client: QueryClient) => sessionEpochs.get(client) ?? 0;
 
 function advanceSessionEpoch(client: QueryClient, cancelFetch = true) {
+  pendingRestores.delete(client);
   sessionEpochs.set(client, getSessionEpoch(client) + 1);
   if (cancelFetch) void client.cancelQueries({ queryKey: APP_SESSION_QUERY_KEY });
 }
@@ -380,6 +383,7 @@ export function useAppSession() {
         return;
       }
 
+      failedRestores.delete(queryClient);
       terminalAuthStateRef.current = null;
       updateInitialAuthCheck("present");
       seedSessionFromSupabaseSession(session, "use-app-session.auth-state-change.seed", true);
@@ -416,13 +420,37 @@ export function useAppSession() {
       };
       // Fence late results at the projection boundary. Underlying auth calls may
       // still share a client lock or a deduplicated admin request.
+      // Keep an initial hydration alive after the UI budget expires. Recovery
+      // after a completed error remains a separate, bounded attempt.
+      let pending = pendingRestores.get(queryClient);
+      if (!pending && !failedRestores.has(queryClient) && !sessionErrorRetriedRef.current && !membershipErrorRetriedRef.current &&
+          !isRestoredSession(queryClient.getQueryData(APP_SESSION_QUERY_KEY))) {
+        const entry = { epoch, promise: fetchAppSessionData(), timedOut: false };
+        pending = entry;
+        pendingRestores.set(queryClient, entry);
+        signal.addEventListener("abort", () => {
+          if (pendingRestores.get(queryClient) === entry) pendingRestores.delete(queryClient);
+        }, { once: true });
+        void entry.promise.then((lateResult) => {
+          if (pendingRestores.get(queryClient) !== entry || entry.epoch !== getSessionEpoch(queryClient)) return;
+          if (lateResult.authState === "session_error" || lateResult.membershipError) failedRestores.add(queryClient);
+          if (entry.timedOut && lateResult.authState === "authenticated" && !lateResult.membershipError) {
+            const previous = queryClient.getQueryData<AppSessionData>(APP_SESSION_QUERY_KEY);
+            clearSubjectBoundClientState(queryClient, previous?.user?.id, lateResult.user?.id);
+            queryClient.setQueryData(APP_SESSION_QUERY_KEY, { ...lateResult, restoreComplete: true });
+          }
+          pendingRestores.delete(queryClient);
+        }, () => {
+          if (pendingRestores.get(queryClient) === entry) pendingRestores.delete(queryClient);
+        });
+      }
       const attemptDeadline = Date.now() + STARTUP_AUTH_TIMEOUT_MS;
       let result: AppSessionData;
       for (;;) {
         let attemptTimer: ReturnType<typeof setTimeout> | undefined;
         try {
           result = await Promise.race([
-            fetchAppSessionData(),
+            pending?.promise ?? fetchAppSessionData(),
             new Promise<never>((_, reject) => {
               attemptTimer = setTimeout(
                 () => reject(new SessionAttemptTimeout("Session restore attempt timed out")),
@@ -434,6 +462,7 @@ export function useAppSession() {
         } catch (error) {
           assertCurrentFetch();
           if (!(error instanceof SessionAttemptTimeout)) throw error;
+          if (pending) pending.timedOut = true;
           if (Date.now() >= attemptDeadline && !isRestoredSession(queryClient.getQueryData(APP_SESSION_QUERY_KEY))) {
             return { ...EMPTY_APP_SESSION, authState: getStoredSupabaseAccessToken() ? "session_error" : "anonymous" } satisfies AppSessionData;
           }
@@ -494,6 +523,7 @@ export function useAppSession() {
             : result;
         }
 
+        failedRestores.delete(queryClient);
         membershipErrorRetriedRef.current = false;
         sessionErrorRetriedRef.current = false;
         return { ...result, restoreComplete: true };
@@ -606,7 +636,9 @@ export function useAppSession() {
     if (!restorePending) return;
     const deadline = window.setTimeout(() => {
       if (queryClient.getQueryData<AppSessionData>(APP_SESSION_QUERY_KEY)?.restoreComplete) return;
-      advanceSessionEpoch(queryClient);
+      const pending = pendingRestores.get(queryClient);
+      if (pending) pending.timedOut = true;
+      else advanceSessionEpoch(queryClient);
       clearRetryTimeout();
       pendingAuthTransitionRef.current = false;
       updateInitialAuthCheck("none");

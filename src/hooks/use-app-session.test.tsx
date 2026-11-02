@@ -243,6 +243,51 @@ describe("useAppSession", () => {
     expect(screen.getByTestId("auth-initializing")).toHaveTextContent("no");
   });
 
+  it.each([false, true])("adopts sequential 2 s restore steps beyond the deadline (Retry: %s)", async (retry) => {
+    vi.useFakeTimers();
+    const local = seedLocalSession(storageMock);
+    const steps: string[] = [];
+    fetchAppSessionDataMock.mockImplementation(async () => {
+      for (const step of ["auth-1", "auth-2", "auth-3", "memberships", "admin"]) {
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+        steps.push(step);
+      }
+      return makeRestoredSession(local);
+    });
+    renderProbe();
+    await act(async () => { await vi.advanceTimersByTimeAsync(STARTUP_AUTH_TIMEOUT_MS + 1); });
+    expect(screen.getByTestId("auth-state")).toHaveTextContent("session_error");
+    expect(screen.getByTestId("auth-initializing")).toHaveTextContent("no");
+    expect(screen.getByTestId("verified-auth")).toHaveTextContent("no");
+    if (retry) fireEvent.click(screen.getByRole("button", { name: "Retry session" }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(5001); });
+    expect(steps).toEqual(["auth-1", "auth-2", "auth-3", "memberships", "admin"]);
+    expect(fetchAppSessionDataMock).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId("email")).toHaveTextContent(local.user.email!);
+    expect(screen.getByTestId("membership-count")).toHaveTextContent("1");
+    expect(screen.getByTestId("verified-auth")).toHaveTextContent("yes");
+    expect(screen.getByTestId("auth-state")).toHaveTextContent("authenticated");
+  });
+
+  it.each(["SIGNED_OUT", "SIGNED_IN"])("fences late hydration after the deadline and %s", async (event) => {
+    vi.useFakeTimers();
+    const local = seedLocalSession(storageMock);
+    const late = deferredPromise<AppSessionData>();
+    fetchAppSessionDataMock.mockReturnValueOnce(late.promise).mockReturnValue(new Promise(() => undefined));
+    renderProbe();
+    await act(async () => { await vi.advanceTimersByTimeAsync(STARTUP_AUTH_TIMEOUT_MS + 1); });
+    const second = { ...local, user: { ...local.user, id: "user-2", email: "second@example.com" } };
+    await act(async () => {
+      authStateChangeCallbacks.forEach((callback) => callback(event, event === "SIGNED_OUT" ? null : second));
+      await vi.advanceTimersByTimeAsync(1);
+      late.resolve(makeRestoredSession(local));
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    expect(screen.getByTestId("email")).toHaveTextContent(event === "SIGNED_OUT" ? "anonymous" : "second@example.com");
+    expect(screen.getByTestId("membership-count")).toHaveTextContent("0");
+    expect(screen.getByTestId("verified-auth")).toHaveTextContent("no");
+  });
+
   it("bounds a hung membership retry by the overall startup deadline", async () => {
     vi.useFakeTimers();
     const local = seedLocalSession(storageMock);
