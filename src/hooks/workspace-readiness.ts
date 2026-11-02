@@ -17,6 +17,7 @@ export type WorkspaceReadiness =
 export type WorkspaceReadinessInput = {
   user: User | null;
   isLoading: boolean;
+  hasResolvedMemberships?: boolean;
   isVerifiedAuth: boolean;
   activeMembership: AppMembership | null;
   membershipCount: number;
@@ -47,7 +48,7 @@ export function deriveWorkspaceReadiness(input: WorkspaceReadinessInput): Worksp
     return { status: "anonymous" };
   }
 
-  if (isLoading) {
+  if (isLoading || input.hasResolvedMemberships === false) {
     return { status: "loading" };
   }
 

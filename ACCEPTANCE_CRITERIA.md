@@ -35,9 +35,15 @@ go/no-go gates, and every open `TODO(Blaine)` decision are in the
 - [ ] Customer-facing copy names the exact package envelope in
       `docs/1-0-beta-runbook.md`: one STEP/STP file submitted as one part,
       declared units,
-      CNC milling, aluminum 6061-T6, quantity one, as-machined finish, standard
+      CNC milling, aluminum 6061-T6, one quantity (any positive integer, default
+      `1`, when `controlled_beta_user_quantity` is on; otherwise `1`),
+      as-machined finish, standard
       `+/- 0.005 in` or looser tolerance, no special requirements, and the
-      stated non-ITAR limit.
+      stated non-ITAR limit. The approved validation package remains at quantity
+      `1`; the switch widens only the Xometry controlled-beta quantity rule,
+      subject to each provider's independently admitted envelope.
+      The migration is applied in production and the switch is OFF.
+      Enablement (`OVD-1000`) and the scoped grant (`OVD-1007`) are separate paths.
 - [ ] Customer-facing copy says that only the explicitly owner-approved validation
       geometry is certified for repeatable automatic pricing; customer geometry may end in
       manual review, provider guidance, or unsupported without implying a size
