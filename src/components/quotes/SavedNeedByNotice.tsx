@@ -1,3 +1,4 @@
+import { useId } from "react";
 import { Button } from "@/components/ui/button";
 import { formatRequestedByDateLabel } from "@/features/quotes/request-intake";
 
@@ -23,22 +24,23 @@ export function SavedNeedByNotice({
   disabled = false,
   savesDrawingThreads = false,
 }: Readonly<SavedNeedByNoticeProps>) {
+  const warningId = useId();
   const label = formatRequestedByDateLabel(requestedByDate) ?? requestedByDate;
 
   return (
     <section className="border-y border-paper-hairline bg-paper-inset px-4 py-3" aria-label="Need by date on the request">
       <p className="text-sm text-paper-ink">
         This request has a Need by date of <span className="font-mono">{label}</span>. The controlled beta does
-        not support a Need by date, so quote requests are denied until it is removed.
+        not support a Need by date. It may prevent a quote request; removing it does not guarantee eligibility.
       </p>
       <p className="mt-1 text-sm text-paper-muted">The Need by filter changes this view only.</p>
       {savesDrawingThreads ? (
-        <p className="mt-1 text-sm text-paper-muted">
+        <p id={warningId} className="mt-1 text-sm text-paper-muted">
           Removing it saves the request, which records the thread callouts read from the drawing as Threads. The
           controlled beta does not support Threads either, so a part with thread callouts stays outside it.
         </p>
       ) : null}
-      <Button type="button" variant="outline" size="sm" className="mt-3 rounded-[2px]" disabled={disabled} onClick={onRemove}>
+      <Button type="button" variant="outline" size="sm" className="mt-3 rounded-[2px]" disabled={disabled} aria-describedby={savesDrawingThreads ? warningId : undefined} onClick={onRemove}>
         Remove Need by from request
       </Button>
     </section>

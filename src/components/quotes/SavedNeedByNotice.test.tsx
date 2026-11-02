@@ -10,6 +10,8 @@ describe("SavedNeedByNotice", () => {
     expect(screen.getByText(/Apr 15, 2026/)).toBeInTheDocument();
     expect(screen.getByText(/does not support a Need by date/i)).toBeInTheDocument();
     expect(screen.getByText(/changes this view only/i)).toBeInTheDocument();
+    expect(screen.getByRole("region")).toHaveTextContent("It may prevent a quote request; removing it does not guarantee eligibility.");
+    expect(screen.getByRole("region")).not.toHaveTextContent("quote requests are denied until");
   });
 
   it("removes the saved date only when the user asks", () => {
@@ -38,5 +40,6 @@ describe("SavedNeedByNotice", () => {
     rerender(<SavedNeedByNotice requestedByDate="2026-04-15" onRemove={vi.fn()} savesDrawingThreads />);
     expect(screen.getByText(/records the thread callouts read from the drawing as Threads/)).toBeInTheDocument();
     expect(screen.getByText(/does not support Threads either/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Remove Need by from request" })).toHaveAccessibleDescription(/records the thread callouts/);
   });
 });

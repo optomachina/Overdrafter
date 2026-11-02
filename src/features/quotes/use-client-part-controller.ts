@@ -113,7 +113,6 @@ import {
 import type {
   ClientPartPropertyOverrideField,
   ClientPartRequestUpdateInput,
-  DrawingExtractionData,
   PartAggregate,
   PartDetailAggregate,
   QuoteDataStatus,
@@ -247,22 +246,6 @@ function applyResetFields(
 
 function hasText(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;
-}
-
-/**
- * The Threads value the request falls back to when its Threads field is cleared:
- * the stored property defaults when present, otherwise the drawing's thread callouts.
- * Mirrors the defaults the part workspace shows beside the Threads field.
- */
-function getRequestThreadDefault(
-  part: PartAggregate | null,
-  extraction: DrawingExtractionData | null,
-): string | null {
-  const defaults = part?.clientRequirement?.projectPartProperties?.defaults;
-  if (defaults && "threads" in defaults) {
-    return typeof defaults.threads === "string" ? defaults.threads : null;
-  }
-  return extraction?.threads?.join(", ") ?? null;
 }
 
 /** Threads already stored on the approved request, which the server scope checks read. */
@@ -981,15 +964,13 @@ export function useClientPartController(
   // requested_by_date, which every controlled dispatch denies, so it persists only when quote
   // access is known to be blocked (outside the controlled envelope) and settled. Loading,
   // refetching, errored and eligible access all stay view-only (fail closed).
-  const needByFilterIsViewOnly = !(
-    quoteCollectionMode.state === "blocked" && !quoteCollectionMode.isLoading
-  );
+  // useQuoteAccess reports unknown throughout fetching, including background refreshes.
+  const needByFilterIsViewOnly = quoteCollectionMode.state !== "blocked";
   // OVD-991: Threads falls back to the drawing's thread callouts when cleared, and any full
   // save of the request records them. Both server scope checks deny a non-blank Threads value.
-  const requestThreadDefault = getRequestThreadDefault(partDetail?.part ?? null, extraction);
-  const drawingHasThreads = hasText(requestThreadDefault);
+  const drawingHasThreads = hasText(extraction?.threads?.join(", "));
   const needByRemovalSavesDrawingThreads =
-    drawingHasThreads && !hasText(getSavedRequestThreads(partDetail?.part ?? null));
+    hasText(fallbackRequestDraft?.threads) && !hasText(getSavedRequestThreads(partDetail?.part ?? null));
   const quoteViewRequestedByDate =
     needByFilterIsViewOnly && viewRequestedByDate !== undefined
       ? viewRequestedByDate
@@ -1642,6 +1623,7 @@ export function useClientPartController(
       setViewRequestedByDate(nextDate);
       return;
     }
+    setViewRequestedByDate(undefined);
     handleSaveRequestPatch({ requestedByDate: nextDate });
   };
 
@@ -1858,6 +1840,7 @@ export function useClientPartController(
   const xometryDispatchScopeError = xometryDispatchScopeQuery.error
     ? getXometryBetaScopeFailureMessage(xometryDispatchScopeQuery.error, dispatchProvider, {
         drawingThreads: drawingHasThreads,
+        request: fallbackRequestDraft ?? undefined,
       })
     : null;
   const xometryDispatchScopeDenialCode = xometryDispatchScopeQuery.error

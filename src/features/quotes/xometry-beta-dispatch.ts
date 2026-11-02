@@ -1,3 +1,4 @@
+import type { ClientPartRequestUpdateInput } from "./types";
 import type { Json, VendorName } from "@/integrations/supabase/types";
 import { PROVIDER_CATALOG } from "@/features/quotes/generated/provider-catalog";
 
@@ -506,8 +507,8 @@ export function classifyXometryBetaDispatchFailure(
 /**
  * OVD-991: every request field that both server scope checks (the legacy Xometry
  * resolver and the generic provider resolver) refuse as a special requirement,
- * in the words of the request form. The list is the whole set so a customer with
- * no Notes is not left guessing. Condition source: the latest definitions of
+ * in the words of the request form. This fallback is used when request details
+ * are unavailable. Condition source: the latest definitions of
  * private.resolve_xometry_beta_dispatch_scope_with_access (OVD-679) and
  * private.resolve_provider_dispatch_scope (OVD-628).
  */
@@ -515,7 +516,7 @@ const SPECIAL_REQUIREMENT_FIELDS =
   "Threads, Notes (including service, packaging, shipping, certification, sourcing and release notes), " +
   "required certifications, material certification, a certificate of conformance, " +
   "an inspection level other than Standard, preferred suppliers, a sourcing preference other than Best value, " +
-  "material provisioning other than Supplier to source, or a release hold or block";
+  "material provisioning other than Supplier to source, or a saved release hold or block (contact support)";
 
 /**
  * The request's Threads field falls back to the thread callouts read from the
@@ -529,7 +530,33 @@ const DRAWING_THREADS_NOTE =
 export type XometryBetaScopeFailureContext = {
   /** The drawing has thread callouts that the request's Threads field falls back to. */
   drawingThreads?: boolean;
+  /** Known saved request fields, used only to shorten denial copy. */
+  request?: Partial<ClientPartRequestUpdateInput>;
 };
+
+/** Copy only: this list never authorizes dispatch or changes the submitted request. */
+function describeSetSpecialRequirements(request: Partial<ClientPartRequestUpdateInput>): string {
+  const text = (value: unknown) => typeof value === "string" && value.trim().length > 0;
+  const fields: Array<[unknown, string]> = [
+    [text(request.threads), "Threads"],
+    [text(request.notes), "Notes"],
+    [text(request.serviceNotes), "service notes"],
+    [text(request.shipping?.packagingNotes), "packaging notes"],
+    [text(request.shipping?.shippingNotes), "shipping notes"],
+    [request.certifications?.requiredCertifications.length, "required certifications"],
+    [request.certifications?.materialCertificationRequired, "material certification"],
+    [request.certifications?.certificateOfConformanceRequired, "a certificate of conformance"],
+    [request.certifications?.inspectionLevel && request.certifications.inspectionLevel !== "standard", "an inspection level other than Standard"],
+    [text(request.certifications?.notes), "certification notes"],
+    [request.sourcing?.preferredSuppliers.length, "preferred suppliers"],
+    [request.sourcing?.regionPreferenceOverride && request.sourcing.regionPreferenceOverride !== "best_value", "a sourcing preference other than Best value"],
+    [request.sourcing?.materialProvisioning && request.sourcing.materialProvisioning !== "supplier_to_source", "material provisioning other than Supplier to source"],
+    [text(request.sourcing?.notes), "sourcing notes"],
+    [["hold", "blocked"].includes(request.release?.releaseStatus ?? ""), "a saved release hold or block (contact support)"],
+    [text(request.release?.notes), "release notes"],
+  ];
+  return fields.filter(([set]) => Boolean(set)).map(([, label]) => label).join(", ");
+}
 
 /** Converts scope failures to bounded customer copy without exposing database details. */
 export function getXometryBetaScopeFailureMessage(
@@ -539,6 +566,11 @@ export function getXometryBetaScopeFailureMessage(
 ): string {
   const label = LIVE_DISPATCH_PROVIDER_LABELS[provider];
   const drawingThreadsNote = context.drawingThreads === true ? DRAWING_THREADS_NOTE : "";
+  const specialFields = context.request
+    ? describeSetSpecialRequirements(context.request)
+    : SPECIAL_REQUIREMENT_FIELDS;
+  const genericFields = [context.request ? context.request.requestedByDate && "a Need by date" : "a Need by date", specialFields]
+    .filter(Boolean).join(", ");
   switch (getXometryBetaScopeDenialCode(error)) {
     case "xometry_beta_confirmed_sourcing_address_required":
     case "provider_dispatch_confirmed_destination_required":
@@ -550,13 +582,11 @@ export function getXometryBetaScopeFailureMessage(
     case "xometry_beta_special_delivery_date_not_supported":
       return `The controlled ${label} beta does not support a Need by date. Clear Need by in the request, then retry.`;
     case "xometry_beta_special_requirements_not_supported":
-      return `The controlled ${label} beta cannot carry ${SPECIAL_REQUIREMENT_FIELDS}. If this part needs any of them, it is outside the beta. Remove them only if the part does not need them, then retry.${drawingThreadsNote}`;
+      return `The controlled ${label} beta cannot carry ${specialFields || "the saved special requirements"}. If this part needs any of them, it is outside the beta. Remove them only if the part does not need them, then retry.${drawingThreadsNote}`;
     case "provider_dispatch_special_requirements_not_supported":
-      return `The controlled ${label} beta cannot carry a Need by date, ${SPECIAL_REQUIREMENT_FIELDS}. If this part needs any of them, it is outside the beta. Remove them only if the part does not need them, then retry.${drawingThreadsNote}`;
+      return `The controlled ${label} beta cannot carry ${genericFields || "the saved special requirements"}. If this part needs any of them, it is outside the beta. Remove them only if the part does not need them, then retry.${drawingThreadsNote}`;
     case "provider_dispatch_exact_scope_required":
-      // Generic path only: it denies several Quote quantities (one lane per quantity) or a part or drawing
-      // that no longer matches its approved files. A single quantity of any size is accepted.
-      return `The controlled ${label} beta quotes one part at one quantity from its approved files. Remove extra Quote quantities so one quantity remains, then retry. If it still fails, the part or drawing does not match its approved files; contact support.`;
+      return `The controlled ${label} beta quotes one part at one quantity from its approved files. Check that the provider applies to this part and that the request contains one part and one Quote quantity. The approved files must also match. If the scope still cannot be verified, contact support.`;
     default:
       break;
   }
