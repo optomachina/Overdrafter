@@ -3408,7 +3408,10 @@ describe("ClientPart", () => {
 
         expect(alert).toHaveTextContent("This package is not ready for controlled Fictiv beta dispatch.");
         expect(alert).toHaveTextContent("The controlled Fictiv beta cannot carry");
-        expect(alert).not.toHaveTextContent("an inspection level other than Standard");
+        // The page cannot see every server-checked field (packaging notes are not in the client
+        // part metadata), so it names the full list (QA FAIL on #1029 at d268b149).
+        expect(alert).toHaveTextContent("an inspection level other than Standard");
+        expect(alert).toHaveTextContent("packaging");
         expect(alert).toHaveTextContent("If this part needs any of them, it is outside the beta.");
         expect(alert).toHaveTextContent("Remove them only if the part does not need them, then retry.");
         expect(alert).not.toHaveTextContent("Xometry");

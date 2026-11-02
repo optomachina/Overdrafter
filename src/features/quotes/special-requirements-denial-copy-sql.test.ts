@@ -3,7 +3,7 @@
 import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import type { ClientPartRequestUpdateInput } from "./types";
-import { getXometryBetaScopeFailureMessage } from "./xometry-beta-dispatch";
+import { SERVER_SPECIAL_REQUIREMENT_PATHS, getXometryBetaScopeFailureMessage } from "./xometry-beta-dispatch";
 
 /**
  * OVD-991: the customer copy for the special requirements and exact scope
@@ -95,7 +95,7 @@ describe.each([
 ])("$label", ({ signature, code, foldsNeedByIntoSpecialRequirements }) => {
   const { body } = latestDefinition(signature);
   const block = specialRequirementsBlock(body, code);
-  const message = getXometryBetaScopeFailureMessage({ message: code }, "fictiv", { request: allSetRequest });
+  const message = getXometryBetaScopeFailureMessage({ message: code }, "fictiv", { request: allSetRequest, requestComplete: true });
 
   it("denies exactly the special requirements the copy names", () => {
     for (const [sqlFragment, copyFragment] of DENIED_SPECIAL_REQUIREMENTS) {
@@ -104,6 +104,23 @@ describe.each([
     }
     // A new condition must be added to the table above and to the copy.
     expect(block.match(/v_special\s*(?:->>|#>>|#>)\s*/gi)).toHaveLength(DENIED_SPECIAL_REQUIREMENTS.length);
+  });
+
+  it("pins every client completeness path to the server reads", () => {
+    const paths = [...block.matchAll(/v_special\s*(?:->>|#>>|#>)\s*'([^']+)'/gi)]
+      .map((match) => match[1].replace(/[{}]/g, "").replace(/,/g, "."));
+    expect([...SERVER_SPECIAL_REQUIREMENT_PATHS].sort()).toEqual(paths.sort());
+  });
+
+  it("uses the full list when packaging notes are absent from the client payload", () => {
+    const request = { ...allSetRequest, notes: "Deburr", shipping: { shippingNotes: null } };
+    const copy = getXometryBetaScopeFailureMessage({ message: code }, "fictiv", {
+      requestComplete: true,
+      request: request as Partial<ClientPartRequestUpdateInput>,
+    });
+    expect(copy).toContain("Notes (including service, packaging, shipping, certification, sourcing and release notes)");
+    expect(copy).toContain("Threads");
+    expect(copy).toContain("required certifications");
   });
 
   it("treats a requested delivery date the way the copy says", () => {

@@ -215,7 +215,15 @@ describe("set-field denial copy (OVD-995)", () => {
     "provider_dispatch_special_requirements_not_supported",
   ])("names only known set fields for %s", (code) => {
     const message = getXometryBetaScopeFailureMessage(postgrestError(code), "fictiv", {
-      request: { notes: "Deburr" },
+      requestComplete: true,
+      request: {
+        threads: null, notes: "Deburr", serviceNotes: null, requestedByDate: null,
+        shipping: { packagingNotes: null, shippingNotes: null, requestedByDateOverride: null },
+        certifications: { requiredCertifications: [], materialCertificationRequired: false,
+          certificateOfConformanceRequired: false, inspectionLevel: "standard", notes: null },
+        sourcing: { preferredSuppliers: [], regionPreferenceOverride: "best_value", materialProvisioning: "supplier_to_source", notes: null },
+        release: { releaseStatus: "released", reviewDisposition: null, quoteBlockedUntilRelease: null, notes: null },
+      },
     });
     expect(message).toContain("cannot carry Notes.");
     expect(message).not.toContain("Threads");
@@ -225,8 +233,10 @@ describe("set-field denial copy (OVD-995)", () => {
   });
   it("omits default-valued metadata and whitespace-only text", () => {
     const message = getXometryBetaScopeFailureMessage(postgrestError("provider_dispatch_special_requirements_not_supported"), "fictiv", {
+      requestComplete: true,
       request: {
         threads: " ", notes: " ", serviceNotes: " ",
+        shipping: { packagingNotes: null, shippingNotes: null, requestedByDateOverride: null },
         certifications: { requiredCertifications: [], materialCertificationRequired: false,
           certificateOfConformanceRequired: false, inspectionLevel: "standard", notes: null },
         sourcing: { preferredSuppliers: [], regionPreferenceOverride: "best_value", materialProvisioning: "supplier_to_source", notes: null },
@@ -238,8 +248,38 @@ describe("set-field denial copy (OVD-995)", () => {
     expect(message).not.toContain("certifications");
     expect(message).not.toContain("release hold");
   });
-  it("does not invent a set field when the server knows more than the client", () => {
-    const message = getXometryBetaScopeFailureMessage(postgrestError("provider_dispatch_special_requirements_not_supported"), "fictiv", { request: {} });
+  it.each([
+    "xometry_beta_special_requirements_not_supported",
+    "provider_dispatch_special_requirements_not_supported",
+  ])("names the full list for %s when the draft is not known to be complete (QA: saved packaging notes)", (code) => {
+    // The part page's draft comes from the client part metadata, which omits packaging notes;
+    // normalization still fills every key with null, so the shape alone cannot prove completeness.
+    const message = getXometryBetaScopeFailureMessage(postgrestError(code), "fictiv", {
+      request: {
+        threads: null, notes: "Deburr all edges", serviceNotes: null, requestedByDate: null,
+        shipping: { packagingNotes: null, shippingNotes: null, requestedByDateOverride: null },
+        certifications: { requiredCertifications: [], materialCertificationRequired: false,
+          certificateOfConformanceRequired: false, inspectionLevel: "standard", notes: null },
+        sourcing: { preferredSuppliers: [], regionPreferenceOverride: "best_value", materialProvisioning: "supplier_to_source", notes: null },
+        release: { releaseStatus: "released", reviewDisposition: null, quoteBlockedUntilRelease: null, notes: null },
+      },
+    });
+    expect(message).toContain("Notes (including service, packaging, shipping, certification, sourcing and release notes)");
+    expect(message).toContain("Threads");
+    expect(message).not.toContain("cannot carry Notes.");
+  });
+  it("does not invent a set field when the complete client payload is empty", () => {
+    const message = getXometryBetaScopeFailureMessage(postgrestError("provider_dispatch_special_requirements_not_supported"), "fictiv", {
+      requestComplete: true,
+      request: {
+        threads: null, notes: null, serviceNotes: null, requestedByDate: null,
+        shipping: { packagingNotes: null, shippingNotes: null, requestedByDateOverride: null },
+        certifications: { requiredCertifications: [], materialCertificationRequired: false,
+          certificateOfConformanceRequired: false, inspectionLevel: "standard", notes: null },
+        sourcing: { preferredSuppliers: [], regionPreferenceOverride: "best_value", materialProvisioning: "supplier_to_source", notes: null },
+        release: { releaseStatus: "released", reviewDisposition: null, quoteBlockedUntilRelease: null, notes: null },
+      },
+    });
     expect(message).toContain("the saved special requirements");
     expect(message).not.toContain("Threads");
   });

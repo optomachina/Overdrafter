@@ -532,10 +532,42 @@ export type XometryBetaScopeFailureContext = {
   drawingThreads?: boolean;
   /** Known saved request fields, used only to shorten denial copy. */
   request?: Partial<ClientPartRequestUpdateInput>;
+  /**
+   * True only when `request` was read from a source that carries every field the server checks
+   * (SERVER_SPECIAL_REQUIREMENT_PATHS). A draft normalized from the client part metadata is not
+   * complete: that payload omits packaging notes, and normalization fills missing fields with
+   * null, so an unset-looking field may still be set on the server.
+   */
+  requestComplete?: boolean;
 };
 
+/** Server snapshot paths; kept in sync with both resolvers by the SQL contract test. */
+export const SERVER_SPECIAL_REQUIREMENT_PATHS = [
+  "threads", "notes", "serviceNotes", "shipping.packagingNotes", "shipping.shippingNotes",
+  "certifications.requiredCertifications", "certifications.materialCertificationRequired",
+  "certifications.certificateOfConformanceRequired", "certifications.inspectionLevel", "certifications.notes",
+  "sourcing.preferredSuppliers", "sourcing.regionPreferenceOverride", "sourcing.materialProvisioning",
+  "sourcing.notes", "release.releaseStatus", "release.notes",
+] as const;
+
+function hasEverySpecialRequirement(request: Partial<ClientPartRequestUpdateInput>): boolean {
+  return SERVER_SPECIAL_REQUIREMENT_PATHS.every((path) => {
+    let value: unknown = request;
+    for (const key of path.split(".")) {
+      if (value === null || typeof value !== "object" || !Object.prototype.hasOwnProperty.call(value, key)) return false;
+      value = (value as Record<string, unknown>)[key];
+      if (value === undefined) return false;
+    }
+    return true;
+  });
+}
+
 /** Copy only: this list never authorizes dispatch or changes the submitted request. */
-function describeSetSpecialRequirements(request: Partial<ClientPartRequestUpdateInput>): string {
+function describeSetSpecialRequirements(
+  request: Partial<ClientPartRequestUpdateInput>,
+  requestComplete: boolean,
+): string {
+  if (!requestComplete || !hasEverySpecialRequirement(request)) return SPECIAL_REQUIREMENT_FIELDS;
   const text = (value: unknown) => typeof value === "string" && value.trim().length > 0;
   const fields: Array<[unknown, string]> = [
     [text(request.threads), "Threads"],
@@ -543,12 +575,12 @@ function describeSetSpecialRequirements(request: Partial<ClientPartRequestUpdate
     [text(request.serviceNotes), "service notes"],
     [text(request.shipping?.packagingNotes), "packaging notes"],
     [text(request.shipping?.shippingNotes), "shipping notes"],
-    [request.certifications?.requiredCertifications.length, "required certifications"],
+    [request.certifications?.requiredCertifications?.length, "required certifications"],
     [request.certifications?.materialCertificationRequired, "material certification"],
     [request.certifications?.certificateOfConformanceRequired, "a certificate of conformance"],
     [request.certifications?.inspectionLevel && request.certifications.inspectionLevel !== "standard", "an inspection level other than Standard"],
     [text(request.certifications?.notes), "certification notes"],
-    [request.sourcing?.preferredSuppliers.length, "preferred suppliers"],
+    [request.sourcing?.preferredSuppliers?.length, "preferred suppliers"],
     [request.sourcing?.regionPreferenceOverride && request.sourcing.regionPreferenceOverride !== "best_value", "a sourcing preference other than Best value"],
     [request.sourcing?.materialProvisioning && request.sourcing.materialProvisioning !== "supplier_to_source", "material provisioning other than Supplier to source"],
     [text(request.sourcing?.notes), "sourcing notes"],
@@ -567,7 +599,7 @@ export function getXometryBetaScopeFailureMessage(
   const label = LIVE_DISPATCH_PROVIDER_LABELS[provider];
   const drawingThreadsNote = context.drawingThreads === true ? DRAWING_THREADS_NOTE : "";
   const specialFields = context.request
-    ? describeSetSpecialRequirements(context.request)
+    ? describeSetSpecialRequirements(context.request, context.requestComplete === true)
     : SPECIAL_REQUIREMENT_FIELDS;
   const genericFields = [context.request ? context.request.requestedByDate && "a Need by date" : "a Need by date", specialFields]
     .filter(Boolean).join(", ");
