@@ -5,7 +5,8 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { validateAgentContract } from "./validate-agent-contract.mjs";
+import { exerciseGateFixtures, diffEventMatrix } from "./ovd-merge-gate-event-matrix.mjs";
+import { riskyRootCoverageErrors, testDeterminismErrors, validateAgentContract, NON_SENSITIVE_ALLOWLIST } from "./validate-agent-contract.mjs";
 
 const repoRoot = path.resolve(import.meta.dirname, "..");
 
@@ -28,6 +29,73 @@ test("obsolete complexity approval and workflow settings are rejected", () => {
   } finally {
     fs.rmSync(temp, { recursive: true, force: true });
   }
+});
+
+test("a new scripts file must be classified or allow-listed", () => {
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), "agent-contract-risky-"));
+  const allow = path.join(temp, NON_SENSITIVE_ALLOWLIST);
+  fs.mkdirSync(path.dirname(allow), { recursive: true });
+  fs.mkdirSync(path.join(temp, "scripts"), { recursive: true });
+  fs.writeFileSync(path.join(temp, "scripts/new-tool.mjs"), "export {}\n");
+  const classify = (file) => (file === NON_SENSITIVE_ALLOWLIST ? ["infra_ci"] : []);
+  fs.writeFileSync(allow, JSON.stringify({ version: 1, paths: [] }));
+  const uncovered = riskyRootCoverageErrors(temp, { classify });
+  assert.ok(uncovered.some((error) => error.includes("scripts/new-tool.mjs")));
+  fs.writeFileSync(allow, JSON.stringify({ version: 1, paths: ["scripts/new-tool.mjs"] }));
+  assert.deepEqual(riskyRootCoverageErrors(temp, { classify }), []);
+  fs.mkdirSync(path.join(temp, ".github/workflows"), { recursive: true });
+  fs.writeFileSync(path.join(temp, ".github/workflows/new-gate.yml"), "on:\n  push:\n");
+  const workflow = riskyRootCoverageErrors(temp, { classify });
+  assert.ok(workflow.some((error) => error.includes(".github/workflows/new-gate.yml")));
+  assert.ok(workflow.some((error) => error.includes("no allow-list")));
+});
+
+test("an unanchored digit LIKE or a real fsync fails the contract", () => {
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), "agent-contract-flake-"));
+  const sql = path.join(temp, "supabase/tests/sample.sql");
+  fs.mkdirSync(path.dirname(sql), { recursive: true });
+  fs.writeFileSync(sql, "select decision::text not like '%" + "7075%';\n");
+  assert.ok(testDeterminismErrors(temp).some((error) => error.includes("sample.sql")));
+  fs.writeFileSync(sql, "select decision::text !~ '\\\\m7075\\\\M';\n");
+  const unit = path.join(temp, "scripts/sample.test.mjs");
+  fs.mkdirSync(path.dirname(unit), { recursive: true });
+  fs.writeFileSync(unit, "await handle.syn" + "c();\n");
+  assert.ok(testDeterminismErrors(temp).some((error) => error.includes("sample.test.mjs")));
+  fs.writeFileSync(unit, "vi.spyOn(proto, \"sync\").mockImplementation(() => Promise.resolve());\nawait handle.syn" + "c();\n");
+  assert.deepEqual(testDeterminismErrors(temp), []);
+});
+
+test("a new merge_group workflow must be added to the event matrix", () => {
+  const file = ".github/workflows/new-gate.yml";
+  const errors = diffEventMatrix({
+    files: [{
+      file,
+      events: ["merge_group"],
+      mergeGroupTypes: ["checks_requested"],
+      text: "on:\n  merge_group:\n    types:\n      - checks_requested\n",
+    }],
+    matrix: { version: 1, workflows: [] },
+    requiredWorkflows: [],
+    commentFilter: "unused",
+    doc: "",
+  });
+  assert.ok(errors.some((error) => error.includes(file) && error.includes("missing")));
+});
+
+test("the gate event matrix rejects a push that scans open PRs without report-only", () => {
+  const files = [{
+    file: ".github/workflows/example.yml",
+    events: ["push"],
+    mergeGroupTypes: "absent",
+    text: "on:\n  push:\n    branches: [main]\njobs:\n  check:\n    steps:\n      - run: node scripts/example.mjs --all\n",
+  }];
+  const matrix = { version: 1, workflows: [{ file: files[0].file, events: ["push"], push: "commit" }] };
+  const errors = diffEventMatrix({ files, matrix, requiredWorkflows: [], commentFilter: "issue_comment", doc: files[0].file });
+  assert.ok(errors.some((error) => error.includes("report-only")));
+});
+
+test("gate event fixtures match the merge-gate client", async () => {
+  assert.deepEqual(await exerciseGateFixtures(repoRoot), []);
 });
 
 test("runs as a CLI when invoked through a symlinked directory", () => {

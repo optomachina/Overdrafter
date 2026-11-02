@@ -21,6 +21,7 @@ Implement a well-scoped issue while preserving boundaries and producing PR-ready
 - Do not expand scope silently.
 - Run relevant tests and report exact commands.
 - Document incomplete edges honestly.
+- Follow-up items are separate acceptance criteria. Fix CodeRabbit, Opus and QA findings on the open PR before merge; do not list those findings as follow-ups.
 
 ## Workflow
 1. Restate acceptance criteria in checklist form.

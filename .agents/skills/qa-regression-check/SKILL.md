@@ -20,6 +20,8 @@ Review completed work for correctness and likely regressions before merge.
 - Do not assume success because builds pass.
 - Verify intended behavior and likely breakpoints.
 - Apply stricter scrutiny to billing/auth/data/file handling.
+- In a cloud session, boot the authenticated browser lane with `bash scripts/cloud-qa-boot.sh` before Playwright. A stall before that boot is an environment gap, not a product failure. Do not turn the Chromium sandbox off to get past it.
+- An unanchored digit substring (`LIKE '%7075%'`) or a real `FileHandle#sync` / `fsync` in a unit test is a flake. Anchor the token, or mock `sync` and `datasync`. Do not raise the test timeout to hide it.
 
 ## Workflow
 1. Map acceptance criteria to evidence.

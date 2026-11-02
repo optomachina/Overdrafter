@@ -1,0 +1,76 @@
+{
+  "version": 1,
+  "note": "Workflows that trigger on merge_group, issue_comment, pull_request_target, or push. Update this file and docs/ci/gate-event-matrix.md in the same PR as the workflow. required: true must match REQUIRED_CHECKS in scripts/merge-queue-workflows.test.mjs. push commit tests the pushed tree; push report-only may scan other open PRs and must not fail main.",
+  "workflows": [
+    {
+      "file": ".github/workflows/ci.yml",
+      "events": ["pull_request", "push", "merge_group"],
+      "push": "commit",
+      "mergeGroupTypes": ["checks_requested"],
+      "required": true
+    },
+    {
+      "file": ".github/workflows/companion-artifact.yml",
+      "events": ["pull_request", "push"],
+      "push": "commit"
+    },
+    {
+      "file": ".github/workflows/companion-task.yml",
+      "events": ["pull_request", "push"],
+      "push": "commit"
+    },
+    {
+      "file": ".github/workflows/native-sql-proofs.yml",
+      "events": ["pull_request", "push", "workflow_dispatch"],
+      "push": "commit"
+    },
+    {
+      "file": ".github/workflows/ovd-merge-gate.yml",
+      "events": ["pull_request_target", "issue_comment", "workflow_dispatch", "merge_group"],
+      "mergeGroupTypes": ["checks_requested"]
+    },
+    {
+      "file": ".github/workflows/pr-body-gate.yml",
+      "events": ["pull_request", "merge_group"],
+      "mergeGroupTypes": ["checks_requested"],
+      "required": true
+    },
+    {
+      "file": ".github/workflows/proof-check.yml",
+      "events": ["pull_request", "merge_group"],
+      "mergeGroupTypes": ["checks_requested"]
+    },
+    {
+      "file": ".github/workflows/secret-scan.yml",
+      "events": ["pull_request", "merge_group"],
+      "mergeGroupTypes": ["checks_requested"],
+      "required": true
+    },
+    {
+      "file": ".github/workflows/security-definer-lint.yml",
+      "events": ["pull_request", "merge_group"],
+      "mergeGroupTypes": ["checks_requested"]
+    },
+    {
+      "file": ".github/workflows/sensitive-class.yml",
+      "events": ["pull_request", "merge_group"],
+      "mergeGroupTypes": ["checks_requested"]
+    },
+    {
+      "file": ".github/workflows/stop-observer.yml",
+      "events": ["pull_request", "push"],
+      "push": "commit"
+    },
+    {
+      "file": ".github/workflows/vendor-pr-serialization.yml",
+      "events": ["pull_request", "merge_group", "push", "schedule"],
+      "push": "report-only",
+      "mergeGroupTypes": ["checks_requested"]
+    },
+    {
+      "file": ".github/workflows/verify.yml",
+      "events": ["pull_request", "merge_group"],
+      "mergeGroupTypes": null
+    }
+  ]
+}

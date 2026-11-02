@@ -95,6 +95,7 @@ echo "land_strict_merge.sh exit: $LAND_EXIT"
 
 - Do not write new product code while landing.
 - Do not land a PR without a real review handoff.
+- Do not merge while an actionable CodeRabbit, Opus or QA finding on the pinned head is still open. A follow-up PR does not clear it.
 - Do not mark the issue `Done` before GitHub shows the PR merged.
 - Do not mark it `Done` after merge when an acceptance criterion still requires post-merge work.
 - Do not leave an issue in `Merging` when required checks are red and implementation changes are needed; move it back to `Rework`.

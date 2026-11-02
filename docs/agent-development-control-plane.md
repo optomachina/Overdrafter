@@ -148,9 +148,25 @@ Counters, reconciled: a **repair round** happens inside one attempt on one PR (b
 
 ## Classifying new gate files
 
-Classify a new gate, safety, or infra file in the same PR that adds it; adding a glob to `docs/sensitive-paths.json` is free, and a later classification PR leaves the file auto-mergeable as a repo script in the meantime. `scripts/lib/sensitive-paths.test.mjs` fails when a new top-level `scripts/{check,validate,lint,guard,verify}-*` script (`.mjs` or `.sh`), `scripts/ci-rerun-once.mjs` or `scripts/preflight.sh` has no class, and when a non-test `api/**`, `server/**` or Edge Function `index.ts` reads `SUPABASE_SERVICE_ROLE_KEY`, `SERVICE_ROLE_KEY` or `SUPABASE_DB_URL` without an `auth` class (`payments` for a billing function). CI-run scripts must be `infra_ci` (`scripts/sensitive-class-detect.test.mjs`). Do not extend the recorded baselines in those tests. `.gitleaks.toml` and `.gitleaksignore` are already `infra_ci`.
+Classify a new gate, safety, or infra file in the same PR that adds it; adding a glob to `docs/sensitive-paths.json` is free, and a later classification PR leaves the file auto-mergeable until it lands. Week of 2026-10-26 that gap was `#1014` (`scripts/prod-backup*` after `#1011`), `#977` (`scripts/test-lane-contract*`), `#939` (`scripts/check-lock-order.mjs`, before the prefix check existed) and `#930` (`.gitleaks.toml`). `scripts/validate-agent-contract.mjs` now fails when a file under `scripts/`, `.github/workflows/`, `.github/actions/` or `supabase/migrations/`, or a repo-root `.gitleaks.toml` / `.gitleaksignore`, matches no glob. Workflows, actions, migrations and the gitleaks files have no exception list. A `scripts/` file that is not gate, safety or infra may be added, in that same PR, to `scripts/fixtures/sensitive-paths/non-sensitive-allowlist.json`. Do not use the allow-list to skip a classification.
+
+`scripts/lib/sensitive-paths.test.mjs` still fails when a new top-level `scripts/{check,validate,lint,guard,verify}-*` script (`.mjs` or `.sh`), `scripts/ci-rerun-once.mjs` or `scripts/preflight.sh` has no class, and when a non-test `api/**`, `server/**` or Edge Function `index.ts` reads `SUPABASE_SERVICE_ROLE_KEY`, `SERVICE_ROLE_KEY` or `SUPABASE_DB_URL` without an `auth` class (`payments` for a billing function). CI-run scripts must be `infra_ci` (`scripts/sensitive-class-detect.test.mjs`). Do not add names to `KNOWN_UNCLASSIFIED_GATE_SCRIPTS`. `.gitleaks.toml` and `.gitleaksignore` are `infra_ci`.
 
 Matcher and report mechanics: a base ref given to the matcher must resolve to a commit, or the call fails instead of falling back to the PR's own copy. The PR report (`npm run sensitive-paths:report`, also run inside `npm run test:portable-node`) is report only and never fails; a dedicated workflow running the base copy of the matcher is a future card item.
+
+## Gate event matrix
+
+Week of 2026-10-26 the merge-gate and required-check patches were not one defect. The paths that failed after merge were untested as production events: `merge_group` (`#1005`, `secret-scan` became required with no queue trigger; `#1006` documented it), `issue_comment` (`#972` cancelled queued writers, `#1007` retried 403/429, `#1009` narrowed the filter to verdict markers), `push` to `main` (`#1013`, vendor overlaps failed `main`), and required-check concurrency keyed on the PR number (`#1010`). `#928`, `#959`, `#963`, `#964` and `#993` were the gate's introduction, CI suites, provenance and enforce mode, not the same miss.
+
+`docs/ci/gate-event-matrix.md` and `scripts/fixtures/sensitive-paths/gate-event-matrix.json` are the event matrix. Update both in the same PR as a workflow change that adds or removes `merge_group`, `issue_comment`, `pull_request_target` or `push`. The contract check fails if they drift. Do not drop `checks_requested`, the verdict comment filter, head-sha concurrency on a required check, or `--report-only` on a push that scans other open PRs. Rate-limit and comment fixtures live next to the matrix under `scripts/fixtures/sensitive-paths/`.
+
+## Tests and review follow-ups
+
+Week of 2026-10-26, `#994` anchored `7075` after `not like '%7075%'` matched digits inside a fingerprint, `#995` mocked `FileHandle#sync` after a real fsync crossed vitest's 5 second cap on the first shard run, and `#1008` added `scripts/cloud-qa-boot.sh` after the QA browser lane stalled in cloud sessions before any test. `#983` carried CodeRabbit findings from `#976`, and `#956` / `#958` repaired just-merged behavior. `#950` was a vendor-file split from `#914`, which the one-open-PR rule requires; do that split before either PR merges, not as a review follow-up after.
+
+Anchor a short token on a word or regex boundary. Do not use `LIKE '%1234%'` for a digit run that can sit inside a hash, UUID or id. Do not call `fsync`, `fsyncSync` or `FileHandle#sync` / `#datasync` in a unit test unless that file mocks it. In a cloud QA session, run `bash scripts/cloud-qa-boot.sh` before Playwright. A stall before that boot is an environment gap, not a product failure, and it is not a reason to turn the Chromium sandbox off.
+
+Fix CodeRabbit, Opus and QA findings on the open PR before merge. A follow-up PR is for a separate acceptance criterion. The contract check fails an unanchored digit `LIKE` and an unmocked `sync` in unit tests.
 
 ## Projections
 
