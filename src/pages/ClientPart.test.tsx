@@ -66,6 +66,7 @@ const {
     unpinJob: vi.fn(),
     unpinProject: vi.fn(),
     updateClientPartRequest: vi.fn(),
+    clearClientPartRequestedByDate: vi.fn().mockResolvedValue("job-1"),
     updateProject: vi.fn(),
     uploadFilesToJob: vi.fn(),
   },
@@ -116,6 +117,7 @@ vi.mock("@/features/quotes/api/extraction-api", () => ({
 vi.mock("@/features/quotes/api/jobs-api", () => ({
   resetClientPartPropertyOverrides: api.resetClientPartPropertyOverrides,
   updateClientPartRequest: api.updateClientPartRequest,
+  clearClientPartRequestedByDate: api.clearClientPartRequestedByDate,
 }));
 vi.mock("@/features/quotes/api/projects-api", () => ({
   archiveProject: api.archiveProject,
@@ -3153,70 +3155,14 @@ describe("ClientPart", () => {
     expect(api.updateClientPartRequest).not.toHaveBeenCalled();
   });
 
-  it("explains an already saved Need by date and removes it only on request (OVD-981)", async () => {
+  it("removes saved Need by through only the narrow RPC and preserves unsaved edits (OVD-994)", async () => {
+    api.fetchPartDetailByJobId.mockResolvedValue(createNeedByRequestDetail({ drawingThreads: THREADED_DRAWING }));
     renderWithClient("/parts/job-1");
-
-    expect(await screen.findByText(/does not support a Need by date/i)).toBeInTheDocument();
-    expect(api.updateClientPartRequest).not.toHaveBeenCalled();
-
-    fireEvent.click(screen.getByRole("button", { name: "Remove Need by from request" }));
-
-    await waitFor(() => {
-      expect(api.updateClientPartRequest).toHaveBeenCalledWith(
-        expect.objectContaining({ jobId: "job-1", requestedByDate: null }),
-      );
-    });
-  });
-
-  it("removes the Need by date with a save that changes nothing else (OVD-991)", async () => {
-    api.fetchPartDetailByJobId.mockResolvedValue(createNeedByRequestDetail({ savedThreads: "1/4-20 UNC-2B" }));
-    renderWithClient("/parts/job-1");
-
-    // An unsaved edit in the request form must not ride along with the removal.
     fireEvent.change(await screen.findByLabelText("Notes"), { target: { value: "Unsaved note" } });
     fireEvent.click(await screen.findByRole("button", { name: "Remove Need by from request" }));
-
-    await waitFor(() => expect(api.updateClientPartRequest).toHaveBeenCalledTimes(1));
-    expect(api.updateClientPartRequest.mock.calls[0]).toStrictEqual([
-      {
-        jobId: "job-1",
-        requestedServiceKinds: ["manufacturing_quote"],
-        primaryServiceKind: "manufacturing_quote",
-        serviceNotes: null,
-        description: "Bracket",
-        partNumber: "BRKT-001",
-        revision: "A",
-        material: "6061-T6 aluminum",
-        finish: "Black anodize",
-        threads: "1/4-20 UNC-2B",
-        tightestToleranceInch: 0.005,
-        process: "CNC milling",
-        notes: "Deburr all edges",
-        quantity: 10,
-        requestedQuoteQuantities: [10],
-        requestedByDate: null,
-        shipping: { requestedByDateOverride: null, packagingNotes: null, shippingNotes: null },
-        certifications: {
-          requiredCertifications: [],
-          materialCertificationRequired: null,
-          certificateOfConformanceRequired: null,
-          inspectionLevel: null,
-          notes: null,
-        },
-        sourcing: {
-          regionPreferenceOverride: null,
-          preferredSuppliers: [],
-          materialProvisioning: null,
-          notes: null,
-        },
-        release: {
-          releaseStatus: null,
-          reviewDisposition: null,
-          quoteBlockedUntilRelease: null,
-          notes: null,
-        },
-      },
-    ]);
+    await waitFor(() => expect(api.clearClientPartRequestedByDate).toHaveBeenCalledWith("job-1"));
+    expect(api.updateClientPartRequest).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("Notes")).toHaveValue("Unsaved note");
   });
 
   it("keeps the saved Need by notice on the request's date while the filter shows another (OVD-991)", async () => {
@@ -3290,7 +3236,7 @@ describe("ClientPart", () => {
 
   it("disables the Need by controls while a request save is pending (OVD-991)", async () => {
     const pendingSave = createDeferredPromise<void>();
-    api.updateClientPartRequest.mockReturnValue(pendingSave.promise);
+    api.clearClientPartRequestedByDate.mockReturnValue(pendingSave.promise);
     renderWithClient("/parts/job-1");
 
     const remove = await screen.findByRole("button", { name: "Remove Need by from request" });
@@ -3311,20 +3257,12 @@ describe("ClientPart", () => {
     expect(screen.getByLabelText("Need by date")).toBeEnabled();
   });
 
-  it("warns that removing Need by also saves the drawing's thread callouts as Threads (OVD-991)", async () => {
+  it("does not claim Remove saves drawing callouts as Threads (OVD-994)", async () => {
     api.fetchPartDetailByJobId.mockResolvedValue(createNeedByRequestDetail({ drawingThreads: THREADED_DRAWING }));
     renderWithClient("/parts/job-1");
-
     const notice = await screen.findByRole("region", { name: "Need by date on the request" });
-    expect(notice).toHaveTextContent("records the thread callouts read from the drawing as Threads");
-
-    // The warning is true: the save sends the callouts as the request's Threads.
-    fireEvent.click(screen.getByRole("button", { name: "Remove Need by from request" }));
-    await waitFor(() => expect(api.updateClientPartRequest).toHaveBeenCalledTimes(1));
-    expect(api.updateClientPartRequest.mock.calls[0]?.[0]).toMatchObject({
-      requestedByDate: null,
-      threads: "1/4-20 UNC-2B, M6x1.0-6H",
-    });
+    expect(notice).toHaveTextContent("changes only the saved Need by date");
+    expect(notice).not.toHaveTextContent(/thread callouts/i);
   });
 
   it.each([
@@ -3559,9 +3497,8 @@ describe("ClientPart", () => {
     fireEvent.click(screen.getByRole("button", { name: "Clear" }));
 
     await waitFor(() => {
-      expect(api.updateClientPartRequest).toHaveBeenCalledWith(
-        expect.objectContaining({ jobId: "job-1", requestedByDate: null }),
-      );
+      expect(api.clearClientPartRequestedByDate).toHaveBeenCalledWith("job-1");
+      expect(api.updateClientPartRequest).not.toHaveBeenCalled();
     });
   });
 

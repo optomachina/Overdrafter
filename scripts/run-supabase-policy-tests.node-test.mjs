@@ -275,3 +275,11 @@ test('OVD-462 a rollback queued behind a pending revoke neither deadlocks nor dr
   assert.throws(() => acceptRollbackBehindRevoke(fence, occupantRefusal, false, true));
   assert.throws(() => acceptRollbackBehindRevoke(fence, occupantRefusal, true, false));
 });
+
+test('OVD-994 pgTAP rollback fixture is byte identical and used by the historical ACL drill', () => {
+  assert.deepEqual(readFileSync(join(source, 'fixtures/ovd994_rollback.inc')),
+    readFileSync(fileURLToPath(new URL('../docs/migration-drafts/ovd-994.rollback.sql', import.meta.url))));
+  for (const file of ['ovd994_clear_need_by_and_threads.sql', 'ovd736_anon_definer_privileges.sql']) {
+    assert.match(readFileSync(join(source, file), 'utf8'), /\\ir fixtures\/ovd994_rollback\.inc\n/);
+  }
+});

@@ -857,6 +857,7 @@ export type PartDetailAggregate = {
 
 export type ClientPartRequestUpdateInput = {
   jobId: string;
+  clearThreads?: boolean;
 } & ClientPartRequestEditableFields &
   RfqLineItemExtendedMetadata;
 

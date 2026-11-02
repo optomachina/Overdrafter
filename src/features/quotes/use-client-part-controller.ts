@@ -70,7 +70,7 @@ import {
   fetchVendorCapabilityProfiles,
   resolveClientPartDetailRoute,
 } from "@/features/quotes/api/workspace-access";
-import { updateClientPartRequest, resetClientPartPropertyOverrides } from "@/features/quotes/api/jobs-api";
+import { clearClientPartRequestedByDate, updateClientPartRequest, resetClientPartPropertyOverrides } from "@/features/quotes/api/jobs-api";
 import { useArchiveUndo } from "@/features/quotes/archive-undo";
 import { buildActivityLogEntries } from "@/features/quotes/activity-log";
 import { formatPartLabel, getClientItemPresentation } from "@/features/quotes/client-presentation";
@@ -235,6 +235,7 @@ function applyResetFields(
         break;
       case "threads":
         nextDraft.threads = refreshedDraft.threads;
+        nextDraft.clearThreads = false;
         break;
       case "process":
         nextDraft.process = refreshedDraft.process;
@@ -250,7 +251,7 @@ function hasText(value: unknown): value is string {
 }
 
 /**
- * The Threads value the request falls back to when its Threads field is cleared:
+ * The extracted Threads default, retained for reset and drawing-specific denial copy:
  * the stored property defaults when present, otherwise the drawing's thread callouts.
  * Mirrors the defaults the part workspace shows beside the Threads field.
  */
@@ -263,16 +264,6 @@ function getRequestThreadDefault(
     return typeof defaults.threads === "string" ? defaults.threads : null;
   }
   return extraction?.threads?.join(", ") ?? null;
-}
-
-/** Threads already stored on the approved request, which the server scope checks read. */
-function getSavedRequestThreads(part: PartAggregate | null): string | null {
-  const snapshot = part?.approvedRequirement?.spec_snapshot;
-  const snapshotThreads =
-    snapshot && typeof snapshot === "object" && !Array.isArray(snapshot) ? snapshot.threads : null;
-  const clientThreads = part?.clientRequirement?.threads;
-  if (hasText(clientThreads)) return clientThreads;
-  return hasText(snapshotThreads) ? snapshotThreads : null;
 }
 
 function requestDraftIncludesPatch(
@@ -647,6 +638,24 @@ export function useClientPartController(
     },
   });
 
+  const clearNeedByMutation = useMutation({
+    mutationFn: () => serializeRequestMutation(() => clearClientPartRequestedByDate(canonicalJobId)),
+    onSuccess: async () => {
+      setRequestDraft((current) => current ? { ...current, requestedByDate: null } : current);
+      if (patchDraftPreservationRef.current) {
+        patchDraftPreservationRef.current.draft.requestedByDate = null;
+        if ("requestedByDate" in (patchDraftPreservationRef.current.patch ?? {})) {
+          patchDraftPreservationRef.current.patch = {
+            ...patchDraftPreservationRef.current.patch, requestedByDate: null,
+          };
+        }
+      }
+      await invalidateClientWorkspaceQueries(queryClient, { jobId: canonicalJobId });
+      toast.success("Need by date removed.");
+    },
+    onError: (error: Error) => toast.error(error.message || "Failed to remove Need by date."),
+  });
+
   const resetFieldMutation = useMutation({
     mutationFn: (input: ResetFieldMutationInput) =>
       serializeRequestMutation(async () => {
@@ -984,12 +993,8 @@ export function useClientPartController(
   const needByFilterIsViewOnly = !(
     quoteCollectionMode.state === "blocked" && !quoteCollectionMode.isLoading
   );
-  // OVD-991: Threads falls back to the drawing's thread callouts when cleared, and any full
-  // save of the request records them. Both server scope checks deny a non-blank Threads value.
   const requestThreadDefault = getRequestThreadDefault(partDetail?.part ?? null, extraction);
   const drawingHasThreads = hasText(requestThreadDefault);
-  const needByRemovalSavesDrawingThreads =
-    drawingHasThreads && !hasText(getSavedRequestThreads(partDetail?.part ?? null));
   const quoteViewRequestedByDate =
     needByFilterIsViewOnly && viewRequestedByDate !== undefined
       ? viewRequestedByDate
@@ -1642,7 +1647,8 @@ export function useClientPartController(
       setViewRequestedByDate(nextDate);
       return;
     }
-    handleSaveRequestPatch({ requestedByDate: nextDate });
+    if (nextDate === null) clearNeedByMutation.mutate();
+    else handleSaveRequestPatch({ requestedByDate: nextDate });
   };
 
   const handleSaveRequestPatch = (next: Partial<ClientPartRequestUpdateInput>) => {
@@ -1986,7 +1992,7 @@ export function useClientPartController(
     requestSummaryRequestedByDate,
     quoteViewRequestedByDate,
     needByFilterIsViewOnly,
-    needByRemovalSavesDrawingThreads,
+    clearNeedByMutation,
     resolveSidebarProjectIdsForJob,
     navigationModel,
     revisionOptions,
