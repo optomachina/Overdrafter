@@ -204,7 +204,9 @@ describe("suggest-only evidence and main parity", () => {
     expect(signal.material.reasons).toContain(reason);
     for (const field of ["partNumber", "revision", "finish"] as const) expect(signal[field].reasons).toEqual(["regex_fit"]);
   });
-  const title = "TITLE: SAMPLE PLATE\nPROCESS: MILLING\nPART NUMBER: ABC-001\nREV: B\nMATERIAL: AL 6061-T6\nFINISH: AS MACHINED";
+  // PROCESS is not a cell label, so its row is text in the cell above it (OVD-1009: the TITLE cell is read like the
+  // others, and such a row under the title leaves the description flagged); it is printed last here.
+  const title = "TITLE: SAMPLE PLATE\nPART NUMBER: ABC-001\nREV: B\nMATERIAL: AL 6061-T6\nFINISH: AS MACHINED\nPROCESS: MILLING";
   it.each([false, true])("gates title-block description and process (enabled=%s)", async (enabled) => {
     const pdfText = withMonospaceGeometry(pdfTextOf(title));
     const signal = infer(pdfText, enabled);
@@ -217,6 +219,8 @@ describe("suggest-only evidence and main parity", () => {
     expect(result.extractedDescriptionRaw.reasons.includes(reason)).toBe(!enabled);
     expect(result.reviewFields.includes("description")).toBe(!enabled);
   });
+  // OVD-1009: the description is a cell field, so the OCR rescue's title is a suggestion flagged for review whatever
+  // the switch says (only the TITLE cell, proven, approves a description); the switch still adds its own reason.
   it.each([undefined, false, true])("gates the existing OCR title rescue without a source region (enabled=%s)", async (enabled) => {
     // Exercise the existing rescue without copying a private drawing title into a fixture.
     const source = fs.readFileSync(new URL("./pdfDrawing.ts", import.meta.url), "utf8");
@@ -224,17 +228,19 @@ describe("suggest-only evidence and main parity", () => {
     expect(Boolean(rescuedTitle)).toBe(true);
     const words = rescuedTitle!.split(" ");
     const lastWord = words.pop();
+    // The TITLE cell holds a date, so it gives no value (a title never holds one) and the rescue fills the field.
     const pdfText = withMonospaceGeometry(pdfTextOf(`TITLE: ${words.join(" ")} 10/20/2026\n${lastWord}`));
     const field = infer(pdfText, enabled).description;
     expect(field.value).toBe(rescuedTitle);
     expect(field.sourceRegion).toBeNull();
     expect(field.reasons).toContain("ocr_title_block");
-    expect(field.reviewNeeded).toBe(enabled !== true);
+    expect(field.reviewNeeded).toBe(true);
     expect(field.reasons.includes(reason)).toBe(enabled !== true);
+    expect(field.reasons.includes("title_block_cell_unread")).toBe(true);
     const result = await hybrid(pdfText, enabled);
-    expect(result.extractedDescriptionRaw.reviewNeeded).toBe(enabled !== true);
+    expect(result.extractedDescriptionRaw.reviewNeeded).toBe(true);
     expect(result.extractedDescriptionRaw.reasons.includes(reason)).toBe(enabled !== true);
-    expect(result.reviewFields.includes("description")).toBe(enabled !== true);
+    expect(result.reviewFields).toContain("description");
   });
   it("gates a description inferred spatially within the title block", () => {
     const field = infer(withMonospaceGeometry(pdfTextOf("SAMPLE PLATE\nPART NUMBER: ABC-001\nREV: B"))).description;
@@ -242,17 +248,20 @@ describe("suggest-only evidence and main parity", () => {
     expect(field.reviewNeeded).toBe(true);
     expect(field.reasons).toContain(reason);
   });
-  it.each([false, true])("retains the cross-sheet description/process delta check (geometry=%s)", async (geometry) => {
+  // OVD-1009: the description is a cell field, so two sheets that print the same title agree (the cells' proof), as the
+  // other four cells do; process keeps the cross-sheet delta check.
+  it.each([false, true])("retains the cross-sheet process delta check; the description agrees with itself across sheets (geometry=%s)", async (geometry) => {
     const raw = pdfTextOf(title);
     raw.pageCount = 2;
     raw.pages.push({ ...raw.pages[0]!, page: 2 });
     const pdfText = geometry ? withMonospaceGeometry(raw) : raw;
     for (const enabled of [false, true]) {
       const signal = infer(pdfText, enabled);
-      for (const field of ["description", "process"] as const) expect(signal[field].reviewNeeded).toBe(true);
+      expect(signal.process.reviewNeeded).toBe(true);
+      expect(signal.description).toMatchObject({ value: "SAMPLE PLATE", reviewNeeded: !geometry || !enabled });
       const result = await hybrid(pdfText, enabled);
-      expect(result.extractedDescriptionRaw.reviewNeeded).toBe(true);
-      expect(result.reviewFields).toContain("description");
+      expect(result.extractedDescriptionRaw.reviewNeeded).toBe(!geometry || !enabled);
+      expect(result.reviewFields.includes("description")).toBe(!geometry || !enabled);
     }
   });
   it.each([false, true])("preserves HEAD's model-fallback notes-description review (enabled=%s)", async (enabled) => {

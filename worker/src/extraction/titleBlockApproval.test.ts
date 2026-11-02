@@ -28,6 +28,30 @@ async function hybrid(pdfText: PdfTextExtraction, answer: DrawingModelExtraction
 }
 
 describe("final extraction approval invariants", () => {
+  // OVD-1009: the description is a cell field. The TITLE cell, proven, approves it; layout text alone, a label token
+  // from a model, or the OCR rescue's text never does.
+  it("proves the description from the TITLE cell like the other cells, and only from it", async () => {
+    const words = [box("TITLE:", 100, 100, 7), ...phrase("SAMPLE PART", 130, 115, 14), box("SIZE", 100, 150, 6), ...phrase("DWG. NO.", 130, 150, 6)];
+    const text = "TITLE:\n      SAMPLE PART\nSIZE  DWG. NO.";
+    const proven = infer(pdf(words, text)).description;
+    expect(proven).toMatchObject({ value: "SAMPLE PART", reviewNeeded: false });
+    expect(proven.reasons).toContain("title_block_cell_proven");
+    const layoutOnly = infer({ ...pdf([], text), pages: [{ page: 1, text, ocrText: "", ocrStatus: "ok" }] }).description;
+    expect(layoutOnly).toMatchObject({ value: "SAMPLE PART", reviewNeeded: true });
+    const disagreeing = infer(pdf(words, text, "TITLE:\n      SAMPLE PLATE")).description;
+    expect(disagreeing).toMatchObject({ value: "SAMPLE PART", reviewNeeded: true });
+    expect(disagreeing.reasons).toContain("independent_source_conflict");
+    for (const value of ["NOTES:", "TITLE", "Q.A.", "SEE NOTES"]) {
+      expect(validateModelFieldValue("description", value), value).toContain("rejected_label_token");
+    }
+    // The model's label token is rejected, and the proven cell value stands.
+    const result = await hybrid(pdf(words, text), model({ description: "NOTES:" }));
+    expect(result.description).toBe("SAMPLE PART");
+    expect(result.fieldSelections?.description).toBe("parser");
+    expect(result.extractedDescriptionRaw).toMatchObject({ reviewNeeded: false });
+    expect(result.reviewFields).not.toContain("description");
+  });
+
   it("model agreement at 0.99 cannot approve an incomplete 6061-T cell", async () => {
     const input = pdf([box("MATERIAL", 100, 100), box("6061-T", 100, 120), box("6", 100, 150)], "MATERIAL\n6061-T\n6");
     expect(infer(input).material).toMatchObject({ value: "6061-T", reviewNeeded: true });
