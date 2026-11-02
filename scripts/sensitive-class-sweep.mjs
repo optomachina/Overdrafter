@@ -479,12 +479,18 @@ export function residualWitness(key) {
 
 const isSafe = (result) => result.classes.length === 0 && result.category !== null;
 
+/** The counters of a sweep before any name is classified; runSweep adds to them. */
+export function emptySweep() {
+  return { total: 0, v1Sensitive: 0, kept: 0, lost: 0, lostToSafe: 0, lostToUnclassified: 0, newlySafe: 0, residual: new Map(), unexplained: [], newlySafeNames: [] };
+}
+
 /**
- * Classify every name with v1 and with this checkout.
+ * Classify every name with v1 and with this checkout. Passing the same `stats` to
+ * several calls sweeps the names in parts (the test does, to yield between them)
+ * and gives the totals of one sweep over all of them.
  * @returns {{total, v1Sensitive, kept, lost, lostToSafe, lostToUnclassified, newlySafe, residual: Map, unexplained: string[]}}
  */
-export function runSweep({ config, names = sweepNames() } = {}) {
-  const stats = { total: 0, v1Sensitive: 0, kept: 0, lost: 0, lostToSafe: 0, lostToUnclassified: 0, newlySafe: 0, residual: new Map(), unexplained: [], newlySafeNames: [] };
+export function runSweep({ config, names = sweepNames(), stats = emptySweep() } = {}) {
   for (const name of names) {
     stats.total += 1;
     const before = v1ClassifyPath(name);
