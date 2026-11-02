@@ -1118,6 +1118,21 @@ describe("pdfDrawing tightest tolerance units (OVD-976)", () => {
       },
     );
 
+    it.each([
+      ["☑ MM ☐ INCH SCALE 1:2 SHEET 1 OF 1", "metric", 0.0009],
+      ["☐ MM ☑ INCH   SCALE 1:2", "inch", 0.025],
+      ["UNITS: ☑ MM ☐ INCH", "metric", 0.0009],
+      ["UNITS [X] MM [ ] INCH", "metric", 0.0009],
+      ["DIMENSIONS ☑ MM ☐ INCH", "metric", 0.0009],
+      ["DIMENSIONS ARE IN ☑ MM ☐ INCH", "metric", 0.0009],
+      ["UNITS: ☑ MM", "metric", 0.0009],
+      ["UNITS: INCH ☐ MM ☒", "mixed", null],
+      ["☑ MM ☒ MM", "unspecified", 0.025],
+    ])("reads checkbox field %s", (field, drawingUnits, valueInch) => {
+      expect(tolerance([String(field), "BORE ±0.025"]))
+        .toMatchObject({ drawingUnits, valueInch });
+    });
+
     it.each(["☑ MM", "[x] MM", "■ MM"])(
       "reads a standalone leading checked unit: %s", (field) => {
         expect(tolerance([`\t${field}  `, "BORE ±0.025"]))
@@ -1128,6 +1143,9 @@ describe("pdfDrawing tightest tolerance units (OVD-976)", () => {
     it.each([
       ["DIMENSIONS ARE IN INCHES\n■ METRIC THREADS PER ISO 965", "inch"],
       ["■ MM/DD/YY", "unspecified"],
+      ["■ METRIC THREADS PER ISO 965", "unspecified"],
+      ["☑ MM SEE NOTE 3", "unspecified"],
+      ["☑ MM - ALL DIMS", "unspecified"],
       ["NOTE: ✓ MM", "unspecified"],
     ])("rejects incidental checked unit text: %s", (text, drawingUnits) => {
       expect(tolerance([text, "BORE ±0.025"]))
@@ -1659,6 +1677,14 @@ describe("pdfDrawing tightest tolerance units (OVD-976)", () => {
       const result = read(`${"\u0300".repeat(5_000_000)}\nUNITS: MM\nBORE ±0.025`);
       expect(result.tightestToleranceValueInch).toBe(0.0009);
       expect(result.tightestToleranceDrawingUnits).toBe("metric");
+    });
+
+    it("reads a labelled checkbox pair before 4M spaces within the bound", () => {
+      const text = `UNITS: ☑ MM ☐ INCH${" ".repeat(4_000_000)}x\nBORE ±0.025`;
+      warm();
+      const started = performance.now();
+      expect(read(text).tightestToleranceDrawingUnits).toBe("metric");
+      expect(performance.now() - started).toBeLessThan(BOUND_MS);
     });
 
     // An unbounded repeat of the separators after UNITS overflowed the regexp stack on this line.

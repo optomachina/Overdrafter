@@ -385,7 +385,7 @@ function normalizeUnitText(text: string): string {
   const chunkSize = 65_536;
   if (text.length > chunkSize) {
     // Fold the two-character homoglyph before chunking so it cannot be split.
-    text = text.replace(/ΜΜ/g, "MM");
+    text = text.replaceAll("ΜΜ", "MM");
     const chunks: string[] = [];
     for (let start = 0; start < text.length;) {
       let end = Math.min(start + chunkSize, text.length);
@@ -418,13 +418,22 @@ function followsNumber(text: string, index: number) {
   return position >= 0 && /[\d.]/.test(text.charAt(position));
 }
 
-// A checkbox declaration occupies its whole line: one standalone option or two
-// sibling options for different systems. Incidental bullets and dates are not choices.
+// A standalone checkbox (including a labelled one) must end its line. Opposite-system
+// sibling options may precede adjacent title-block cells. Keep the line-start anchor
+// to reject incidental text and avoid rescanning hostile blank runs.
 const UNIT_BOX = String.raw`(?:\[(?:[ \t]*[X✓✔][ \t]*|[ \t]*)\]|[☐□☑☒■✓✔])`;
 const LEADING_UNIT_BOX = new RegExp(
-  String.raw`^[ \t]*(${UNIT_BOX})[ \t]*(${UNIT_WORD})(?:[ \t]+(${UNIT_BOX})[ \t]*(${UNIT_WORD}))?[ \t]*$`, "gim",
+  String.raw`^[ \t]*(?:${DECLARATION_INTRODUCER}(?:[ \t]+IN)?[ \t]*)?(${UNIT_BOX})[ \t]*(${UNIT_WORD})(?:[ \t]+(${UNIT_BOX})[ \t]*(${UNIT_WORD})|[ \t]*$)`, "gim",
 );
 const CHECKED_UNIT_BOX = /[X✓✔☑☒■]/i;
+
+function* selectedCheckboxUnits(text: string) {
+  for (const match of text.matchAll(LEADING_UNIT_BOX)) {
+    if (match[4] !== undefined && /^IN/i.test(match[2]) === /^IN/i.test(match[4])) continue;
+    if (CHECKED_UNIT_BOX.test(match[1])) yield match[2];
+    if (match[3] !== undefined && CHECKED_UNIT_BOX.test(match[3])) yield match[4];
+  }
+}
 
 function detectDeclaredUnits(text: string) {
   const declared = { inch: false, metric: METRIC_TOLERANCE_STANDARD.test(text) };
@@ -433,11 +442,7 @@ function detectDeclaredUnits(text: string) {
       declared[/^IN/i.test(word) ? "inch" : "metric"] = true;
     }
   };
-  for (const match of text.matchAll(LEADING_UNIT_BOX)) {
-    if (match[4] !== undefined && /^IN/i.test(match[2]) === /^IN/i.test(match[4])) continue;
-    if (CHECKED_UNIT_BOX.test(match[1])) declare(match[2]);
-    if (match[3] !== undefined && CHECKED_UNIT_BOX.test(match[3])) declare(match[4]);
-  }
+  for (const word of selectedCheckboxUnits(text)) declare(word);
   for (const pattern of DECLARATION_PATTERNS) {
     for (const match of text.matchAll(pattern)) {
       match.slice(1).forEach(declare);
