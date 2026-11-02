@@ -305,6 +305,9 @@ export function useClientPartController(
   // undefined follows the request's own date; a value or null is the user's results filter (OVD-981).
   const [viewRequestedByDate, setViewRequestedByDate] = useState<string | null | undefined>(undefined);
   const [requestDraft, setRequestDraft] = useState<ClientPartRequestUpdateInput | null>(null);
+  const preserveRemovedDateDraftRef = useRef(false);
+  const serverDraftRef = useRef<ClientPartRequestUpdateInput | null>(null);
+  const fullSavePendingRef = useRef<ClientPartRequestUpdateInput | null>(null);
   const [quoteQuantityInput, setQuoteQuantityInput] = useState("");
   const [partRenameValue, setPartRenameValue] = useState("");
   const [isPartOptionsOpen, setIsPartOptionsOpen] = useState(false);
@@ -629,11 +632,17 @@ export function useClientPartController(
   const saveRequestMutation = useMutation({
     mutationFn: (input: ClientPartRequestUpdateInput) =>
       serializeRequestMutation(() => updateClientPartRequest(input)),
-    onSuccess: async () => {
+    onSuccess: async (_result, input) => {
+      if (fullSavePendingRef.current === input) {
+        preserveRemovedDateDraftRef.current = false;
+        serverDraftRef.current = null;
+        fullSavePendingRef.current = null;
+      }
       await invalidateClientWorkspaceQueries(queryClient, { jobId: canonicalJobId });
       toast.success("Request details updated.");
     },
     onError: (error: Error) => {
+      fullSavePendingRef.current = null;
       toast.error(error.message || "Failed to update request details.");
     },
   });
@@ -641,6 +650,7 @@ export function useClientPartController(
   const clearNeedByMutation = useMutation({
     mutationFn: () => serializeRequestMutation(() => clearClientPartRequestedByDate(canonicalJobId)),
     onSuccess: async () => {
+      preserveRemovedDateDraftRef.current = true;
       setRequestDraft((current) => current ? { ...current, requestedByDate: null } : current);
       if (patchDraftPreservationRef.current) {
         patchDraftPreservationRef.current.draft.requestedByDate = null;
@@ -737,6 +747,9 @@ export function useClientPartController(
     const requestId = patchDraftRequestIdRef.current + 1;
     patchDraftRequestIdRef.current = requestId;
     patchDraftPreservationRef.current = null;
+    serverDraftRef.current = null;
+    preserveRemovedDateDraftRef.current = false;
+    fullSavePendingRef.current = null;
     setRequestDraft(null);
     resetFieldMutation.mutate({
       fields: [...CLIENT_PART_PROPERTY_OVERRIDE_FIELDS],
@@ -1176,6 +1189,9 @@ export function useClientPartController(
     setExcludedVendorKeys(readExcludedVendorKeys(canonicalJobId));
     setActivePreset(null);
     setViewRequestedByDate(undefined);
+    serverDraftRef.current = null;
+    preserveRemovedDateDraftRef.current = false;
+    fullSavePendingRef.current = null;
     patchDraftPreservationRef.current = null;
     setRequestDraft(null);
     setQuoteQuantityInput("");
@@ -1194,11 +1210,23 @@ export function useClientPartController(
 
     const preservation = patchDraftPreservationRef.current;
     const preservedDraft = preservation?.draft ?? null;
-    setRequestDraft(preservedDraft ?? fallbackRequestDraft);
+    const previousServer = serverDraftRef.current;
+    serverDraftRef.current = fallbackRequestDraft;
+    // A refetch updates untouched fields, but must not discard local editor changes.
+    setRequestDraft((current) => {
+      if (preservedDraft) return preservedDraft;
+      if (!preserveRemovedDateDraftRef.current || !current || !previousServer) return fallbackRequestDraft;
+      return Object.fromEntries(Object.entries(fallbackRequestDraft).map(([field, value]) => [
+        field,
+        JSON.stringify(current[field as keyof ClientPartRequestUpdateInput]) !==
+          JSON.stringify(previousServer[field as keyof ClientPartRequestUpdateInput])
+          ? current[field as keyof ClientPartRequestUpdateInput] : value,
+      ])) as ClientPartRequestUpdateInput;
+    });
     if (!preservedDraft) {
-      setQuoteQuantityInput(
-        formatRequestedQuoteQuantitiesInput(fallbackRequestDraft.requestedQuoteQuantities),
-      );
+      setQuoteQuantityInput((current) => preserveRemovedDateDraftRef.current && previousServer &&
+        current !== formatRequestedQuoteQuantitiesInput(previousServer.requestedQuoteQuantities)
+        ? current : formatRequestedQuoteQuantitiesInput(fallbackRequestDraft.requestedQuoteQuantities));
     }
     setPartRenameValue(fallbackRequestDraft.partNumber ?? presentation?.title ?? "");
   }, [fallbackRequestDraft, presentation?.title]);
@@ -1638,6 +1666,7 @@ export function useClientPartController(
     patchDraftPreservationRef.current = null;
     setRequestDraft(payload);
     setQuoteQuantityInput(formatRequestedQuoteQuantitiesInput(payload.requestedQuoteQuantities));
+    fullSavePendingRef.current = payload;
     saveRequestMutation.mutate(payload);
   };
 

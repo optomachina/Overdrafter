@@ -1,3 +1,4 @@
+import type { ClientPartRequestUpdateInput } from "@/features/quotes/types";
 import "@testing-library/jest-dom/vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, renderHook, screen, waitFor, within } from "@testing-library/react";
@@ -498,8 +499,8 @@ vi.mock("@/components/workspace/PartInfoPanel", () => ({
     onSave,
     onResetField,
   }: {
-    effectiveRequestDraft?: { description?: string | null; notes?: string | null } | null;
-    onDraftChange?: (next: { description?: string; notes?: string }) => void;
+    effectiveRequestDraft?: ClientPartRequestUpdateInput | null;
+    onDraftChange?: (next: Partial<ClientPartRequestUpdateInput>) => void;
     statusContent?: ReactNode;
     onSave?: () => void;
     onResetField?: (field: "description") => void;
@@ -519,6 +520,11 @@ vi.mock("@/components/workspace/PartInfoPanel", () => ({
           value={effectiveRequestDraft?.notes ?? ""}
           onChange={(event) => onDraftChange?.({ notes: event.target.value })}
         />
+        <input aria-label="Packaging notes" value={effectiveRequestDraft?.shipping.packagingNotes ?? ""}
+          onChange={(event) => effectiveRequestDraft && onDraftChange?.({
+            shipping: { ...effectiveRequestDraft.shipping, packagingNotes: event.target.value },
+          })} />
+        <input aria-label="Draft Need by" value={effectiveRequestDraft?.requestedByDate ?? ""} readOnly />
         <button type="button" onClick={() => onSave?.()}>
           Save Request
         </button>
@@ -3163,6 +3169,45 @@ describe("ClientPart", () => {
     await waitFor(() => expect(api.clearClientPartRequestedByDate).toHaveBeenCalledWith("job-1"));
     expect(api.updateClientPartRequest).not.toHaveBeenCalled();
     expect(screen.getByLabelText("Notes")).toHaveValue("Unsaved note");
+  });
+
+  it.each(["Notes", "Packaging notes"])("preserves unsaved %s through Remove and server refetch (QA OVD-994)", async (label) => {
+    const initial = createNeedByRequestDetail();
+    const cleared = {
+      ...initial,
+      job: { ...initial.job, requested_by_date: null },
+      summary: { ...initial.summary, requestedByDate: null },
+      part: { ...initial.part, approvedRequirement: {
+        ...initial.part.approvedRequirement,
+        requested_by_date: null,
+        spec_snapshot: { process: "CNC milling", notes: "Deburr all edges", requestedByDate: null },
+      } },
+    };
+    api.fetchPartDetailByJobId.mockResolvedValue(initial);
+    api.clearClientPartRequestedByDate.mockImplementation(async () => {
+      api.fetchPartDetailByJobId.mockResolvedValue(cleared);
+    });
+    renderWithClient("/parts/job-1");
+    fireEvent.change(await screen.findByLabelText(label), { target: { value: "QA unsaved text" } });
+    fireEvent.click(await screen.findByRole("button", { name: "Remove Need by from request" }));
+    await waitFor(() => expect(screen.getByLabelText("Draft Need by")).toHaveValue(""));
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Remove Need by from request" })).toBeNull());
+    expect(screen.getByLabelText(label)).toHaveValue("QA unsaved text");
+    expect(api.updateClientPartRequest).not.toHaveBeenCalled();
+
+    api.updateClientPartRequest.mockImplementation(async () => {
+      api.fetchPartDetailByJobId.mockResolvedValue({
+        ...cleared,
+        part: { ...cleared.part, approvedRequirement: {
+          ...cleared.part.approvedRequirement,
+          spec_snapshot: { process: "CNC milling", notes: "Saved normalized note", requestedByDate: null },
+        } },
+      });
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save Request" }));
+    await waitFor(() => expect(api.updateClientPartRequest).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.getByLabelText("Notes")).toHaveValue("Saved normalized note"));
+    expect(screen.getByLabelText("Packaging notes")).toHaveValue("");
   });
 
   it("keeps the saved Need by notice on the request's date while the filter shows another (OVD-991)", async () => {
