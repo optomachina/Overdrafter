@@ -88,6 +88,7 @@ describe("buildExtractionCompletionPayload", () => {
       workerBuildVersion: "build-123",
       previewAssetCount: 2,
       autoApprovedPartCount: 1,
+      reviewRequired: false,
       completedAt,
     });
 
@@ -97,6 +98,8 @@ describe("buildExtractionCompletionPayload", () => {
       modelFallbackUsed: true,
       modelName: "gpt-5.4",
       autoApproved: true,
+      autoApprovedPartCount: 1,
+      reviewRequired: false,
       completedAt,
       warningCount: 1,
     });
@@ -118,10 +121,12 @@ describe("buildExtractionCompletionPayload", () => {
       workerBuildVersion: "build-123",
       previewAssetCount: 0,
       autoApprovedPartCount: 0,
+      reviewRequired: true,
       completedAt: "2026-03-23T12:34:56.000Z",
     });
 
     expect(payload.autoApproved).toBe(false);
+    expect(payload.reviewRequired).toBe(true);
     expect(payload.modelFallbackUsed).toBe(false);
     expect(payload.modelName).toBeNull();
   });
@@ -147,6 +152,7 @@ describe("buildExtractionCompletionPayload", () => {
       workerBuildVersion: "build-123",
       previewAssetCount: 1,
       autoApprovedPartCount: 1,
+      reviewRequired: false,
       completedAt: "2026-03-23T12:34:56.000Z",
     });
 
@@ -169,6 +175,7 @@ describe("buildExtractionCompletionPayload", () => {
       workerBuildVersion: "build-123",
       previewAssetCount: 0,
       autoApprovedPartCount: 1,
+      reviewRequired: false,
       completedAt: "2026-03-23T12:34:56.000Z",
     });
 
@@ -181,7 +188,7 @@ describe("buildExtractionCompletionPayload", () => {
 it("preserves partial cost coverage separately from known subtotal", () => {
   const payload=buildExtractionCompletionPayload({
     extraction:createExtraction({modelUsage:{provider:"openai",modelName:"synthetic",inputTokens:10,outputTokens:2,durationMs:3,estimatedCostUsd:null,costCoverage:"partial",knownCostSubtotalUsd:0.02,attempts:2}}),
-    extractionOutcome:{missingFields:[],reviewFields:[],lifecycle:"succeeded"},extractorVersion:"test",workerBuildVersion:"test",previewAssetCount:0,autoApprovedPartCount:0,completedAt:"2026-10-02T00:00:00.000Z",
+    extractionOutcome:{missingFields:[],reviewFields:[],lifecycle:"succeeded"},extractorVersion:"test",workerBuildVersion:"test",previewAssetCount:0,autoApprovedPartCount:0,reviewRequired:true,completedAt:"2026-10-02T00:00:00.000Z",
   });
   expect(payload).toMatchObject({modelEstimatedCostUsd:null,modelKnownCostSubtotalUsd:0.02,modelCostCoverage:"partial",modelAttempts:2});
 });

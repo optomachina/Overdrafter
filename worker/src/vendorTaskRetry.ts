@@ -1,4 +1,5 @@
 import { VendorAutomationError } from "./types.js";
+import { summarizeWorkerError } from "./errorSummary.js";
 import { ProviderDispatchAuthorizationError } from "./providerDispatchPreflight.js";
 import { ProviderKillSwitchError } from "./providerKillSwitch.js";
 import { XometryDispatchAuthorizationError } from "./xometryDispatchPreflight.js";
@@ -14,6 +15,14 @@ import {
 } from "./providerMutationPhase.js";
 
 export const VENDOR_TASK_RETRY_DELAYS_MS = [60_000, 5 * 60_000, 15 * 60_000] as const;
+
+/** Bookkeeping retries read stored results before any provider work. */
+export class VendorQuoteBookkeepingError extends Error {
+  constructor(cause: unknown) {
+    super(`Vendor quote bookkeeping failed: ${summarizeWorkerError(cause)}`, { cause });
+    this.name = "VendorQuoteBookkeepingError";
+  }
+}
 
 const NON_RETRYABLE_MESSAGE_PATTERNS = [
   /run_vendor_quote task is missing/i,
@@ -36,6 +45,7 @@ export function retryCountForAttempts(attempts: number) {
 }
 
 export function failureCodeForError(error: unknown) {
+  if (error instanceof VendorQuoteBookkeepingError) return "quote_bookkeeping_failed";
   if (error instanceof XometryDispatchAuthorizationError) {
     return error.reasonCode;
   }
@@ -76,13 +86,15 @@ export function failureCodeForError(error: unknown) {
  * are not caused by missing or unsupported CAD input. Authentication, captcha,
  * selector, and unexpected-UI failures require intervention and remain terminal.
  *
- * Fail-closed: once the task's provider mutation phase has started, no failure
- * is retryable, including plain errors whose message looks transient.
+ * Once provider mutation starts, only stored-result bookkeeping can retry.
+ * Provider failures remain fail-closed, including transport-looking errors.
  */
 export function isRetryableVendorTaskError(
   error: unknown,
   mutationPhase: ProviderMutationPhase | undefined = currentProviderMutationPhase(),
 ) {
+  // Safe even after an upload: the next claim synchronizes the settled lane.
+  if (error instanceof VendorQuoteBookkeepingError) return true;
   if (mutationPhase?.started) {
     return false;
   }

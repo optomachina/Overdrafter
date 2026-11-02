@@ -55,22 +55,51 @@ unparseable tags, and multiple model labels on a single-builder PR produce
 findings. Labels outside the declared builder history (the body's, or the
 commit trailers' when the body declares none) produce conflicts. Builders
 from multiple families produce `mixed`. Missing, unknown, mixed, conflicting,
-or failed parsing/routing requests both `codex-xhigh` and `claude-sonnet`.
-An `ok` tag requests a cross-family pool from `review_routing`; the family alias
-`openai` resolves to `codex-xhigh`. Existing extra reviewers (including
-`claude-opus` from sensitive-path/HIGH rules) are always retained. Availability
-never removes required reviewers: when none of the required pools is available,
+or failed parsing/routing requests fresh-session `claude-opus` plus
+`claude-sonnet`. This conservative fallback also covers `jev` builders without
+a route, and never requests `codex-xhigh` when Claude is or may be a builder.
+An `ok` tag requests the pool `review_routing` names for the builder's family.
+A route is a pool id, or `{ "reviewer": <pool>, "fresh_session": true }` when the
+review must run in a fresh session with no build context; the alias `openai`
+resolves to `codex-xhigh`. Current routes: `openai` builds are reviewed by
+`claude-sonnet` (sensitive-path/HIGH rules can supply an extra Opus reviewer),
+`claude` builds by `claude-opus`
+in a fresh session with no build context, and `grok` builds by `claude-opus`.
+Routes must cross families, with one exception: a `claude` route may name a
+`claude` pool only when it is marked `fresh_session: true`. Any other
+same-family route fails to load. Fresh-session flags on cross-family routes
+and OpenAI review routes for Claude builds also fail to load. Extra reviewers
+are retained, except malformed extras and Codex extras when Claude built or may
+have built become `queue`. Availability never removes required reviewers:
+when none of the required pools is available,
 return `queue` plus extras instead of skipping review.
 
+`reviewFamilies` and the CLI's `reviewers` array carry fresh requirements as
+`{ "reviewer": "claude-opus", "fresh_session": true }`; other entries remain
+pool strings. Among the configured single-family routes, only Claude builders
+receive this flag; uncertain attribution receives it through the fallback.
+
+Before dispatch, callers must run `assertReviewDispatch(requiredEntry,
+reviewRecord)` with launcher evidence, never PR-supplied claims. The record's
+`reviewer` must match the required pool. For a fresh entry, the check throws
+unless `session_id` is a non-empty string, `no_persistence === true`,
+`inherited_transcript === false`, and `builder_session_ids` is a non-empty
+array of non-empty strings, all different from the review session ID after
+trimming whitespace. Missing or malformed evidence throws; queue for evidence
+instead of dispatching. A `queue` entry cannot be dispatched.
+
 Tags are self-declared routing hints, never a trust signal. This module and CLI
-are report-only: no live dispatch, gate, workflow, check, or status is updated.
+are report-only: the exported check validates caller-supplied evidence but
+does not launch sessions or collect evidence. No live dispatch, gate, workflow,
+check, or status is updated. Rule 5 (Codex critiques plans) is not encoded in
+this module.
 
 The JSON-compatible YAML fixture at
 `scripts/fixtures/agent-graph/model-routing.v2.yaml` is the stand-in until
 OVD-919 PR-A pins the v2 shape in `docs/agent-graph/model-routing.yaml`. The loader
 uses JSON parsing and validates this subset of YAML; general YAML syntax is not
 supported. No YAML dependency is added. Import callers pass routing explicitly;
-missing routing requests both reviewers.
+missing routing requests fresh-session Opus plus Sonnet.
 
 Run a local report with:
 

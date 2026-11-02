@@ -36,7 +36,7 @@ test.describe("client sourcing destination", () => {
     let settings = await openSettings(page);
 
     await shippingEditButton(settings).click();
-    await expect(settings.getByText("Edit Shipping Address")).toBeVisible();
+    await expect(settings.getByText("Edit Shipping Address", { exact: true })).toBeVisible();
     await settings.getByRole("button", { name: "Different address" }).click();
     await settings.locator("#shipping-street").fill(street);
     await settings.locator("#shipping-city").fill("Tucson");
@@ -45,7 +45,7 @@ test.describe("client sourcing destination", () => {
     await settings.locator("#shipping-country").fill("US");
     await settings.getByRole("button", { name: "Save" }).click();
 
-    await expect(settings.getByText("Edit Shipping Address")).toHaveCount(0);
+    await expect(settings.getByText("Edit Shipping Address", { exact: true })).toHaveCount(0);
     await expect(settings.getByText("Quote shipping destination: Needs confirmation")).toBeVisible();
     await expect(settings.getByText(`${street}, Tucson, AZ 85701, US`)).toBeVisible();
 

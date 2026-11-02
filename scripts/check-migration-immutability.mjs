@@ -41,7 +41,7 @@
  * Import only Node built-ins: CI copies this file out of the base commit into
  * a temp directory and runs it there, where relative imports do not resolve.
  */
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -369,12 +369,22 @@ export function formatHuman(result) {
 export const GIT = "/usr/bin/git";
 const GIT_OPTIONS = { encoding: "utf8", maxBuffer: 256 * 1024 * 1024, stdio: ["ignore", "pipe", "pipe"] };
 
-const git = (cwd, args) => execFileSync(GIT, args, { ...GIT_OPTIONS, cwd });
+const git = (cwd, args) => {
+  assertGitPlatform();
+  return execFileSync(GIT, args, { ...GIT_OPTIONS, cwd });
+};
+function assertGitPlatform() {
+  if (process.platform === "win32") throw new Error("git on Windows requires WSL");
+}
 
 /** A file's content at a ref, or null when it does not exist there. */
-function gitShow(cwd, ref, path) {
-  const shown = spawnSync(GIT, ["show", `${ref}:${path}`], { ...GIT_OPTIONS, cwd });
-  return shown.status === 0 ? shown.stdout : null;
+export function gitShow(cwd, ref, path, { binary = GIT } = {}) {
+  assertGitPlatform();
+  const entry = execFileSync(binary, ["ls-tree", "--full-tree", "-z", "--end-of-options", ref, "--", `:(top,literal)${path}`], { ...GIT_OPTIONS, cwd });
+  if (!entry) return null;
+  const blob = /^[0-7]{6} blob ([0-9a-f]{40}|[0-9a-f]{64})\t[^\0]+\0$/.exec(entry);
+  if (!blob) throw new Error(`Expected a single blob for ${ref}:${path}`);
+  return execFileSync(binary, ["cat-file", "blob", "--end-of-options", blob[1]], { ...GIT_OPTIONS, cwd });
 }
 
 /**
@@ -383,13 +393,13 @@ function gitShow(cwd, ref, path) {
  * still caught). --find-copies-harder also matches unmodified base files.
  */
 export function loadStatusEntries(root, baseRef, headRef) {
-  const raw = git(root, ["-c", "diff.renameLimit=0", "diff", "--raw", "-z", "--no-abbrev", "--no-ext-diff", "--no-textconv", "-C100%", "--find-copies-harder", baseRef, headRef, "--", MIGRATIONS_DIR]);
+  const raw = git(root, ["-c", "diff.renameLimit=0", "diff", "--raw", "-z", "--no-abbrev", "--no-ext-diff", "--no-textconv", "-C100%", "--find-copies-harder", "--end-of-options", baseRef, headRef, "--", MIGRATIONS_DIR]);
   return parseRawDiff(raw);
 }
 
 /** The checker script, its node:test wrapper and every changed workflow file, at both refs. */
 function loadGateFiles(root, baseRef, headRef) {
-  const changed = git(root, ["diff", "--name-only", "--no-renames", baseRef, headRef, "--", CHECKER_PATH, NODE_TEST_PATH, WORKFLOWS_DIR]).split("\n").filter(Boolean);
+  const changed = git(root, ["diff", "--name-only", "--no-renames", "--end-of-options", baseRef, headRef, "--", CHECKER_PATH, NODE_TEST_PATH, WORKFLOWS_DIR]).split("\n").filter(Boolean);
   return changed.map((path) => ({
     path,
     kind: path === CHECKER_PATH || path === NODE_TEST_PATH ? "script" : "workflow",
@@ -401,7 +411,7 @@ function loadGateFiles(root, baseRef, headRef) {
 export function loadInputs(root, baseRef, headRef) {
   return {
     entries: loadStatusEntries(root, baseRef, headRef),
-    baseFiles: git(root, ["ls-tree", "-r", "--name-only", baseRef, "--", MIGRATIONS_DIR]).split("\n").filter(Boolean),
+    baseFiles: git(root, ["ls-tree", "--full-tree", "-r", "--name-only", "--end-of-options", baseRef, "--", `:(top,literal)${MIGRATIONS_DIR}`]).split("\n").filter(Boolean),
     gateFiles: loadGateFiles(root, baseRef, headRef),
   };
 }

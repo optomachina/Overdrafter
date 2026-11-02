@@ -395,6 +395,46 @@ describe("vendorWorkflowSmoke argument parsing", () => {
     ]);
   });
 
+  it("runs RMFG only when named, with the stated sheet stock (OVD-1057)", () => {
+    const args = parseSmokeArgs([
+      "--vendor", "rmfg", "--cad", "./plate.step", "--rmfg-grade", "6061-T6", "--rmfg-thickness-in", "0.125",
+    ]);
+    expect(args.vendors).toEqual(["rmfg"]);
+    expect(args.rmfgStock).toEqual({ grade: "6061-T6", thicknessIn: 0.125 });
+    expect(() => parseSmokeArgs(["--vendor", "rmfg", "--cad", "./plate.step"]))
+      .toThrow(/requires the stated sheet stock/);
+    for (const grade of ["6061", "Aluminum", "304", "6061-T6 aluminum"]) {
+      expect(() => parseSmokeArgs(["--vendor", "rmfg", "--cad", "./plate.step", "--rmfg-grade", grade,
+        "--rmfg-thickness-in", "0.125"])).toThrow(/requires the stated sheet stock/);
+    }
+    for (const thickness of ["0", "3.175", "1/8", "0.125in"]) {
+      expect(() => parseSmokeArgs(["--vendor", "rmfg", "--cad", "./plate.step", "--rmfg-grade", "6061-T6",
+        "--rmfg-thickness-in", thickness])).toThrow(/requires the stated sheet stock/);
+    }
+    expect(() => parseSmokeArgs(["--vendor", "xometry", "--cad", "./plate.step", "--rmfg-grade", "6061-T6"]))
+      .toThrow(/only be supplied when --vendor includes rmfg/);
+  });
+
+  it.each(["1", "01", ".125", "0.125", "00.125", " 0.125 "])("accepts decimal RMFG thickness %s", (thickness) => {
+    const args = parseSmokeArgs(["--vendor", "rmfg", "--cad", "./plate.step", "--rmfg-grade", "6061-T6",
+      "--rmfg-thickness-in", thickness]);
+    expect(args.rmfgStock?.thicknessIn).toBe(Number(thickness));
+  });
+
+  it.each([".", "1.", "+.125", "1e-1", "0x1", "0.1.25"])("rejects nondecimal RMFG thickness %s", (thickness) => {
+    expect(() => parseSmokeArgs(["--vendor", "rmfg", "--cad", "./plate.step", "--rmfg-grade", "6061-T6",
+      "--rmfg-thickness-in", thickness])).toThrow(/requires the stated sheet stock/);
+  });
+
+  it("rejects a long invalid RMFG thickness without quadratic backtracking", () => {
+    const thickness = `${"0".repeat(60_000)}!`;
+    const started = performance.now();
+    expect(() => parseSmokeArgs(["--vendor", "rmfg", "--cad", "./plate.step", "--rmfg-grade", "6061-T6",
+      "--rmfg-thickness-in", thickness])).toThrow(/requires the stated sheet stock/);
+    // Generous for a linear scan; the overlapping digit repetitions took seconds.
+    expect(performance.now() - started).toBeLessThan(500);
+  });
+
   it("accepts a comma-separated hidden vendor subset", () => {
     const args = parseSmokeArgs([
       "--vendor",
@@ -576,7 +616,29 @@ describe("SendCutSend reviewed evaluation manifest", () => {
   });
 });
 
+describe("parseSmokeArgs RMFG quantities", () => {
+  it.each([["1,5"], ["5"]])("rejects RMFG quantity list %s at parse time before staging (OVD-1057)", (list) => {
+    expect(() => parseSmokeArgs(["--vendor", "rmfg", "--cad", "./plate.step", "--quantities", list,
+      "--rmfg-grade", "6061-T6", "--rmfg-thickness-in", "0.125", "--confirm-non-export-controlled"]))
+      .toThrow(/RMFG quotes only quantity 1/);
+  });
+});
+
 describe("runQuote", () => {
+  it("refuses RMFG at any quantity but 1 before constructing a registry (OVD-1057)", async () => {
+    const args = {
+      ...parseSmokeArgs(["--vendor", "rmfg", "--cad", "./plate.step", "--quantities", "1",
+        "--rmfg-grade", "6061-T6", "--rmfg-thickness-in", "0.125", "--confirm-non-export-controlled"]),
+      quantities: [5],
+    };
+    const buildRegistry = vi.fn(() => ({}));
+    await expect(runQuote({} as WorkerConfig, args, "rmfg", 5, {
+      authorization: { nonExportControlled: true, cadFileSha256: "a".repeat(64), drawingFileSha256: null },
+      cadPath: "/private/staged/cad.step", drawingPath: null, cleanup: vi.fn(),
+    }, buildRegistry)).rejects.toThrow(/only quantity 1/);
+    expect(buildRegistry).not.toHaveBeenCalled();
+  });
+
   it.each([
     ["missing", null],
     ["partial", { process: "laser_cutting" }],
@@ -1484,7 +1546,8 @@ describe("runEvaluationBatch", () => {
     expect(vi.mocked(guardOperatorQuote)).not.toHaveBeenCalled();
   });
 
-  it.each(["weerg", "quickparts", "geomiq", "ponoko", "protolabsnetwork", "rapiddirect"] as const)("does not gate the offline %s batch on the kill switch with the real startup gate", async (vendor) => {
+  // Runs the batch with the real startup gate and an unreadable kill switch.
+  async function runWithUnreadableKillSwitch(vendor: string) {
     const args = parseSmokeArgs([
       "--vendor", vendor, "--cad", "./part.step",
       "--confirm-non-export-controlled",
@@ -1493,14 +1556,62 @@ describe("runEvaluationBatch", () => {
     vi.mocked(assertOperatorProvidersEnabled).mockImplementationOnce(actual.assertOperatorProvidersEnabled);
     const killSwitchReader = vi.fn(async () => { throw new Error("switch unreadable"); });
     const stageFiles = vi.fn(async () => { throw new Error("staging reached"); });
+    const result = runEvaluationBatch(args, {
+      killSwitchReader,
+      stageFiles,
+      makeVendorConfig: () => ({} as WorkerConfig),
+      buildRegistry: () => ({}),
+    });
+    return { result, killSwitchReader, stageFiles };
+  }
+
+  it("gates the Quickparts batch on the kill switch before staging (OVD-1059)", async () => {
+    const { result, killSwitchReader, stageFiles } = await runWithUnreadableKillSwitch("quickparts");
+
+    await expect(result)
+      .rejects.toMatchObject({ reasonCode: "provider_kill_switch_unavailable", checkpoint: "before_launch" });
+    expect(killSwitchReader).toHaveBeenCalledWith("quickparts");
+    expect(stageFiles).not.toHaveBeenCalled();
+  });
+
+  it("evaluates Quickparts through the production portal definition that reaches the provider", () => {
+    const registry = buildLiveEvaluationAdapterRegistry({
+      workerMode: "dev", workerLiveAdapters: [], workerTempDir: os.tmpdir(),
+    } as unknown as WorkerConfig);
+    expect(OFFLINE_EVALUATION_PORTAL_VENDORS.has("quickparts")).toBe(false);
+    expect((registry.quickparts as { evaluateLocallyReachesProvider?: boolean }).evaluateLocallyReachesProvider)
+      .toBe(true);
+  });
+
+  it.each(["weerg", "ponoko", "protolabsnetwork", "rapiddirect"] as const)("does not gate the offline %s batch on the kill switch with the real startup gate", async (vendor) => {
+    const { result, killSwitchReader } = await runWithUnreadableKillSwitch(vendor);
+
+    await expect(result).rejects.not.toMatchObject({ reasonCode: "provider_kill_switch_unavailable" });
+    expect(killSwitchReader).not.toHaveBeenCalled();
+  });
+
+  it("gates the live Geomiq batch on the kill switch before staging (OVD-1058)", async () => {
+    const args = parseSmokeArgs([
+      "--vendor", "geomiq", "--cad", "./part.step",
+      "--confirm-non-export-controlled",
+    ]);
+    const actual = await vi.importActual<typeof import("./operatorKillSwitchGate")>("./operatorKillSwitchGate");
+    vi.mocked(assertOperatorProvidersEnabled).mockImplementationOnce(actual.assertOperatorProvidersEnabled);
+    const killSwitchReader = vi.fn(async () => { throw new Error("switch unreadable"); });
+    const stageFiles = vi.fn();
 
     await expect(runEvaluationBatch(args, {
       killSwitchReader,
       stageFiles,
       makeVendorConfig: () => ({} as WorkerConfig),
       buildRegistry: () => ({}),
-    })).rejects.not.toMatchObject({ reasonCode: "provider_kill_switch_unavailable" });
-    expect(killSwitchReader).not.toHaveBeenCalled();
+    })).rejects.toMatchObject({ reasonCode: "provider_kill_switch_unavailable" });
+    expect(killSwitchReader).toHaveBeenCalled();
+    expect(stageFiles).not.toHaveBeenCalled();
+    const registry = buildLiveEvaluationAdapterRegistry({
+      workerMode: "dev", workerLiveAdapters: [], workerTempDir: os.tmpdir(),
+    } as unknown as WorkerConfig);
+    expect(registry.geomiq?.evaluateLocallyReachesProvider).toBe(true);
   });
 
   it("keeps the offline portal vendor set in step with the registry", () => {
@@ -2256,5 +2367,125 @@ describe("runEvaluationBatch", () => {
         cleanupFailure,
       ]);
     }
+  });
+});
+
+describe("SendCutSend quote-only sheet lane (OVD-1056)", () => {
+  const sheetFlags = [
+    "--sendcutsend-process", "sheet_laser_cutting",
+    "--sendcutsend-material", "6061-T6 aluminum",
+    "--sendcutsend-thickness-in", "0.125",
+  ];
+
+  async function sheetApproval(cadPath: string) {
+    // The approval reader refuses symlinked path components (macOS /var is one).
+    const tempDir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "sendcutsend-sheet-approval-")));
+    tempDirs.push(tempDir);
+    const approvalPath = path.join(tempDir, "approval.json");
+    await fs.writeFile(approvalPath, JSON.stringify({
+      schemaVersion: "provider-portal-approval.v1",
+      providerKey: "sendcutsend",
+      accountMode: "existing_authenticated_account",
+      allowedOrigins: ["https://app.sendcutsend.com", "https://main.realtime.ably.net"],
+      intendedAction: "quote_only",
+      artifactScope: ["cad_upload", "scrubbed_local_evidence"],
+      cadPath,
+      drawingPath: null,
+      requestedQuantities: [1],
+      cadFileSha256: "a".repeat(64),
+      drawingFileSha256: null,
+    }));
+    return { approvalPath, approvalSha256: await sha256File(approvalPath) };
+  }
+
+  function sheetArgs(extra: string[] = []) {
+    return parseSmokeArgs([
+      "--vendor", "sendcutsend", "--cad", "/evaluation/plate.step",
+      "--confirm-non-export-controlled", ...sheetFlags, ...extra,
+    ]);
+  }
+
+  const stagedSheet = () => ({
+    authorization: { nonExportControlled: true, cadFileSha256: "a".repeat(64), drawingFileSha256: null },
+    cadPath: "/private/staged/plate.step",
+    drawingPath: null,
+    cleanup: vi.fn(),
+  });
+
+  it("admits the exact sheet package without a manifest", () => {
+    expect(sheetArgs()).toMatchObject({
+      vendors: ["sendcutsend"],
+      sendCutSendManifestPath: null,
+      sendCutSendSheetPackage: { process: "sheet_laser_cutting", material: "6061-T6 aluminum", thicknessInch: 0.125 },
+    });
+  });
+
+  it.each([
+    ["another thickness", ["--sendcutsend-process", "sheet_laser_cutting", "--sendcutsend-material", "6061-T6 aluminum", "--sendcutsend-thickness-in", "0.25"]],
+    ["another material", ["--sendcutsend-process", "sheet_laser_cutting", "--sendcutsend-material", "5052-H32 aluminum", "--sendcutsend-thickness-in", "0.125"]],
+    ["a partial package", ["--sendcutsend-process", "sheet_laser_cutting"]],
+  ])("refuses %s", (_label, flags) => {
+    expect(() => parseSmokeArgs([
+      "--vendor", "sendcutsend", "--cad", "./plate.step", "--confirm-non-export-controlled", ...flags,
+    ])).toThrow(/exact package metadata/i);
+  });
+
+  it("refuses both lanes at once, sheet flags for another vendor, and quantities outside the evaluated range", () => {
+    expect(() => sheetArgs(["--sendcutsend-manifest", "./reviewed.json"])).toThrow(/not both/i);
+    expect(() => parseSmokeArgs([
+      "--vendor", "xometry", "--cad", "./plate.step", "--confirm-non-export-controlled", ...sheetFlags,
+    ])).toThrow(/only be supplied when --vendor includes sendcutsend/i);
+    expect(() => sheetArgs(["--quantities", "101"])).toThrow(/sheet quantity/i);
+  });
+
+  it("requires the operator approval file and takes no manifest", async () => {
+    const args = sheetArgs();
+    await expect(loadSendCutSendEvaluationManifest(args)).resolves.toBeNull();
+    await expect(loadProviderPortalApproval(args)).rejects.toThrow(/requires --approval-file/i);
+    const { approvalPath, approvalSha256 } = await sheetApproval("/evaluation/plate.step");
+    await expect(loadProviderPortalApproval(sheetArgs(["--approval-file", approvalPath, "--approval-file-sha256", approvalSha256])))
+      .resolves.toMatchObject({ providerKey: "sendcutsend", accountMode: "existing_authenticated_account" });
+  });
+
+  it("guards the sheet quote with the kill switch and hands the adapter the sheet package and approval", async () => {
+    const { approvalPath, approvalSha256 } = await sheetApproval("/evaluation/plate.step");
+    const args = sheetArgs(["--approval-file", approvalPath, "--approval-file-sha256", approvalSha256]);
+    const approval = await loadProviderPortalApproval(args);
+    const quote = vi.fn<VendorAdapter["quote"]>().mockRejectedValue(new VendorAutomationError("stop", "selector_failure", {
+      terminalState: "selector_drift", reason: "sendcutsend_material_path_incomplete", providerMutationPossible: true,
+    }));
+    vi.mocked(guardOperatorQuote).mockClear();
+
+    const row = await runQuote({ workerTempDir: "/private/runtime" } as WorkerConfig, args, "sendcutsend", 1, stagedSheet(),
+      () => ({ sendcutsend: { quote } }), null, approval);
+
+    expect(guardOperatorQuote).toHaveBeenCalledWith("sendcutsend", expect.any(Function), undefined);
+    const input = quote.mock.calls[0][0];
+    expect(input.providerPortalApproval).toEqual(approval);
+    expect(input.requirement).toMatchObject({
+      material: "6061-T6 aluminum",
+      spec_snapshot: { process: "sheet_laser_cutting", geometryFamily: "flat_sheet", sheetThicknessInch: 0.125 },
+    });
+    expect(input.requirement.spec_snapshot).not.toHaveProperty("evaluationManifest");
+    expect(row.evidence.accountMode).toBe("existing_authenticated_account");
+    expect(row.errorPayload).toMatchObject({ terminalState: "selector_drift", reason: "sendcutsend_material_path_incomplete" });
+  });
+
+  it("checks the switch before launch and gives the sheet lane a session-bearing config", async () => {
+    const { approvalPath, approvalSha256 } = await sheetApproval("/evaluation/plate.step");
+    const args = sheetArgs(["--approval-file", approvalPath, "--approval-file-sha256", approvalSha256]);
+    vi.mocked(assertOperatorProvidersEnabled).mockClear();
+    const makeVendorConfig = vi.fn(() => ({} as WorkerConfig));
+    const quote = vi.fn<VendorAdapter["quote"]>().mockRejectedValue(new Error("stop"));
+
+    await runEvaluationBatch(args, {
+      stageFiles: async () => stagedSheet(),
+      makeVendorConfig,
+      prepareConfig: async (config) => config,
+      buildRegistry: () => ({ sendcutsend: { quote } }),
+    });
+
+    expect(assertOperatorProvidersEnabled).toHaveBeenCalledWith(["sendcutsend"], undefined);
+    expect(makeVendorConfig).toHaveBeenCalledWith("sendcutsend", expect.any(String), true);
   });
 });

@@ -1,6 +1,6 @@
 # OverDrafter 1.0 Acceptance Criteria
 
-Last updated: September 28, 2026
+Last updated: October 23, 2026
 
 ## Purpose
 
@@ -9,6 +9,13 @@ Part to Quote** as a controlled design-partner beta, not general availability.
 It is intentionally limited to the product contract in
 `PRD.md` and the active queue in `PLAN.md`.
 
+**These are launch-readiness criteria, not demo-readiness criteria.** A demo
+on staging, a local stack or seeded offers does not check any box below. See
+[Demo readiness vs launch readiness](docs/1-0-beta-runbook.md#demo-readiness-vs-launch-readiness).
+The current launch-readiness verdict is **NO-GO for a customer beta**: the
+Codex readiness review's no-go stands because there are zero priced production
+runs.
+
 A passing build is necessary but insufficient. “Bug-free” is not measurable,
 and collecting revenue is a 1.2 milestone. Every checkbox below must have an
 artifact, production observation, test, or explicit human decision behind it.
@@ -16,10 +23,14 @@ artifact, production observation, test, or explicit human decision behind it.
 ## Supported-package promise
 
 The exact CNC package below is the first same-package comparison milestone.
-The named 1.0 portfolio is Xometry, Fictiv, Quickparts, Weerg, Geomiq, RMFG,
-and OSH Cut. RMFG and OSH Cut qualify only through separately qualified
-process-specific envelopes; this checklist does not make either a CNC source
-or extend the CNC validation geometry to fabrication processes.
+The 1.0 launch set (Blaine, October 20, 2026) is Xometry, Fictiv and
+Quickparts for the CNC validation package and RMFG for the sheet-metal
+validation package, each only for its own envelope. Weerg, Geomiq and OSH Cut
+are 1.1. RMFG qualifies only through its process-specific envelope; this
+checklist does not make it a CNC source or extend the CNC validation geometry
+to fabrication processes. Provider scope, session rules, the run budget, the
+go/no-go gates, and every open `TODO(Blaine)` decision are in the
+[1.0 launch contract](docs/1-0-beta-runbook.md#10-launch-contract).
 
 - [ ] Customer-facing copy names the exact package envelope in
       `docs/1-0-beta-runbook.md`: one STEP/STP file submitted as one part,
@@ -31,6 +42,9 @@ or extend the CNC validation geometry to fabrication processes.
       geometry is certified for repeatable automatic pricing; customer geometry may end in
       manual review, provider guidance, or unsupported without implying a size
       or feature guarantee.
+- [ ] The sheet-metal validation package and its exact envelope are approved
+      (`TODO(Blaine)` B2 in the runbook), and customer copy names the envelope
+      before any RMFG route is enabled.
 - [ ] A PDF may supply drawing requirements, but missing or conflicting PDF
       evidence cannot be silently invented and an unsupported PDF-only package
       is explained honestly.
@@ -92,11 +106,10 @@ or extend the CNC validation geometry to fabrication processes.
       while the global rollout switch is on and that organization has an
       unrelated manual grant or Stripe subscription.
 - [ ] During `OVD-206`, the worker and effective organization vendor set are
-      exactly `xometry`; `OVD-319` may enable the beta only with an explicitly
-      named CNC-eligible set containing Xometry plus at least four additional
-      qualifying providers from the named 1.0 portfolio. The complete 1.0
-      portfolio also includes RMFG and OSH Cut for their applicable processes.
-      Every enabled automatic provider is
+      exactly `xometry`; `OVD-319` may enable the beta only with the explicitly
+      named set of Xometry, Fictiv and Quickparts for the CNC package and RMFG
+      for the sheet-metal package, each only for its applicable process
+      envelope. Every enabled automatic provider is
       individually admitted, and missing policy/configuration fails closed
       instead of inheriting legacy multi-vendor defaults.
 - [ ] Simulated, synthetic, stale, mismatched-scope, or untrusted-adapter prices
@@ -196,14 +209,13 @@ or extend the CNC validation geometry to fabrication processes.
       policy; then verify export, tear down the host/archive, seed generation
       zero, restore narrow access, and complete two independent fresh-instance
       no-upload authentication proofs.
-- [ ] Xometry and at least four additional automatic quote providers from the
-      named 1.0 portfolio are independently admitted and production-certified
-      for the same CNC validation envelope before participant activation. RMFG
-      and OSH Cut have independently
-      integrated, evidence-backed routes for their applicable 1.0 processes;
-      any automatic customer route is separately admitted and certified.
-- [ ] The beta-enablement evidence names the effective CNC provider set and
-      the process-specific RMFG and OSH Cut disposition; manual RFQ
+- [ ] Xometry, Fictiv and Quickparts are independently admitted and
+      production-certified for the same CNC validation envelope, and RMFG for
+      the sheet-metal validation envelope, before participant activation. The
+      beta-enablement preflight fails unless all four qualify; a shortfall is
+      Blaine's decision (`TODO(Blaine)` B1), never a silent substitution.
+- [ ] The beta-enablement evidence names the effective provider set and its
+      per-package split; manual RFQ
       sources, standalone evaluation adapters, enum/catalog entries, simulated
       offers, and disabled, expired, or incompatible
       policies do not count toward live automatic sources. Account existence,
@@ -232,13 +244,13 @@ or extend the CNC validation geometry to fabrication processes.
 - [ ] At least three of the external attempts receive a real live offer and the
       customer can explain the price, lead time, and next step correctly.
 - [ ] At least one unaided eligible CNC participant attempt returns one current,
-      independently traceable live offer from each of at least five CNC-qualified
-      providers in the named 1.0 portfolio for the same disclosed package and
-      scope, with canonical offer records and a buyer-understood comparison.
-      RMFG and OSH Cut are verified
-      separately on packages inside their qualified process envelopes; an
-      unsupported or manual-review outcome is never represented as a CNC or
-      automatic live offer.
+      independently traceable live offer from each of Xometry, Fictiv and
+      Quickparts for the same disclosed package and scope, with canonical offer
+      records and a buyer-understood comparison. At least one sheet-metal
+      attempt (on a participant's part or the sheet-metal validation part, per
+      `TODO(Blaine)` B2) returns a current, independently traceable live RMFG
+      offer inside its envelope; an unsupported or manual-review outcome is
+      never represented as a CNC or automatic live offer.
 - [ ] Every observed stop, misunderstanding, and unsupported package is logged;
       launch-blocking failures are fixed and retested, while expansion requests
       are routed to the Linear Product Portfolio & Future Capability Index.
@@ -251,7 +263,11 @@ or extend the CNC validation geometry to fabrication processes.
 - [ ] The default program stops after four weeks from first activation or twenty
       automatic-provider runs. Any higher-cap routing is a separately approved
       experiment whose revised spend/run boundary is recorded in `PLAN.md` and
-      this checklist before participant activation. The completion report records
+      this checklist before participant activation. With send-to-all-applicable
+      routing a CNC package uses three runs and a sheet-metal package one, so
+      the five-attempt minimum fits (at most 15 runs) but ten CNC packages (30
+      runs) do not. The cap or package-count choice is `TODO(Blaine)` B7 in the
+      runbook's run budget. The completion report records
       value, reliability, support burden, unit economics, incidents, expansion
       themes, and an explicit proceed/change/manage/narrow/stop recommendation.
 - [ ] Paid-pilot reactions may inform the report, but a real offer, acceptance,
@@ -270,11 +286,29 @@ or extend the CNC validation geometry to fabrication processes.
       explicitly narrowed customer-facing support claim.
 - [ ] There are no known P0/P1 defects in the scoped journey; lower-severity
       known defects have an owner, workaround or risk statement, and Linear ID.
+- [ ] Every go/no-go gate in the runbook's
+      [1.0 launch contract](docs/1-0-beta-runbook.md#launch-gates) passes on
+      the frozen release candidate. In particular:
+  - [ ] `OVD-1018` is applied in production after its staging drill, and
+        `OVD-746`, `OVD-949`, and `OVD-734` are fixed and deployed or accepted
+        in writing by Blaine (`TODO(Blaine)` B9).
+  - [ ] `OVD-1067`: a new part uploaded with the approved drawing reaches
+        approved requirements or a review hold on production, never an
+        extraction task failure.
+  - [ ] Wake on submit: a customer submission starts the scale-to-zero
+        production worker without an operator wake request.
+  - [ ] `OVD-1068`: a missing or unconfirmed shipping address is confirmed
+        inside the quote confirmation dialog.
+  - [ ] `OVD-1011`: the real-stack steps 1 to 7 browser journey passes, then
+        passes again with real offers.
+  - [ ] `OVD-686`: every High audit finding is fixed and verified or accepted
+        by Blaine before the `OVD-319` walk.
 - [ ] Monitoring owner, customer-support route, spend ceiling, rollout control,
       rollback trigger, and vendor-session owner are recorded.
 - [ ] `README.md`, `PRD.md`, `PLAN.md`, `ROADMAP.md`,
-      `docs/1-0-beta-runbook.md`, `docs/founding-beta-program.md`, and public
-      copy describe the same 1.0 capability and exclusions.
+      `docs/1-0-beta-runbook.md`, `docs/founding-beta-program.md`,
+      `docs/plans/beta-launch-plan.md`, and public copy describe the same 1.0
+      capability and exclusions.
 - [ ] Evidence and checkbox state are recorded in the single rolling Linear
       comments for `OVD-206`, `OVD-359`, `OVD-319`, and `OVD-358` as assigned
       in the runbook; proprietary customer files are not attached to Linear.
@@ -287,8 +321,8 @@ The following are not required for 1.0 and must not be used to hold the release:
 
 - anonymous upload or quote claim into a new account
 - self-service subscription billing or a paid customer
-- provider lanes beyond the seven named 1.0 providers and their qualified
-  process-specific envelopes
+- provider lanes beyond the four named 1.0 providers and their qualified
+  process-specific envelopes, including Weerg, Geomiq and OSH Cut (1.1)
 - native apps or CAD plug-ins
 - supplier discovery or supplier-communication agents
 - geometry characterization, estimates, heatmaps, or DFM/DFA

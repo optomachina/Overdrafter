@@ -1,6 +1,7 @@
 import { supabase } from "@/integrations/supabase/client";
 import type { Database } from "@/integrations/supabase/types";
 import type { PostgrestSingleResponse } from "@supabase/supabase-js";
+import { requestWorkerWake } from "./worker-wake";
 
 type RpcName = keyof Database["public"]["Functions"];
 
@@ -46,14 +47,24 @@ export function callRpc<Name extends RpcName>(
   const rpcPromise = untypedSupabase.rpc(fn, rpcArgs) as unknown as Promise<
     PostgrestSingleResponse<Database["public"]["Functions"][Name]["Returns"]>
   >;
-  return withRpcTimeout(rpcPromise, fn as string);
+  return withRpcTimeout(rpcPromise, fn as string).then((response) => {
+    if (!response.error) {
+      requestWorkerWake(fn);
+    }
+    return response;
+  });
 }
 
 export function callUntypedRpc(
   fn: string,
   args?: Record<string, unknown>,
 ): Promise<PostgrestSingleResponse<unknown>> {
-  return withRpcTimeout(untypedSupabase.rpc(fn, args), fn);
+  return withRpcTimeout(untypedSupabase.rpc(fn, args), fn).then((response) => {
+    if (!response.error) {
+      requestWorkerWake(fn);
+    }
+    return response;
+  });
 }
 
 export function upsertUntyped(

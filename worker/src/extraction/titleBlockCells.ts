@@ -91,13 +91,22 @@
  * Every loop is bounded by the caps below, and the work per line is linear in its length. A line over MAX_LINE_LENGTH is
  * not read, but no cell is read across it either (crossesUnreadLine): the field is flagged.
  *
+ * OVD-1009: the description is the value of the TITLE (or DESCRIPTION) cell, read by the same rules. A title is free
+ * text, so no shape of words tells a title from a label ("COVER PLATE" is both), and it is centred in the widest cell
+ * of the block under a small label at the cell's left edge: its reach is wider (WORD_DESCRIPTION_REACH), the cell above
+ * it (a company's name and address, in every template) is not stray text, and it is not asked whether its first line
+ * is the label of a cell stacked under it. A DESCRIPTION label on a row of a revision table (with DATE, ENGINEER,
+ * APPROVED or BY, or under REVISIONS) heads a column of that table, not the description, and is a fence only. What
+ * fails closed above fails closed here: a title that is a label ("NOTES:"), a date, a pointer or a value cut short, or a
+ * cell with text its value did not take, gives no value and the field is flagged.
+ *
  * A test that has a `pdftotext -layout` text, or a page of word boxes, can call readTitleBlockCells
  * directly; the sheets in worker/test-support build both.
  */
 
 import { mergeHorizontalBorders, type GeometryBounds } from "./pdfVectorGeometry.js";
 
-export type CellField = "partNumber" | "revision" | "material" | "finish";
+export type CellField = "partNumber" | "revision" | "material" | "finish" | "description";
 
 /** One word of a line built from word boxes: its characters in `raw`, and where it sits, in layout columns. */
 export type TitleBlockWord = {
@@ -204,8 +213,8 @@ const LABEL_SPECS: readonly LabelSpec[] = [
   { source: String.raw`NEXT\s+(?:ASSY|ASSEMBLY|ASSM|ASM)\.?`, field: null },
   { source: String.raw`USED\s+ON`, field: null },
   { source: String.raw`CAGE(?:\s+CODE)?`, field: null },
-  { source: "TITLE", field: null },
-  { source: "DESCRIPTION", field: null },
+  { source: "TITLE", field: "description" },
+  { source: "DESCRIPTION", field: "description" },
   { source: "SIZE", field: null },
   { source: "SCALE", field: null },
   { source: "SHEET", field: null },
@@ -276,6 +285,15 @@ const WORD_REACH = 8;
 const WORD_REVISION_REACH = 4;
 const LAYOUT_REACH = 12;
 const LAYOUT_REVISION_REACH = 5;
+/**
+ * OVD-1009: how far past the TITLE label's right edge the title may start. The title is centred in the widest cell of
+ * the block, under a small label at the cell's left edge, so a short title starts well past the label (24 columns is
+ * about 85 points with word boxes on a sheet of 9 pt text; layout text gets more, as above). A run under another label's
+ * columns is still that label's (ownerOf takes the label farthest right that fits), and text the reach takes in that is
+ * not the title leaves the cell flagged (leavesTextUnconsumed) or unproven (accountsForCellGeometry).
+ */
+const WORD_DESCRIPTION_REACH = 24;
+const LAYOUT_DESCRIPTION_REACH = 30;
 /**
  * How many columns past its label's right edge the value of a material or finish centred in a wide cell may start
  * (unownedTextInCell): about 130 points with word boxes on a sheet of 9 pt text. Past the label's reach no cell owns
@@ -354,7 +372,7 @@ const LAYOUT_MAX_BLANK_LINES = 4;
  */
 const LAYOUT_TRAILING_WINDOW = 80;
 /** How many value lines each field may join (one for identifiers). */
-const MAX_VALUE_LINES: Record<CellField, number> = { partNumber: 1, revision: 1, material: 2, finish: 3 };
+const MAX_VALUE_LINES: Record<CellField, number> = { partNumber: 1, revision: 1, material: 2, finish: 3, description: 3 };
 // Bounds that keep the reader linear on hostile text: a longer line or a bigger block is not read.
 const MAX_LINE_LENGTH = 2_000;
 const MAX_LINES_PER_PAGE = 400;
@@ -875,6 +893,9 @@ function reachOf(field: CellField | null, words: boolean): number {
   if (field === "revision") {
     return words ? WORD_REVISION_REACH : LAYOUT_REVISION_REACH;
   }
+  if (field === "description") {
+    return words ? WORD_DESCRIPTION_REACH : LAYOUT_DESCRIPTION_REACH;
+  }
   return words ? WORD_REACH : LAYOUT_REACH;
 }
 
@@ -952,9 +973,10 @@ function identifierRejection(field: "partNumber" | "revision", value: string): s
   return value.length > 40 || /\s/.test(value) || DATE_LIKE.test(value) ? "bad_shape" : null;
 }
 
-/** Why a material or finish read from a cell is not one, or null. */
-function descriptionRejection(field: "material" | "finish", value: string): string | null {
-  if (value.length > 120) {
+/** Why a material, finish or title read from a cell is not one, or null. */
+function descriptionRejection(field: "material" | "finish" | "description", value: string): string | null {
+  // A title never holds a date: one means the cell ran into the approvals or the revision block.
+  if (value.length > 120 || (field === "description" && DATE_LIKE.test(value))) {
     return "bad_shape";
   }
   // "SEE NOTE 1", "SEE BOM", "AS NOTED": the cell points at another place for the material or finish. It
@@ -981,7 +1003,7 @@ function rejectionFor(field: CellField, value: string): string | null {
   if (field !== "revision" && alphanumericCount(value) < 2) {
     return "bad_shape";
   }
-  return field === "material" || field === "finish" ? descriptionRejection(field, value) : identifierRejection(field, value);
+  return field === "partNumber" || field === "revision" ? identifierRejection(field, value) : descriptionRejection(field, value);
 }
 
 /**
@@ -1049,7 +1071,7 @@ type CellDoubt = "unconsumed_text" | "fine_pitch" | "unread_line";
 /**
  * Layout text spreads the words of one value apart when its characters are narrow (a fine pitch), so the runs the
  * cell owns but the value did not take may be the rest of the value, and so may text that no cell owns on the
- * value's line, a little after it (material and finish). Word boxes give true positions: the text that is left
+ * value's line, a little after it (material, finish and description). Word boxes give true positions: the text that is left
  * over there is another cell's, except on a line the value was read from, where a word the cell owns and the
  * value did not take is the rest of that line ("ANODIZE" over "MIL-A-8625  TYPE III" with a wide gap) and the
  * value would be cut short.
@@ -1071,7 +1093,7 @@ function leavesTextUnconsumed(
   if (owned.some((run) => !taken.has(run) && alphanumericCount(run.text) >= 2 && (!run.fromWords || chosenLines.has(run.line)))) {
     return true;
   }
-  return (field === "material" || field === "finish") && chosen.some((entry) => hasTrailingLeftover(entry, leftoverByLine));
+  return field !== "partNumber" && field !== "revision" && chosen.some((entry) => hasTrailingLeftover(entry, leftoverByLine));
 }
 
 /**
@@ -1551,6 +1573,10 @@ function readOne(
   if (doubt !== null) {
     return empty("ambiguous", doubt);
   }
+  // A material or finish has an unlisted cell stacked under it as often as not, so its lines are judged by their shape
+  // (chooseValueLines with the label, firstLineIsStackedLabel). A title (OVD-1009) is free text with the vocabulary's own
+  // labels under it (SIZE, DWG. NO., CAGE CODE), and no shape of words tells a title from a label ("COVER PLATE"), so it
+  // is asked neither that question nor the identifiers' (identifierIsStackedLabel).
   const describes = label.field === "material" || label.field === "finish";
   const choice = chooseValueLines(groupByLine(owned), describes ? label : null);
   const chosen = choice.lines;
@@ -1589,9 +1615,12 @@ function readOne(
     return empty("ambiguous", "unconsumed_text", valueLines);
   }
   // A first line that is the label of a cell stacked where the value would be, with its own value next to it.
-  const stackedLabel = describes
-    ? firstLineIsStackedLabel(label, chosen, considered, pageLines)
-    : identifierIsStackedLabel(label, chosen, considered, pageLines);
+  let stackedLabel = false;
+  if (describes) {
+    stackedLabel = firstLineIsStackedLabel(label, chosen, considered, pageLines);
+  } else if (label.field !== "description") {
+    stackedLabel = identifierIsStackedLabel(label, chosen, considered, pageLines);
+  }
   if (stackedLabel) {
     return empty("ambiguous", "unlisted_label", valueLines);
   }
@@ -1967,6 +1996,8 @@ function readPageGeometry(pageLines: readonly TitleBlockTextLine[]): { labels: L
     else if (table) revisionRole = "ambiguous";
     for (const label of row) {
       if (label.field === "revision") label.revisionRole = revisionRole;
+      // OVD-1009: DESCRIPTION on such a row heads a column of the revision table, not the title block's description cell.
+      if (label.field === "description" && (history || table) && /^DESCRIPTION:?$/i.test(label.text)) label.field = null;
     }
   }
   const runs: Run[] = [];
@@ -1982,7 +2013,8 @@ function readPageGeometry(pageLines: readonly TitleBlockTextLine[]): { labels: L
 /**
  * Why a cell's value is doubtful, or null. Mostly layout text: word boxes give true positions (a run that is left over
  * there is another cell's), so only runs read from layout text count for a straddled run, stray text above or a fine
- * pitch. A material or finish whose phrase is cut by another cell (`contested`) is doubtful on either source.
+ * pitch. A material, finish or title whose phrase is cut by another cell (`contested`) is doubtful on either source. The
+ * cell above TITLE holds a company's name and address in every template, text no label owns: it is not stray (OVD-1009).
  */
 function doubtOf(
   label: Label,
@@ -1993,9 +2025,9 @@ function doubtOf(
   const ownedRuns = ownership.ownedByLabel.get(label) ?? [];
   const unconsumed =
     ownership.straddled.has(label) ||
-    (!ownedRuns.some((run) => ownership.inlineRuns.has(run)) &&
+    (label.field !== "description" && !ownedRuns.some((run) => ownership.inlineRuns.has(run)) &&
       hasStrayTextAbove(label, runsByLine, ownership.ownerOfRun, ownership.inlineRuns)) ||
-    (ownership.contested.has(label) && (label.field === "material" || label.field === "finish"));
+    (ownership.contested.has(label) && label.field !== "partNumber" && label.field !== "revision");
   if (unconsumed) {
     return "unconsumed_text";
   }
@@ -2217,10 +2249,10 @@ function readPage(page: number, pageText: readonly TitleBlockTextLine[]): CellRe
       const choice = chooseValueLines(groupByLine(ownedRuns), describes ? label : null);
       const considered = ownedRuns.filter((run) => run.line < choice.stoppedAt);
       // Keep every owned identifier, including later rows that made the suggestion ambiguous.
-      // A material/finish is one phrase: its wrapped qualifier is not a competing value.
+      // A material, finish or title is one phrase: its wrapped line is not a competing value.
       const observedLines = [...groupByLine(considered)].sort(([left], [right]) => left - right)
         .map(([, runs]) => lineTextOf(runs));
-      const values = describes ? [observedLines.join(" ")] : observedLines;
+      const values = describes || label.field === "description" ? [observedLines.join(" ")] : observedLines;
       const unresolved = fenced || choice.stackedLabel || choice.far || ownership.straddled.has(label) ||
         ownership.contested.has(label) || crossesUnreadLine(label, caps, unreadLines);
       read.observations = values.filter(Boolean).map((value) => ({

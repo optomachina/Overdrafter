@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  OVD-1060 LaunchAgent template for `login:vendors`. Blaine installs it by
+  hand (docs/vendor-unattended-login.md); agents never install, load or start
+  it. Placeholders: __REPO__ (main checkout), __NPM__ (absolute npm path),
+  __NODE_BIN_DIR__ (directory holding node and bw), __HOME__.
+  It holds no secret: Bitwarden unlock comes from the login config and the
+  macOS login keychain.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.overdrafter.vendor-login</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>__NPM__</string>
+    <string>--prefix</string>
+    <string>__REPO__/worker</string>
+    <string>run</string>
+    <string>--silent</string>
+    <string>login:vendors</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>__REPO__/worker</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>__NODE_BIN_DIR__:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    <key>OVD_VENDOR_LOGIN_LAUNCHD</key>
+    <string>1</string>
+  </dict>
+  <key>StartCalendarInterval</key>
+  <array>
+    <dict>
+      <key>Hour</key>
+      <integer>6</integer>
+      <key>Minute</key>
+      <integer>30</integer>
+    </dict>
+    <dict>
+      <key>Hour</key>
+      <integer>18</integer>
+      <key>Minute</key>
+      <integer>30</integer>
+    </dict>
+  </array>
+  <key>RunAtLoad</key>
+  <false/>
+  <key>ProcessType</key>
+  <string>Background</string>
+  <key>LowPriorityIO</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>__HOME__/Library/Logs/overdrafter/vendor-login.launchd.log</string>
+  <key>StandardErrorPath</key>
+  <string>__HOME__/Library/Logs/overdrafter/vendor-login.launchd.log</string>
+</dict>
+</plist>

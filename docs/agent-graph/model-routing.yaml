@@ -1,0 +1,32 @@
+# This file is the source of truth for model labels.
+# model: labels decide routing. Lead sets them using the usage balancer
+# (pstack-project-template scripts/usage-balancer).
+# Codex, Claude Code, and Cursor are peer build pools. Work goes to whichever
+# pool is furthest behind its weekly pace, according to the usage balancer
+# (leaning toward Codex/GPT).
+# A report-mode check that fails when a dispatched issue or PR has no model
+# label is planned in a separate Linear issue.
+
+- label: "model:opus"
+  provider: Anthropic
+  model: Claude Opus
+  use_for: typical fit is architecture-first work
+  notes: Opus is a pool. This is a typical fit, not an exclusive assignment.
+
+- label: "model:sonnet"
+  provider: Anthropic
+  model: Claude Sonnet
+  use_for: typical fit is standard builds
+  notes: Sonnet is a pool. This is a typical fit, not an exclusive assignment. Claude Code is a peer build pool with Codex and Cursor.
+
+- label: "model:codex"
+  provider: OpenAI
+  model: Codex / GPT
+  use_for: typical fit is default builds and scripts
+  notes: Codex is a peer build pool with Claude Code and Cursor. This is a typical fit, not an exclusive assignment. Work goes to whichever pool is furthest behind its weekly pace, according to the usage balancer (leaning toward Codex/GPT).
+
+- label: "model:grok-overflow"
+  provider: Cursor
+  model: Grok
+  use_for: typical fit is the Cursor build pool
+  notes: The label name is historical. Cursor is a peer build pool with Codex and Claude Code, not overflow builds only. Work goes to whichever pool is furthest behind its weekly pace, according to the usage balancer (leaning toward Codex/GPT). The Cursor pool means Grok-model cloud agents only, on included plan usage, stopping around 90%, with no on-demand spend and no Claude-model cloud agents.

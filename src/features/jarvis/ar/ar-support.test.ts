@@ -30,3 +30,7 @@ it.each([undefined, "", "invalid", "javascript:alert(1)", "http://files.example/
   expect(detectAr({ ...model, viewUrl: url! }, android)).toEqual({ state: "unavailable" });
   expect(detectAr({ ...model, glbUrl: url }, android)).toEqual({ state: "unavailable" });
 });
+
+it.each(["http://localhost:4173/plate.glb", "http://127.0.0.1:4173/plate.glb"])("treats loopback http as a secure context: %s", (url) => {
+  expect(isHttps(url)).toBe(true);
+});

@@ -125,6 +125,20 @@ export type ProviderPortalReadCapability = {
   readAttribute: (selector: string, attribute: string) => Promise<string | null>;
 };
 
+/** What a session check may report: a yes/no and a short status, never a response body. */
+export type ProviderPortalSessionCheckResult = { signedIn: boolean; detail: string };
+
+/**
+ * Positive session evidence from a fixed, kernel-owned evaluator. Adapters
+ * cannot supply page code, URLs or request options. Unsupported providers,
+ * thrown, stalled or malformed checks report not signed in.
+ */
+export type ProviderPortalSessionCapability = {
+  confirmSignedIn: () => Promise<ProviderPortalSessionCheckResult>;
+};
+
+export const PROVIDER_PORTAL_SESSION_CHECK_TIMEOUT_MS = 15_000;
+
 export type ProviderPortalConfigurationCapability = {
   fill: (field: string, value: string) => Promise<boolean>;
   select: (field: string, value: string) => Promise<boolean>;
@@ -225,14 +239,23 @@ export type ProviderPortalDefinition = {
     envelope: { id: string; version: number };
   };
   hooks: {
-    /** Read-only guard at initial classification and again immediately before upload. */
-    beforeUpload?: (reader: ProviderPortalReadCapability) => void | Promise<void>;
+    /**
+     * Read-only guard at initial classification and again before upload. The
+     * kill switch is re-read after the second call, so a switch engaged while
+     * the guard waits still stops the upload.
+     */
+    beforeUpload?: (
+      reader: ProviderPortalReadCapability,
+      session: ProviderPortalSessionCapability,
+    ) => void | Promise<void>;
     assessEligibility: (
       input: VendorQuoteAdapterInput,
     ) => ProviderPortalEligibility | Promise<ProviderPortalEligibility>;
+    /** `reader` lets a definition verify the page it is about to mutate between configuration steps. */
     configure: (
       configuration: ProviderPortalConfigurationCapability,
       input: VendorQuoteAdapterInput,
+      reader: ProviderPortalReadCapability,
     ) => void | Promise<void>;
     classifyPortalState: (
       snapshot: ProviderPortalSnapshot,
@@ -444,6 +467,30 @@ function normalizedCookieDomain(value: unknown): string | null {
   return normalized;
 }
 
+function isAllowedCookie(cookie: unknown, allowed: ReadonlySet<string>): boolean {
+  if (!cookie || typeof cookie !== "object" || Array.isArray(cookie)) {
+    return false;
+  }
+  const domain = normalizedCookieDomain((cookie as Record<string, unknown>).domain);
+  return domain !== null && allowed.has(domain);
+}
+
+function isAllowedExactOriginEntry(originEntry: unknown, allowedHosts: readonly string[]): boolean {
+  if (!originEntry || typeof originEntry !== "object" || Array.isArray(originEntry)) {
+    return false;
+  }
+  const origin = (originEntry as Record<string, unknown>).origin;
+  if (typeof origin !== "string" || !isAllowedProviderUrl(origin, allowedHosts)) {
+    return false;
+  }
+  const parsedOrigin = new URL(origin);
+  return parsedOrigin.pathname === "/"
+    && !parsedOrigin.search
+    && !parsedOrigin.hash
+    && !parsedOrigin.username
+    && !parsedOrigin.password;
+}
+
 function parseStorageState(
   value: unknown,
   allowedHosts: readonly string[],
@@ -456,35 +503,67 @@ function parseStorageState(
     return null;
   }
   const allowed = new Set(allowedHosts.map((host) => host.toLowerCase()));
-  for (const cookie of record.cookies) {
-    if (!cookie || typeof cookie !== "object" || Array.isArray(cookie)) {
-      return null;
-    }
-    const domain = normalizedCookieDomain((cookie as Record<string, unknown>).domain);
-    if (!domain || !allowed.has(domain)) {
-      return null;
-    }
+  if (!record.cookies.every((cookie) => isAllowedCookie(cookie, allowed))) {
+    return null;
   }
-  for (const originEntry of record.origins) {
-    if (!originEntry || typeof originEntry !== "object" || Array.isArray(originEntry)) {
-      return null;
-    }
-    const origin = (originEntry as Record<string, unknown>).origin;
-    if (typeof origin !== "string" || !isAllowedProviderUrl(origin, allowedHosts)) {
-      return null;
-    }
-    const parsedOrigin = new URL(origin);
-    if (
-      parsedOrigin.pathname !== "/"
-      || parsedOrigin.search
-      || parsedOrigin.hash
-      || parsedOrigin.username
-      || parsedOrigin.password
-    ) {
-      return null;
-    }
+  if (!record.origins.every((originEntry) => isAllowedExactOriginEntry(originEntry, allowedHosts))) {
+    return null;
+  }
+  if (record.sessionStorage !== undefined && !isValidSessionStorageCapture(record.sessionStorage, allowedHosts)) {
+    return null;
   }
   return value as Exclude<BrowserContextOptions["storageState"], string | undefined>;
+}
+
+/** Per-origin sessionStorage captured beside Playwright's storage state (OVD-1059); Playwright itself never saves it. */
+export type CapturedSessionStorageOrigin = {
+  origin: string;
+  sessionStorage: { name: string; value: string }[];
+};
+
+function isValidSessionStorageCapture(value: unknown, allowedHosts: readonly string[]): value is CapturedSessionStorageOrigin[] {
+  if (!Array.isArray(value)) return false;
+  return value.every((entry) => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) return false;
+    const { origin, sessionStorage } = entry as Record<string, unknown>;
+    if (typeof origin !== "string" || !isAllowedProviderUrl(origin, allowedHosts)) return false;
+    if (new URL(origin).origin !== origin) return false;
+    return Array.isArray(sessionStorage) && sessionStorage.every((item) => item && typeof item === "object"
+      && typeof (item as Record<string, unknown>).name === "string"
+      && typeof (item as Record<string, unknown>).value === "string");
+  });
+}
+
+/** Splits the sessionStorage capture off, since Playwright's storageState option does not accept it. */
+export function splitSessionStorage(
+  storageState: Exclude<BrowserContextOptions["storageState"], string | undefined>,
+): {
+  playwrightState: Exclude<BrowserContextOptions["storageState"], string | undefined>;
+  sessionStorage: CapturedSessionStorageOrigin[];
+} {
+  const { sessionStorage, ...playwrightState } = storageState as typeof storageState & {
+    sessionStorage?: CapturedSessionStorageOrigin[];
+  };
+  return { playwrightState, sessionStorage: sessionStorage ?? [] };
+}
+
+/** Restores captured sessionStorage on its exact origin before any portal script runs. */
+export async function seedSessionStorage(
+  context: Pick<BrowserContext, "addInitScript">,
+  captured: CapturedSessionStorageOrigin[],
+): Promise<void> {
+  if (captured.length === 0) return;
+  await context.addInitScript((origins: CapturedSessionStorageOrigin[]) => {
+    const match = origins.find((entry) => entry.origin === globalThis.location.origin);
+    if (!match) return;
+    try {
+      for (const { name, value } of match.sessionStorage) {
+        if (globalThis.sessionStorage.getItem(name) === null) globalThis.sessionStorage.setItem(name, value);
+      }
+    } catch {
+      // A sandboxed frame without storage simply stays logged out.
+    }
+  }, captured);
 }
 
 async function hasSymlinkedPathComponent(filePath: string): Promise<boolean> {
@@ -629,7 +708,7 @@ export async function readProviderPortalApprovalFile(
 /** Resolves session bytes into a per-attempt object; paths are never handed to the browser. */
 export async function resolveIsolatedProviderStorageState(
   definition: ProviderPortalDefinition,
-  config: WorkerConfig,
+  config: Pick<WorkerConfig, "vendorStorageStateJson" | "vendorStorageStatePaths" | "vendorStorageStateDir">,
 ): Promise<Exclude<BrowserContextOptions["storageState"], string | undefined> | null> {
   const jsonState = config.vendorStorageStateJson?.[definition.provider];
   if (jsonState) {
@@ -1349,6 +1428,79 @@ function buildReadCapability(
   });
 }
 
+/**
+ * Asks the app whether a signed-in, non-guest user is present, with the same
+ * headers SendCutSend's own API helper sends (JSON, CSRF meta token, client
+ * GUID). It runs inside the page, so it must stay self-contained (no
+ * closures or helpers), and it returns only a boolean and a status; the
+ * response body never leaves the page. Only an id plus an explicit
+ * `guest: false` counts: a missing or null guest flag is not evidence. The
+ * fetch aborts after 10 s. Shared by the session save and the pre-upload guard.
+ */
+export async function checkSendCutSendCurrentUser(): Promise<ProviderPortalSessionCheckResult> {
+  const controller = new AbortController();
+  const abort = setTimeout(() => controller.abort(), 10_000);
+  try {
+    const headers: Record<string, string> = { Accept: "application/json", "Content-Type": "application/json" };
+    const csrf = document.querySelector<HTMLMetaElement>('meta[name="csrf-token"]')?.content;
+    if (csrf) headers["X-CSRF-Token"] = csrf;
+    const clientGuid = (window as { appData?: { clientGuid?: unknown } }).appData?.clientGuid;
+    if (typeof clientGuid === "string" && clientGuid) headers["X-Client-Guid"] = clientGuid;
+    const response = await fetch("https://app.sendcutsend.com/users/current", {
+      method: "GET", mode: "same-origin", redirect: "error", credentials: "same-origin", headers, signal: controller.signal,
+    });
+    if (response.status !== 200) return { signedIn: false, detail: `status ${response.status}` };
+    const user: unknown = await response.json();
+    if (user === null || typeof user !== "object" || Array.isArray(user)) {
+      return { signedIn: false, detail: "status 200 without a user" };
+    }
+    const { id, guest } = user as { id?: unknown; guest?: unknown };
+    const hasId = (typeof id === "number" && Number.isSafeInteger(id) && id > 0)
+      || (typeof id === "string" && id.trim() !== "");
+    if (!hasId) return { signedIn: false, detail: "status 200 without a user" };
+    if (guest === true) return { signedIn: false, detail: "guest user" };
+    if (guest !== false) return { signedIn: false, detail: "status 200 without a guest flag" };
+    return { signedIn: true, detail: "status 200" };
+  } catch {
+    return { signedIn: false, detail: "request failed" };
+  } finally {
+    clearTimeout(abort);
+  }
+}
+
+function buildSessionCapability(
+  definition: ProviderPortalDefinition,
+  page: Page,
+  boundary: PortalBoundaryState,
+): ProviderPortalSessionCapability {
+  return Object.freeze({
+    confirmSignedIn: async (...args: unknown[]) => {
+      assertPortalBoundary(definition, page, boundary);
+      // Reject legacy callbacks and untyped callers before any page evaluation.
+      if (args.length !== 0) {
+        throw terminalError(definition, "manual_review", "session_check_arguments_forbidden", {
+          providerMutationPossible: boundary.providerMutationPossible,
+        });
+      }
+      if (definition.provider !== "sendcutsend" || new URL(page.url()).origin !== "https://app.sendcutsend.com") {
+        return { signedIn: false, detail: "unsupported session check" };
+      }
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const deadline = new Promise<unknown>((resolve) => {
+        timer = setTimeout(() => resolve({ signedIn: false, detail: "timed out" }), PROVIDER_PORTAL_SESSION_CHECK_TIMEOUT_MS);
+      });
+      const raw = await Promise.race([
+        page.evaluate(checkSendCutSendCurrentUser).catch(() => ({ signedIn: false, detail: "page check failed" })),
+        deadline,
+      ]).finally(() => clearTimeout(timer));
+      assertPortalBoundary(definition, page, boundary);
+      const result = raw !== null && typeof raw === "object" ? raw as Record<string, unknown> : {};
+      const detail = typeof result.detail === "string" ? result.detail.slice(0, 80) : "malformed session check";
+      return { signedIn: result.signedIn === true, detail };
+    },
+  });
+}
+
 function buildConfigurationCapability(
   definition: ProviderPortalDefinition,
   page: Page,
@@ -1707,7 +1859,9 @@ async function openProviderPortalSession(
   const launch = dependencies.launchBrowser ?? ((options) => chromium.launch(options));
   const browser = await launch(launchOptions(config));
   try {
-    const context = await browser.newContext({ storageState, serviceWorkers: "block" });
+    const { playwrightState, sessionStorage } = splitSessionStorage(storageState);
+    const context = await browser.newContext({ storageState: playwrightState, serviceWorkers: "block" });
+    await seedSessionStorage(context, sessionStorage);
     context.setDefaultTimeout(config.browserTimeoutMs);
     context.setDefaultNavigationTimeout(config.browserTimeoutMs);
     const page = await context.newPage();
@@ -1773,8 +1927,15 @@ async function uploadAuthorizedPortalFiles(
       definition.selectors.cleanupRow,
     );
   }
-  // OVD-722: re-read after the awaited locator lookup so a switch engaged in
-  // that window still stops the upload. A request already sent cannot be recalled.
+  await definition.hooks.beforeUpload?.(
+    buildReadCapability(definition, session.page, session.boundary),
+    buildSessionCapability(definition, session.page, session.boundary),
+  );
+  assertPortalBoundary(definition, session.page, session.boundary);
+  // OVD-722: re-read after the awaited locator lookup and the definition's
+  // pre-upload guard (which may wait for the page to settle), so a switch
+  // engaged in that window still stops the upload. A request already sent
+  // cannot be recalled.
   await input.providerKillSwitchCheckpoint?.("before_upload");
   // OVD-723: the export-control gate is asked again here, after navigation
   // and classification and right before the first byte reaches the provider.
@@ -1782,7 +1943,6 @@ async function uploadAuthorizedPortalFiles(
   // translated into a portal failure) and the lane is held; nothing has been
   // uploaded.
   await input.beforeProviderDisclosure?.();
-  await definition.hooks.beforeUpload?.(buildReadCapability(definition, session.page, session.boundary));
   assertPortalBoundary(definition, session.page, session.boundary);
   enterProviderMutation(session.boundary);
   await cadInput.setInputFiles(files.cad);
@@ -1840,6 +2000,7 @@ async function configureProviderPortalQuote(interaction: ProviderPortalInteracti
   await definition.hooks.configure(
     buildConfigurationCapability(definition, session.page, session.boundary, input.providerKillSwitchCheckpoint),
     input,
+    buildReadCapability(definition, session.page, session.boundary),
   );
   assertPortalBoundary(definition, session.page, session.boundary);
   await session.page.waitForLoadState("networkidle", { timeout: config.browserTimeoutMs }).catch(() => undefined);
@@ -1907,8 +2068,14 @@ async function runProviderPortalInteraction(
   });
   assertPortalBoundary(definition, session.page, session.boundary);
   let snapshot = await snapshotPortal(session.page);
-  await definition.hooks.beforeUpload?.(buildReadCapability(definition, session.page, session.boundary));
+  await definition.hooks.beforeUpload?.(
+    buildReadCapability(definition, session.page, session.boundary),
+    buildSessionCapability(definition, session.page, session.boundary),
+  );
   assertPortalBoundary(definition, session.page, session.boundary);
+  // The hook may have waited for the page to settle (a session guard, header
+  // hydration), so classify what the page shows now, not the pre-hook snapshot.
+  snapshot = await snapshotPortal(session.page);
   let state = await definition.hooks.classifyPortalState(snapshot);
   const initialTerminal = await captureTerminalPortalState(interaction, state, snapshot);
   if (initialTerminal) {

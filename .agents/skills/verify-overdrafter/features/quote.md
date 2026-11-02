@@ -25,6 +25,7 @@ Preconditions: `quote-compare` fixture mode; `quote-intake`, `quote-destination`
 
 ## Gotchas
 
+- Fixture mode shows a "Founding Beta new-part access could not be verified" banner on the part page because Supabase is a dead port there. It is expected and not part of the comparison journey; do not report it as a regression from a fixture run.
 - Intake needs real storage and the local stack; fixture mode cannot prove it.
 - Mutations touch only the disposable local database. Reset with `npm run db:reset` if state drifts.
 - Real supplier carts and live quotes are out of scope; never upload parts to a provider from this skill.

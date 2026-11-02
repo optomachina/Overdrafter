@@ -13,6 +13,7 @@ readonly LOOPBACK_REBIND_ORIGIN='127.0.0.2'
 readonly RFC1918_REBIND_ORIGIN='10.0.0.2'
 readonly METADATA_REBIND_ORIGIN='169.254.169.254'
 readonly ALTERNATE_PUBLIC_REBIND_ORIGIN='93.184.216.35'
+readonly REFRESHED_ORIGIN='93.184.216.36'
 readonly APPROVED_HOST='approved.recovery.test'
 readonly APPROVED_HOST_ALIAS='edge.recovery.test'
 readonly UNKNOWN_HOST='unknown.recovery.test'
@@ -31,6 +32,7 @@ dns_pid=''
 resolver_pid=''
 haproxy_pid=''
 origin_pid=''
+refreshed_origin_pid=''
 bridge_created=''
 namespace_created=''
 input_chain_created=''
@@ -62,6 +64,7 @@ cleanup() {
   [[ -n "$dns_pid" ]] && kill "$dns_pid" 2>/dev/null
   [[ -n "$resolver_pid" ]] && kill "$resolver_pid" 2>/dev/null
   [[ -n "$origin_pid" ]] && kill "$origin_pid" 2>/dev/null
+  [[ -n "$refreshed_origin_pid" ]] && kill "$refreshed_origin_pid" 2>/dev/null
   if [[ -n "$docker_network_cleanup_unprovable" ]]; then
     cleanup_code=1
   fi
@@ -97,7 +100,7 @@ trap cleanup EXIT
 require_root_and_tools() {
   [[ "$(id -u)" -eq 0 ]] || fail 'root_required'
   local tool
-  for tool in awk basename dig dnsmasq docker haproxy id ip iptables jq openssl setpriv sleep ss sysctl tail timeout; do
+  for tool in awk basename cmp dig dnsmasq docker haproxy id ip iptables jq openssl setpriv sha256sum sleep ss sysctl tail timeout; do
     command -v "$tool" >/dev/null 2>&1 || fail "missing_$tool"
   done
 }
@@ -293,21 +296,11 @@ render_synthetic_control() {
   ! grep -Fq 'resolvers controlled_dns' "$work_dir/haproxy.cfg" || fail 'runtime_resolver_rendered'
 }
 
-start_synthetic_services() {
-  local dnsmasq_uid dnsmasq_gid haproxy_uid haproxy_gid
-  openssl s_server -quiet -accept "$SYNTHETIC_ORIGIN:443" \
-    -cert "$work_dir/origin.crt" -key "$work_dir/origin.key" >"$work_dir/origin.log" 2>&1 &
-  origin_pid="$!"
-  id dnsmasq >/dev/null 2>&1 || fail 'dnsmasq_user_missing'
+start_gateway_proxy() {
+  local haproxy_uid haproxy_gid
   id haproxy >/dev/null 2>&1 || fail 'haproxy_user_missing'
-  dnsmasq_uid="$(id -u dnsmasq)"
-  dnsmasq_gid="$(id -g dnsmasq)"
   haproxy_uid="$(id -u haproxy)"
   haproxy_gid="$(id -g haproxy)"
-  setpriv --reuid="$dnsmasq_uid" --regid="$dnsmasq_gid" --clear-groups \
-    --inh-caps +net_bind_service --ambient-caps +net_bind_service -- \
-    dnsmasq --keep-in-foreground --conf-file="$work_dir/dnsmasq.conf" >"$work_dir/dns.log" 2>&1 &
-  dns_pid="$!"
   (
     cd "$work_dir"
     exec setpriv --reuid="$haproxy_uid" --regid="$haproxy_gid" --clear-groups \
@@ -315,6 +308,30 @@ start_synthetic_services() {
       haproxy -f "$work_dir/haproxy.cfg"
   ) >"$work_dir/haproxy.log" 2>&1 &
   haproxy_pid="$!"
+}
+
+wait_for_tcp_listener() {
+  local endpoint="$1" failure_code="$2" attempts=0
+  until ss -H -lnt | awk -v endpoint="$endpoint" '$4 == endpoint { found = 1 } END { exit found ? 0 : 1 }'; do
+    attempts=$((attempts + 1))
+    (( attempts < 20 )) || fail "$failure_code"
+    sleep 0.1
+  done
+}
+
+start_synthetic_services() {
+  local dnsmasq_uid dnsmasq_gid
+  openssl s_server -quiet -accept "$SYNTHETIC_ORIGIN:443" \
+    -cert "$work_dir/origin.crt" -key "$work_dir/origin.key" >"$work_dir/origin.log" 2>&1 &
+  origin_pid="$!"
+  id dnsmasq >/dev/null 2>&1 || fail 'dnsmasq_user_missing'
+  dnsmasq_uid="$(id -u dnsmasq)"
+  dnsmasq_gid="$(id -g dnsmasq)"
+  setpriv --reuid="$dnsmasq_uid" --regid="$dnsmasq_gid" --clear-groups \
+    --inh-caps +net_bind_service --ambient-caps +net_bind_service -- \
+    dnsmasq --keep-in-foreground --conf-file="$work_dir/dnsmasq.conf" >"$work_dir/dns.log" 2>&1 &
+  dns_pid="$!"
+  start_gateway_proxy
 
   local attempts=0
   until ss -H -lnt | awk -v endpoint="$SYNTHETIC_ORIGIN:443" '$4 == endpoint { found = 1 } END { exit found ? 0 : 1 }' && \
@@ -359,14 +376,19 @@ prove_allow_and_deny_paths() {
   [[ "$(sysctl -n "net.ipv6.conf.$BRIDGE.forwarding")" == '0' ]] || fail 'bridge_ipv6_forwarding_enabled'
 }
 
+restart_controlled_resolver() {
+  local address="$1"
+  kill "$resolver_pid"
+  wait "$resolver_pid" 2>/dev/null || true
+  resolver_pid=''
+  write_resolver_config "$address"
+  start_controlled_resolver
+}
+
 prove_post_readiness_rebinds_are_pinned() {
   local label address
   while IFS=':' read -r label address; do
-    kill "$resolver_pid"
-    wait "$resolver_pid" 2>/dev/null || true
-    resolver_pid=''
-    write_resolver_config "$address"
-    start_controlled_resolver
+    restart_controlled_resolver "$address"
 
     env OVD420_RECOVERY_EGRESS_TEST_RENDER=1 \
       bash "$CONTROL_SCRIPT" test-pinned-map \
@@ -387,6 +409,65 @@ alternate_public:$ALTERNATE_PUBLIC_REBIND_ORIGIN
 EOF
 }
 
+refresh_synthetic_control() {
+  env OVD420_RECOVERY_EGRESS_TEST_RENDER=1 \
+    bash "$CONTROL_SCRIPT" test-refresh \
+      "$work_dir/policy.json" "$work_dir/addresses.json" "$work_dir/haproxy.cfg" 127.0.0.1 5353
+}
+
+live_gateway_fingerprint() {
+  cat "$work_dir/addresses.json" "$work_dir/haproxy.cfg" "$work_dir/dnsmasq.conf" | sha256sum
+}
+
+# OVD-1064: the pre-launch refresh re-pins through the same controlled
+# resolver and checks as install. A hostile rebind must leave the live gateway
+# byte-identical; a public rotation must reach only the new origin while every
+# deny path still holds.
+prove_pre_launch_refresh_repins_public_addresses_only() {
+  local label address fingerprint refresh_result
+  fingerprint="$(live_gateway_fingerprint)"
+  while IFS=':' read -r label address; do
+    restart_controlled_resolver "$address"
+    must_fail "${label}_refresh" refresh_synthetic_control
+    [[ "$(live_gateway_fingerprint)" == "$fingerprint" ]] || fail "${label}_refresh_changed_live_gateway"
+    ! grep -Fq "$address" "$work_dir/haproxy.cfg" || fail "${label}_refresh_rendered"
+  done <<EOF
+loopback:$LOOPBACK_REBIND_ORIGIN
+rfc1918:$RFC1918_REBIND_ORIGIN
+metadata:$METADATA_REBIND_ORIGIN
+EOF
+
+  ip addr add "$REFRESHED_ORIGIN/32" dev "$BRIDGE"
+  openssl s_server -quiet -accept "$REFRESHED_ORIGIN:443" \
+    -cert "$work_dir/origin.crt" -key "$work_dir/origin.key" >"$work_dir/refreshed-origin.log" 2>&1 &
+  refreshed_origin_pid="$!"
+  wait_for_tcp_listener "$REFRESHED_ORIGIN:443" 'refreshed_origin_not_listening'
+  restart_controlled_resolver "$REFRESHED_ORIGIN"
+  refresh_result="$(refresh_synthetic_control)" || fail 'public_refresh_failed'
+  [[ "$refresh_result" == 'address-map=replaced' ]] || fail 'public_refresh_not_replaced'
+  grep -Fqx "  server upstream_0 $REFRESHED_ORIGIN:443" "$work_dir/haproxy.cfg" || fail 'refreshed_backend_not_rendered'
+  ! grep -Fq "$SYNTHETIC_ORIGIN" "$work_dir/haproxy.cfg" || fail 'stale_backend_retained'
+  env OVD420_RECOVERY_EGRESS_TEST_RENDER=1 \
+    bash "$CONTROL_SCRIPT" test-pinned-map "$work_dir/policy.json" "$work_dir/addresses.json" || \
+    fail 'refreshed_map_outside_pinned_contract'
+
+  # Retire the stale origin so an approved handshake can reach only the
+  # refreshed address, then restart the gateway on the refreshed pair.
+  kill "$origin_pid"
+  wait "$origin_pid" 2>/dev/null || true
+  origin_pid=''
+  kill "$haproxy_pid"
+  wait "$haproxy_pid" 2>/dev/null || true
+  haproxy_pid=''
+  start_gateway_proxy
+  wait_for_tcp_listener "$NETWORK_GATEWAY:443" 'refreshed_gateway_not_listening'
+  prove_allow_and_deny_paths
+  must_fail 'refreshed_direct_public_ipv4' client timeout 2 bash -c "exec 3<>/dev/tcp/$REFRESHED_ORIGIN/443"
+
+  refresh_result="$(refresh_synthetic_control)" || fail 'repeat_refresh_failed'
+  [[ "$refresh_result" == 'address-map=unchanged' ]] || fail 'repeat_refresh_not_unchanged'
+}
+
 require_root_and_tools
 prove_exact_docker_network_lifecycle
 work_dir="$(mktemp -d)"
@@ -397,4 +478,5 @@ render_synthetic_control
 start_synthetic_services
 prove_allow_and_deny_paths
 prove_post_readiness_rebinds_are_pinned
+prove_pre_launch_refresh_repins_public_addresses_only
 printf '%s\n' 'OVD-420 recovery egress network proof passed.'

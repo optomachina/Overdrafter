@@ -1,12 +1,15 @@
 -- OVD-635: read-only check that the production ledger equals the frozen
--- 152-migration manifest (docs/release/ovd-635-ledger-152-manifest.json).
+-- 161-migration manifest (docs/release/ovd-635-ledger-161-manifest.json).
 --
 -- Owner step. Reads supabase_migrations.schema_migrations only. Never reads
 -- application or customer tables and writes nothing.
--- Expected: count 152, head 20261014191541,
--- version_list_md5 dea629f567cdcbf87a5f9d83d9215979, missing = {}, extra = {}.
+-- Expected: count 161, head 20261029165751,
+-- version_list_md5 60d3fdc3744e859521ba64ce62bcf980, missing = {}, extra = {}.
+-- If extra lists only next-window suffix versions, in order from the first
+-- (docs/release/ovd-635-next-window-suffix-manifest.json), that part of the
+-- suffix is already applied: compare count, head and md5 with the states there.
 -- statement_fingerprint is recorded, not asserted: rows applied through the SQL
--- editor (Oct 13) can store statements that differ from a CLI apply.
+-- editor can store statements that differ from a CLI apply.
 
 begin read only;
 
@@ -163,7 +166,16 @@ with manifest(version) as (
     ('20261012212325'),
     ('20261013043000'),
     ('20261013043100'),
-    ('20261014191541')
+    ('20261014191541'),
+    ('20261015214135'),
+    ('20261015221725'),
+    ('20261016000156'),
+    ('20261016002932'),
+    ('20261016004826'),
+    ('20261016013742'),
+    ('20261016013832'),
+    ('20261025194414'),
+    ('20261029165751')
 ), ledger as (
   select version::text as version, statements
   from supabase_migrations.schema_migrations

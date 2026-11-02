@@ -148,7 +148,7 @@ describe("computePatchId", () => {
       expect(run(["--base", sha("main"), "--head", ref])).toThrow(/--head must be a full 40-character lowercase commit SHA/);
     }
     expect(run(["--base=--all", "--head", sha("feature")])).toThrow(/--base must be/);
-    expect(run(["--base", sha("main"), "--head", "f".repeat(40)])).toThrow(/--head f{40} is not a commit in this repository/);
+    expect(run(["--base", sha("main"), "--head", "f".repeat(40)])).toThrow(/git could not verify --head f{40} as a commit/);
   });
 
   it("refuses an empty diff", () => {
@@ -557,7 +557,7 @@ describe("emit -> validate round trip", () => {
       sha: sha("feature"),
       patch_id: patchId("main", "feature"),
       diff_id: diffId("main", "feature"),
-      verifier: { id: "astra-verifier", model_family: "opus", github_login: "verifier-bot" },
+      verifier: { id: "astra-verifier", model_family: "claude", github_login: "verifier-bot" },
       evidence: [{ kind: "verify-run", url: "https://github.com/o/r/actions/runs/42" }],
       notes: [],
       readiness: { conflicts: 0, open_threads: 0, checks: "green" },
@@ -719,7 +719,15 @@ describe("posting", () => {
       seen = { bodyFile, exists: existsSync(bodyFile), contents: readFileSync(bodyFile, "utf8") };
       return { status: 0 };
     });
-    const body = main([...ARGS(), "--pr", "12", "--post"], { cwd: repo, now: NOW, run });
+    // The injected runner never executes gh; supply an owned executable fixture
+    // so this test does not depend on a host installation in a fixed directory.
+    const gh = join(repo, "gh");
+    writeFileSync(gh, "#!/bin/sh\nexit 0\n", { mode: 0o700 });
+    vi.stubEnv("GH_BIN", gh);
+    let body;
+    try { body = main([...ARGS(), "--pr", "12", "--post"], { cwd: repo, now: NOW, run }); }
+    finally { vi.unstubAllEnvs(); }
+
     expect(run).toHaveBeenCalledTimes(1);
     const [bin, args, opts] = run.mock.calls[0];
     expect(bin).toMatch(/^\/.*\/gh$/);
@@ -808,5 +816,15 @@ describe("GH_BIN override", () => {
     expect(() => resolveGhBin({ GH_BIN: fakeGh("gh-644", 0o644) }, { lookup: strict })).toThrow(/GH_BIN is not executable/);
     expect(() => resolveGhBin({ GH_BIN: dir }, { lookup: strict })).toThrow(/GH_BIN is not a regular file/);
     expect(strict).not.toHaveBeenCalled();
+  });
+});
+
+describe("R2 canonical model families", () => {
+  const input = { role: "verifier", verdict: "PASS", sha: "a".repeat(40), patchId: "b".repeat(40), diffId: "c".repeat(64), verifierId: "v", githubLogin: "bot", evidence: [{ kind: "ci-run", url: "https://github.com/o/r/actions/runs/1" }], readiness: { conflicts: 0, open_threads: 0, checks: "green" } };
+  it.each(["opus", "sonnet"])("emits %s as claude", (modelFamily) => {
+    expect(buildVerdict({ ...input, modelFamily }, { now: NOW }).verifier.model_family).toBe("claude");
+  });
+  it.each(["", "Opus", "claude-opus", "gpt-6"])("rejects %s", (modelFamily) => {
+    expect(() => buildVerdict({ ...input, modelFamily }, { now: NOW })).toThrow("verdict_schema_error");
   });
 });

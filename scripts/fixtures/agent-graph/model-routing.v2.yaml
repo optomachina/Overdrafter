@@ -17,7 +17,11 @@
     { "id": "cursor-cloud", "display": "Cursor Cloud", "may_build": true },
     { "id": "mac-mini-claude-jobs", "display": "Mac Mini Claude Jobs", "may_build": true }
   ],
-  "review_routing": { "claude": "openai", "grok": "openai", "openai": "claude-sonnet" },
-  "unknown_builder": ["codex-xhigh", "claude-sonnet"],
-  "mixed_builder": ["codex-xhigh", "claude-sonnet"]
+  "review_routing": {
+    "claude": { "reviewer": "claude-opus", "fresh_session": true },
+    "grok": "claude-opus",
+    "openai": "claude-sonnet"
+  },
+  "unknown_builder": [{ "reviewer": "claude-opus", "fresh_session": true }, "claude-sonnet"],
+  "mixed_builder": [{ "reviewer": "claude-opus", "fresh_session": true }, "claude-sonnet"]
 }

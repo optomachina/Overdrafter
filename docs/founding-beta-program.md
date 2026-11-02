@@ -1,6 +1,6 @@
 # OverDrafter Founding Beta Program
 
-Last updated: September 28, 2026
+Last updated: October 23, 2026
 
 ## Purpose
 
@@ -15,6 +15,12 @@ evidence-driven customer program without expanding the product promise.
 Linear issue `OVD-358` owns the program. `OVD-359`, `OVD-206`, `OVD-199`, and
 `OVD-319` must close first. The beta is free, invitation-only product research—not
 general availability, a paid pilot, or a reason to bypass launch safeguards.
+
+**Readiness:** invitations require launch readiness, not demo readiness (see
+[Demo readiness vs launch readiness](1-0-beta-runbook.md#demo-readiness-vs-launch-readiness)).
+The current verdict is **NO-GO for a customer beta**: the Codex readiness
+review's no-go stands because there are zero priced production runs. A demo
+to friends or prospects is not an invitation into this program.
 
 ## Outcome and valid decisions
 
@@ -35,24 +41,29 @@ A negative conclusion is valid. Scope does not expand to make metrics pass.
   observation protocol as any later participant.
 - The release minimum remains three participants, five truthful production
   attempts, and at least three live offers that participants understand.
-- At least five automatic quote sources—Xometry plus at least four additional
-  CNC-eligible providers from the named 1.0 portfolio—must be independently
-  admitted and production-certified for the same CNC package before participant
-  activation. The portfolio is Xometry, Fictiv, Quickparts, Weerg, Geomiq,
-  RMFG, and OSH Cut; RMFG and OSH Cut also require separately qualified
-  process-specific routes, without implying either is a CNC source.
+- Four automatic quote sources must be independently admitted and
+  production-certified before participant activation: Xometry, Fictiv and
+  Quickparts for the same CNC package, and RMFG for the sheet-metal package
+  (Blaine, October 20, 2026). RMFG has a separately qualified
+  process-specific route and is never a CNC source. Weerg, Geomiq and OSH Cut
+  are 1.1.
 - Before release, at least one unaided eligible CNC participant attempt must
-  return one current, independently traceable live offer from at least five
-  CNC-qualified providers in the named 1.0 portfolio for the same disclosed
-  package and scope. Verify RMFG and OSH Cut on their qualified process-specific
-  packages; manual review and unsupported routing are not live offers.
+  return one current, independently traceable live offer from each of
+  Xometry, Fictiv and Quickparts for the same disclosed package and scope. At
+  least one sheet-metal attempt must return a live RMFG offer inside its
+  envelope; manual review and unsupported routing are not live offers.
 - Operating target: five accepted participants and ten eligible customer-
-  supplied packages.
+  supplied packages, subject to the run budget below.
 - Default cap: twenty automatic-provider runs across the program.
-- The CNC minimum and seven-provider portfolio do not authorize unconditional
-  fan-out. `OVD-319` must prove the intended package-attempt routing fits this cap;
-  any higher-cap routing must be defined as a separately approved experiment
-  whose revised spend/run boundary is recorded in `PLAN.md` and
+- The four-provider set does not authorize unconditional fan-out. With
+  send-to-all-applicable routing a CNC package uses three runs and a
+  sheet-metal package one. The five-attempt minimum fits (at most 15 runs);
+  ten CNC packages (30 runs) and the October 11 cohort of about ten teams do
+  not. The options and their arithmetic are in the runbook's
+  [run budget](1-0-beta-runbook.md#run-budget); the choice is `TODO(Blaine)`
+  B7 and B8. `OVD-319` must prove the intended package-attempt routing fits
+  this cap; any higher-cap routing must be defined as a separately approved
+  experiment whose revised spend/run boundary is recorded in `PLAN.md` and
   `ACCEPTANCE_CRITERIA.md` before participant activation.
 - Stop after four weeks from first activation or when the run cap is reached,
   whichever comes first.
@@ -90,13 +101,16 @@ the following are verified:
   retention/deletion, incident, and withdrawal behavior;
 - `OVD-206`: repeatable hosted Xometry quote and forced-failure evidence;
 - `OVD-199`: private provider admission, provider-neutral exact confirmation and
-  immediate pre-adapter authorization, at least four additional CNC-eligible
-  production-certified automatic quote sources from the named 1.0 portfolio,
-  and separately qualified process-specific RMFG and OSH Cut routes, with every
-  non-admitted automatic provider remaining disabled;
+  immediate pre-adapter authorization, production-certified Fictiv and
+  Quickparts CNC routes and a process-specific RMFG sheet-metal route, with
+  every non-admitted automatic provider remaining disabled;
 - `OVD-319`: certified deployed journey, organization isolation, monitoring,
   spend/run stop controls, rollback, browser/accessibility checks, and no-order
-  authority; and
+  authority;
+- every launch gate in the
+  [1.0 launch contract](1-0-beta-runbook.md#launch-gates), including `OVD-1018`,
+  `OVD-1067`, wake on submit, `OVD-1068`, `OVD-1011`, and the `OVD-686` audit;
+  and
 - the beta intake, evidence, communications, support, and stop-control checklist
   in `OVD-358` is complete.
 
@@ -127,8 +141,10 @@ what the service can execute.
 
 Record only what is needed: contact, segment/role, organization size, sourcing
 frequency, current sourcing process and active time, genuine need, supported
-STEP/STP and aluminum-CNC fit, quantity, needed-by context, authority to share,
-regulated-work exclusion, research availability, and referral source.
+STEP/STP and aluminum-CNC fit (or sheet-metal envelope fit, if `TODO(Blaine)`
+B2 admits participant sheet-metal parts), quantity, needed-by context,
+authority to share, regulated-work exclusion, research availability, and
+referral source.
 
 Score consistently:
 

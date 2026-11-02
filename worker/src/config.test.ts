@@ -6,6 +6,11 @@ import { describe, expect, it } from "vitest";
 import { loadConfig } from "./config";
 
 describe("loadConfig", () => {
+  it("keeps experimental priced-card readback off unless explicitly enabled", () => {
+    const base = { SUPABASE_URL: "http://localhost:54321", SUPABASE_SERVICE_ROLE_KEY: "test" };
+    expect(loadConfig(base).xometryPricedCardReadbackEnabled).toBe(false);
+    expect(loadConfig({ ...base, XOMETRY_PRICED_CARD_READBACK_ENABLED: "true" }).xometryPricedCardReadbackEnabled).toBe(true);
+  });
   it("has no OSH Cut daily quote cap setting (caps come only from the OVD-829 admin gate)", () => {
     const base = { SUPABASE_URL: "https://example.supabase.co", SUPABASE_SERVICE_ROLE_KEY: "service-role-key" };
     expect(loadConfig(base)).not.toHaveProperty("oshcutDailyQuoteCap");

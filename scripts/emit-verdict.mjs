@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { resolveFixedBinary } from "./lib/fixed-binaries.mjs";
 /**
  * OVD-851: build, validate, and print an `overdrafter.verdict/v1` PR comment.
  *
@@ -31,15 +32,16 @@
  *     [--findings findings.json] [--base-sha <40-hex>] \
  *     [--supersedes <comment id> --reason infra] [--pr 123 --post]
  *
+ * --model-family opus and sonnet normalize to claude. Other unknown families are rejected.
  * See docs/verdict-format.md.
  */
+import { normalizeModelFamily } from "./ovd-merge-gate.mjs";
 import { isEntryPoint } from "./lib/entry-point.mjs";
 import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   accessSync,
   constants as fsConstants,
-  existsSync,
   lstatSync,
   mkdtempSync,
   readFileSync,
@@ -58,10 +60,8 @@ const SAFE_BIN_DIRS = ["/usr/bin", "/bin", "/usr/local/bin"];
 const SAFE_ENV = { ...process.env, PATH: SAFE_BIN_DIRS.join(":") };
 
 /** Absolute path of `name` in the first SAFE_BIN_DIRS entry that has it. */
-export function resolveBinary(name, { dirs = SAFE_BIN_DIRS, exists = existsSync } = {}) {
-  const found = dirs.map((dir) => join(dir, name)).find((candidate) => exists(candidate));
-  if (!found) throw new Error(`${name} not found in ${dirs.join(", ")}`);
-  return found;
+export function resolveBinary(name, options = {}) {
+  return resolveFixedBinary(name, { dirs: SAFE_BIN_DIRS, ...options });
 }
 
 /**
@@ -126,8 +126,8 @@ export function assertSha(value, flag) {
 const assertCommit = (sha, flag, { cwd } = {}) => {
   try {
     git(["cat-file", "-e", "--end-of-options", `${sha}^{commit}`], { cwd });
-  } catch {
-    throw new Error(`${flag} ${sha} is not a commit in this repository`);
+  } catch (error) {
+    throw new Error(`git could not verify ${flag} ${sha} as a commit: ${error.message}`, { cause: error });
   }
 };
 
@@ -281,7 +281,7 @@ function isGateFinding(finding) {
  */
 function prepareFindings(findings) {
   if (!Array.isArray(findings)) throw new Error("findings must be a JSON array of finding objects");
-  const tagged = tagCorroborated(findings.filter((finding) => !isGateFinding(finding)));
+  const tagged = tagCorroborated(findings.filter((finding) => !isGateFinding(finding)), { normalizeFamily: normalizeModelFamily });
   let next = 0;
   return findings.map((finding) => (isGateFinding(finding) ? finding : tagged[next++]));
 }
@@ -299,6 +299,8 @@ const parseEvidence = (entry) => {
  */
 export function buildVerdict(input, { cwd, now = new Date() } = {}) {
   if (input.findings !== undefined && !Array.isArray(input.findings)) throw new Error("findings must be a JSON array of finding objects");
+  const modelFamily = normalizeModelFamily(input.modelFamily);
+  if (modelFamily === null) throw new Error("verdict_schema_error: unknown --model-family");
   // Diff the exact head commit, so sha, patch_id and diff_id always describe the same tree.
   const sha = input.sha ?? assertSha(input.head, "--head");
   // Optional keys are spread only when the caller set them, so a verdict that
@@ -311,7 +313,7 @@ export function buildVerdict(input, { cwd, now = new Date() } = {}) {
     ...(input.baseSha !== undefined ? { base_sha: input.baseSha } : {}),
     patch_id: input.patchId ?? computePatchId({ base: input.base, head: sha, cwd }),
     diff_id: input.diffId ?? computeDiffId({ base: input.base, head: sha, cwd }),
-    verifier: { id: input.verifierId, model_family: input.modelFamily, github_login: input.githubLogin },
+    verifier: { id: input.verifierId, model_family: modelFamily, github_login: input.githubLogin },
     evidence: input.evidence ?? [],
     notes: input.notes ?? [],
     readiness: input.readiness,

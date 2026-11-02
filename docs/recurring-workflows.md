@@ -198,6 +198,28 @@ remote, so run `git fetch origin main` yourself before reading back. The rebased
 read-back uses `git merge-tree --write-tree` (git 2.38 or later), which writes
 loose objects but no refs.
 
+The script runs on Linux or macOS only: git is resolved from `/usr/bin`, `/bin`
+or `/usr/local/bin`, never from `PATH`. On Windows it refuses to start; run it
+inside WSL. A missing or failing git, or a SHA that names a non-commit object,
+is an error (exit 2, and no row is written for that read-back), never a
+`merge-commit-missing` or not-an-ancestor result. A lower PR's logged merge that
+is missing from the local clone stops with `lower-merge-missing`.
+
+| Script(s), relative to `scripts/` | Resolution | Before | After (OVD-1117) |
+| --- | --- | --- | --- |
+| `lib/fixed-binaries` | fixed directories only | Resolver duplicated | Shared execution-time platform guard; no PATH lookup |
+| `merge-readback` | fixed git dirs | Already loud | Shared resolver; same contract |
+| `emit-verdict` | fixed git/gh dirs, validated override | Git failure relabeled non-commit | Preserve command diagnostics; WSL at resolution |
+| `check-secret-paths` | `/usr/bin/git` | Errors meant absent ref/base/file | Probe absence; throw command errors; WSL at execution |
+| `check-rls-deny-coverage`, `check-migration-immutability`, `lint-security-definer` (also RLS linter), `validate-pr-body` | `/usr/bin/git`, validator override | Show errors meant absent file | Successful tree probe required; standalone-safe, WSL at execution |
+| `verify-skill-drift` | fixed git dirs | Broken check-ignore meant unignored | Only clean exit 1 means unignored |
+| `jev-pr-screen`, `jev-pr-screen-files`, `lib/jev-screen-marker` | trusted git/gh dirs | Explicit incomplete/risky or cache miss; lookup callers throw | Already fail closed; unchanged |
+| `required-check-readiness`, `ci-usage-report`, `trust-metrics`, `migration-timestamp` | fixed git/gh dirs | Throw or explicit unavailable/error | Already loud; unchanged |
+| `inventory-worktrees`, `agent-bootstrap-health`, `lib/sensitive-paths`, `lint-cli-test-helpers`, `ovd419-diagnostic-bindings`, `ovd527-build-packet`, `skill-evals`, `evals-weekly-report` | fixed git/gh dirs | Throw or explicit unavailable/error | Already loud; unchanged |
+| `seed-dev`, `seed-staging`, `window-1/restore-check`, `ovd510-replay-body`, `ovd651-isolation-race-proof`, `test-ovd575-observer-registry`, `test-sourcing-intent`, `ovd577-stop-http-proof` | fixed psql/Docker/git/deno paths | Throw or explicit failed proof | Already loud; unchanged |
+| `spend-ledger` | fixed git/gh dirs | Failed git root lookup silently uses module root | Follow-up split; unchanged |
+| `native-companion-inert-ci`, `symphony-*.sh`, recovery host shell scripts | POSIX/Windows git, absolute host services | Throw or service failure | Already loud; unchanged |
+
 Keep one log per stack, for example `.audit/merge-plans/<stack>.tsv`, and append
 every plan cycle for that stack to the same file. The stop guard in step 4 only
 sees its own log. Only one operator runs this procedure at a time. The log has

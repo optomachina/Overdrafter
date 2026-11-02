@@ -40,7 +40,7 @@ runs:
     # matches and the newest cache under the prefix is restored.
     - name: Restore apt package archives
       id: restore
-      uses: actions/cache/restore@v4
+      uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
       with:
         path: ~/.cache/ovd-apt-archives/*.deb
         key: ${{ steps.prefix.outputs.prefix }}newest

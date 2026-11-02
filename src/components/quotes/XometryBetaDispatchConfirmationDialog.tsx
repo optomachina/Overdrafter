@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { ProviderFanoutStatus } from "@/components/quotes/ProviderFanoutStatus";
+import { QuoteShippingAddressPanel } from "@/components/quotes/QuoteShippingAddressPanel";
 import { getProviderDisplayName } from "@/features/quotes/provider-fanout";
 import type { ProviderFanoutState } from "@/features/quotes/use-provider-fanout";
 import {
@@ -57,10 +58,12 @@ type XometryBetaDispatchConfirmationDialogProps = {
   ) => Promise<XometryBetaDispatchConfirmationResult | null>;
   onDeclaredModelUnitsChange: (units: XometryBetaDeclaredModelUnits | null) => void;
   onOpenChange: (open: boolean) => void;
-  /** Shown when the scope denial is a missing confirmed shipping address. */
+  /** Fallback for a missing confirmed shipping address when no organization id is known. */
   onOpenSourcingSettings?: () => void;
   onRetryScope?: () => void | Promise<void>;
   open: boolean;
+  /** The part's organization; lets the customer confirm a missing shipping address inline. */
+  organizationId?: string | null;
   /** Provider the customer is confirming disclosure to; a scope for any other provider is never shown. */
   provider?: LiveDispatchProvider;
   scope: XometryBetaDispatchScope | null;
@@ -73,6 +76,12 @@ type Affirmations = {
   nonExportControlled: boolean;
   quoteOnly: boolean;
 };
+
+/** Denials that only a confirmed organization shipping address resolves (legacy Xometry and generic paths). */
+const SHIPPING_ADDRESS_DENIALS: ReadonlySet<XometryBetaScopeDenialCode> = new Set([
+  "xometry_beta_confirmed_sourcing_address_required",
+  "provider_dispatch_confirmed_destination_required",
+]);
 
 const EMPTY_AFFIRMATIONS: Affirmations = {
   authorityToShare: false,
@@ -202,6 +211,7 @@ function ScopeLoadState({
   isScopeLoading,
   onOpenSourcingSettings,
   onRetryScope,
+  organizationId,
   providerLabel,
   scopeDenialCode,
   scopeError,
@@ -210,6 +220,7 @@ function ScopeLoadState({
   isScopeLoading: boolean;
   onOpenSourcingSettings?: () => void;
   onRetryScope?: () => void | Promise<void>;
+  organizationId: string | null;
   providerLabel: string;
   scopeDenialCode: XometryBetaScopeDenialCode | null;
   scopeError: string | null;
@@ -235,25 +246,33 @@ function ScopeLoadState({
     return null;
   }
 
+  const addressRequired = scopeDenialCode !== null && SHIPPING_ADDRESS_DENIALS.has(scopeDenialCode);
+
   return (
-    <section role="alert" className="border-y border-destructive/40 bg-destructive/5 px-4 py-3">
-      <p className="text-sm font-semibold text-paper-ink">This package is not ready for controlled {providerLabel} beta dispatch.</p>
-      <p className="mt-1 text-sm leading-5 text-paper-muted">{scopeError}</p>
-      <div className="mt-3 flex flex-wrap gap-2">
-        {scopeDenialCode === "xometry_beta_confirmed_sourcing_address_required" && onOpenSourcingSettings ? (
-          <Button type="button" variant="outline" size="sm" className="rounded-[2px]" onClick={onOpenSourcingSettings}>
-            <Settings className="mr-2 h-4 w-4" aria-hidden="true" />
-            Open Settings to confirm address
-          </Button>
-        ) : null}
-        {onRetryScope && (
-          <Button type="button" variant="outline" size="sm" className="rounded-[2px]" onClick={() => void onRetryScope()}>
-            <RefreshCw className="mr-2 h-4 w-4" aria-hidden="true" />
-            Retry scope check
-          </Button>
-        )}
-      </div>
-    </section>
+    <>
+      <section role="alert" className="border-y border-destructive/40 bg-destructive/5 px-4 py-3">
+        <p className="text-sm font-semibold text-paper-ink">This package is not ready for controlled {providerLabel} beta dispatch.</p>
+        <p className="mt-1 text-sm leading-5 text-paper-muted">{scopeError}</p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          {addressRequired && !organizationId && onOpenSourcingSettings ? (
+            <Button type="button" variant="outline" size="sm" className="rounded-[2px]" onClick={onOpenSourcingSettings}>
+              <Settings className="mr-2 h-4 w-4" aria-hidden="true" />
+              Open Settings to confirm address
+            </Button>
+          ) : null}
+          {onRetryScope && (
+            <Button type="button" variant="outline" size="sm" className="rounded-[2px]" onClick={() => void onRetryScope()}>
+              <RefreshCw className="mr-2 h-4 w-4" aria-hidden="true" />
+              Retry scope check
+            </Button>
+          )}
+        </div>
+      </section>
+      {addressRequired && organizationId ? (
+        // A successful confirmation re-runs the scope check, which replaces this panel.
+        <QuoteShippingAddressPanel organizationId={organizationId} providerLabel={providerLabel} onConfirmed={() => onRetryScope?.()} />
+      ) : null}
+    </>
   );
 }
 
@@ -309,6 +328,7 @@ export function XometryBetaDispatchConfirmationDialog({
   onOpenSourcingSettings,
   onRetryScope,
   open,
+  organizationId = null,
   provider = "xometry",
   scope,
   scopeDenialCode = null,
@@ -522,6 +542,7 @@ export function XometryBetaDispatchConfirmationDialog({
             isScopeLoading={effectiveScopeLoading}
             onOpenSourcingSettings={onOpenSourcingSettings}
             onRetryScope={retryScope}
+            organizationId={organizationId}
             providerLabel={providerLabel}
             scopeDenialCode={uncertainAttempt ? null : scopeDenialCode}
             scopeError={effectiveScopeError}

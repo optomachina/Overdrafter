@@ -7,7 +7,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { GATE_CODE_FILES, GATE_LOOSENING_REQUIRES, MATCHER_PATH, SENSITIVE_CLASSES, SENSITIVE_PATHS_FILE, createMatcher, loadSensitivePaths } from "./lib/sensitive-paths.mjs";
 import {
@@ -30,12 +30,14 @@ import {
   classifySql,
   compileConfig,
   detect,
+  doorTier,
   detectGateLoosening,
   fetchPullRequest,
   formatSummary,
   gateLooseningForPull,
   githubClient,
   isValidPath,
+  heldContent,
   loadConfig,
   main,
   pathWords,
@@ -48,7 +50,10 @@ const repoRoot = fileURLToPath(new URL("../", import.meta.url));
 const yaml = createRequire(import.meta.url)("js-yaml");
 const rawConfig = JSON.parse(readFileSync(CONFIG_PATH, "utf8"));
 const sensitivePathsText = readFileSync(path.join(repoRoot, SENSITIVE_PATHS_FILE), "utf8");
-const { config } = loadConfig();
+const { config: enforcedConfig } = loadConfig();
+// Isolate the original shared-list/SQL/door regressions from the additive held
+// overlay. The enforced config is verified separately across all fixture paths.
+const config = { ...enforcedConfig, gateMachinery: [] };
 const requires = [...GATE_LOOSENING_REQUIRES];
 
 const modified = (filename) => ({ filename, status: "modified" });
@@ -70,7 +75,7 @@ describe("config", () => {
     expect(Object.keys(rawConfig)).not.toContain("classes");
     expect(Object.keys(rawConfig.safe_categories)).toEqual(["docs", "tests", "frontend_ui", "styles_assets", "repo_scripts", "agent_skills"]);
     expect([...new Set(rawConfig.sql_content.rules.map((rule) => rule.class))]).toEqual(["rls", "definer", "auth"]);
-    expect(OUTPUT_CLASSES).toEqual([...SENSITIVE_CLASSES, ...SQL_CONTENT_CLASSES, UNCLASSIFIED]);
+    expect(OUTPUT_CLASSES).toEqual([...SENSITIVE_CLASSES, "gate_machinery", ...SQL_CONTENT_CLASSES, UNCLASSIFIED]);
     expect(UNCLASSIFIED).toBe("unclassified");
   });
 
@@ -567,14 +572,17 @@ describe("classifySql: BYPASSRLS and row_security (OVD-866)", () => {
     expect(sql(text).classes).toEqual([]);
   });
 
-  it("does not read a docs .md file outside the SQL paths", async () => {
+  it("reads docs for the door scan without adding legacy SQL classes", async () => {
     const read = [];
     const result = await detect({
       files: [modified("docs/database-notes.md")],
       readHeadFile: async (file) => (read.push(file), "ALTER ROLE x BYPASSRLS; SET row_security = off;"),
+      readBaseFile: async () => "",
+      sha: "a".repeat(40),
       config,
     });
-    expect(read).toEqual([]);
+    expect(read).toEqual(["docs/database-notes.md"]);
+    expect(result.door).toBe("one-way");
     expect(result.files[0]).toMatchObject({ classes: [], category: "docs" });
   });
 });
@@ -1524,6 +1532,7 @@ describe("detect", () => {
     const result = await detect({ files, readHeadFile: slowRead, config });
     expect(result.status).toBe("ok");
     expect(peak).toBe(1);
+    // The SQL files are one-way by class, so the door scan skips further content reads.
     expect(order).toEqual(["supabase/tests/a.sql", "supabase/tests/b.sql", "supabase/tests/c.sql"]);
   });
 
@@ -1613,7 +1622,8 @@ describe("detect", () => {
     expect(result.errors[0]).toMatch(/could not read supabase\/fixtures\/missing\.sql/);
   });
 
-  describe("oversized SQL bodies", () => {
+  // CPU-heavy: measured 1.3–2.4 s in isolation, over 5 s under 16-way parallel preflight load (OVD-1116).
+  describe("oversized SQL bodies", { timeout: 20_000 }, () => {
     const file = "supabase/fixtures/big.sql";
     const expectedClasses = new Set(["schema", ...config.sqlContent.rules.map((rule) => rule.class)]);
     const run = (words) => detect({ files: [modified(file)], readHeadFile: async () => Array(words).fill("select").join(" "), config });
@@ -1787,7 +1797,8 @@ describe("detect: strict file list", () => {
 //   script reached;
 // - the scripts/ files those package.json scripts name;
 // - in each script reached: every scripts/ reference (except a ** glob, which
-//   is prose) and every relative import, require or new URL.
+//   is prose), every relative import, require or new URL, and literal
+//   path.resolve/path.join calls rooted at __dirname (including preloads).
 // JavaScript files are not read for npm runs; a test checks that none starts
 // npm. Python files are not read for imports; CI names their directory.
 // Vitest's own discovery (`vitest run` with no file) is not followed, nor are
@@ -1856,7 +1867,12 @@ function ciRunScripts(root) {
     }
   };
   const addImports = (text, from) => {
-    for (const [, specifier] of text.matchAll(/(?:\bfrom|\bimport|\brequire|\bnew URL)\s*\(?\s*["'](\.{1,2}\/[^"']+)["']/g)) {
+    const specifiers = [
+      ...text.matchAll(/(?:\bfrom|\bimport|\brequire|\bnew URL)\s*\(?\s*["'](\.{1,2}\/[^"']+)["']/g),
+      ...text.matchAll(/\bpath\.(?:resolve|join)\s*\(\s*__dirname\s*,\s*(["'])([^"'\\]+)\1\s*\)/g),
+    ];
+    for (const match of specifiers) {
+      const specifier = match[2] ?? match[1];
       const target = relative(path.resolve(path.dirname(path.join(root, from)), specifier));
       const hits = scripts.filter((file) => [target, `${target}.mjs`, `${target}.js`, `${target}.ts`].includes(file) || file.startsWith(`${target}/`));
       for (const file of hits) queue.push([file, from]);
@@ -1937,6 +1953,28 @@ describe("drift: scripts CI runs are infra_ci on the shared list", () => {
     expect(walked.problems).toEqual([
       "scripts/b.sh: npm run $x takes its name from a variable; list its names in DYNAMIC_NPM_RUNS",
       "scripts/b.sh: npm run missing has no script in ./package.json",
+    ]);
+  });
+
+  it("follows literal __dirname paths for preloads, excluding dynamic paths", () => {
+    const probe = tempDir("sensitive-class-paths-");
+    mkdirSync(path.join(probe, ".github"), { recursive: true });
+    mkdirSync(path.join(probe, "scripts", "support"), { recursive: true });
+    writeFileSync(path.join(probe, ".github", "ci.yml"), "run: node scripts/support/entry.cjs\n");
+    writeFileSync(path.join(probe, "scripts", "support", "entry.cjs"), `
+      path.resolve(__dirname, "resolved.cjs");
+      path.join(__dirname, '../joined.cjs');
+      path.resolve(__dirname, "dynamic.cjs" + suffix);
+      path.join(__dirname, "dynamic.cjs", variable);
+    `);
+    for (const file of ["support/resolved.cjs", "joined.cjs", "support/dynamic.cjs"]) {
+      writeFileSync(path.join(probe, "scripts", file), "");
+    }
+    const walked = ciRunScripts(probe);
+    expect([...walked.scripts].sort()).toEqual([
+      ["scripts/joined.cjs", "scripts/support/entry.cjs"],
+      ["scripts/support/entry.cjs", ".github/ci.yml"],
+      ["scripts/support/resolved.cjs", "scripts/support/entry.cjs"],
     ]);
   });
 
@@ -2573,8 +2611,231 @@ describe("gate_loosening: the base copy judges", () => {
     const out = path.join(dir, "out.json");
     await baseModule.main(["--repo", "o/r", "--pr", "7", "--json", out], {}, { fetchImpl: fakeFetch(routes), stdout: { write() {} } });
     const result = JSON.parse(readFileSync(out, "utf8"));
-    expect(result).toMatchObject({ status: "ok", classes: ["infra_ci"] });
+    expect(result).toMatchObject({ status: "ok", classes: ["infra_ci", "gate_machinery"] });
     expect(result.gate_loosening.detected).toBe(true);
     expect(kinds(result.gate_loosening).sort()).toEqual(["category_narrowed", "gate_changed", "glob_removed", "matcher_changed"]);
+  });
+});
+
+
+describe("door tier: report-only", () => {
+  const fixtures = JSON.parse(readFileSync(new URL("./fixtures/sensitive-paths/doors.json", import.meta.url), "utf8")).cases;
+  const run = (files, content = "export const pure = true;", base = "") => detect({
+    files, config, sha: "a".repeat(40), readHeadFile: async () => content, readBaseFile: async () => base,
+  });
+  it.each(fixtures)("$name", async (fixture) => {
+    const result = await run([{ filename: fixture.path, status: "added" }], fixture.content);
+    expect(result.door).toBe(fixture.door);
+    if (fixture.expected_class) expect(result.classes).toContain(fixture.expected_class);
+    if (fixture.code) expect(result.door_reasons.map((reason) => reason.code)).toContain(fixture.code);
+    expect(result.status).toBe("ok");
+  });
+  it("includes the door and reason codes in the existing summary", async () => {
+    const result = await run([modified("worker/src/dispatchLogic.ts")]);
+    expect(formatSummary(result)).toContain("Door (report only): revertable");
+  });
+  it("caps content scans and fails closed past the cap instead of reading more", async () => {
+    let reads = 0;
+    const files = Array.from({ length: 201 }, (_, index) => modified(`worker/src/dispatchLogic${index}.ts`));
+    const result = await detect({
+      files, config, sha: "a".repeat(40),
+      readHeadFile: async () => (reads += 1, "export const pure = true;"), readBaseFile: async () => "export const pure = true;",
+    });
+    expect(result.door).toBe("one-way");
+    expect(result.door_reasons.map((reason) => reason.code)).toContain("door_scan_cap");
+    expect(reads).toBe(200);
+  });
+  const withoutDoor = ({door: _door, door_reasons: _reasons, ...legacy}) => legacy;
+  it.each([
+    ["input length", "x".repeat(256 * 1024 + 1)],
+    ["UTF-8 bytes", "é".repeat(128 * 1024 + 1)],
+  ])("fails closed at the per-file %s cap without changing legacy fields", async (_, content) => {
+    const files = [modified("worker/src/dispatchLogic.ts")];
+    const baseline = await run(files);
+    const result = await run(files, content);
+    expect(result.door).toBe("one-way");
+    expect(result.door_reasons.map((reason) => reason.code)).toContain("door_scan_budget");
+    expect(withoutDoor(result)).toEqual(withoutDoor(baseline));
+  });
+  it("counts both head and base bytes against one total budget", async () => {
+    const files = Array.from({length: 9}, (_, index) => modified("worker/src/dispatchLogic" + index + ".ts"));
+    const baseline = await run(files);
+    let reads = 0;
+    const result = await detect({
+      files, config, sha: "a".repeat(40),
+      readHeadFile: async () => (reads++, "x".repeat(256 * 1024)),
+      readBaseFile: async () => (reads++, "x".repeat(256 * 1024)),
+    });
+    expect(result.door).toBe("one-way");
+    expect(result.door_reasons.map((reason) => reason.code)).toContain("door_scan_budget");
+    expect(reads).toBe(17);
+    expect(withoutDoor(result)).toEqual(withoutDoor(baseline));
+  });
+  it.each(["before files", "between patterns"])("checks the total deadline %s", async (boundary) => {
+    const baseline = await run([modified("worker/src/dispatchLogic.ts")]);
+    let elapsed = 0;
+    const clock = vi.spyOn(performance, "now").mockImplementation(() => elapsed);
+    const timedConfig = {...config, door: structuredClone(config.door)};
+    try {
+      if (boundary === "between patterns") {
+        timedConfig.door.rules[0].patterns[0] = "door_deadline_probe";
+        const originalTest = RegExp.prototype.test;
+        vi.spyOn(RegExp.prototype, "test").mockImplementation(function (text) {
+          const matched = originalTest.call(this, text);
+          if (this.source === "door_deadline_probe") elapsed = 1001;
+          return matched;
+        });
+      } else clock.mockReturnValueOnce(0).mockReturnValue(1001);
+      const result = await doorTier(baseline, {
+        config: timedConfig, readHeadFile: async () => "", readBaseFile: async () => "",
+      });
+      expect(result.door).toBe("one-way");
+      expect(result.door_reasons.map((reason) => reason.code)).toContain("door_scan_budget");
+      expect(withoutDoor(result)).toEqual(withoutDoor(baseline));
+    } finally {
+      vi.restoreAllMocks();
+    }
+  });
+  it("bounds a stalled read by the total deadline", async () => {
+    const baseline = await run([modified("worker/src/dispatchLogic.ts")]);
+    const start = performance.now();
+    const result = await doorTier(baseline, {
+      config, readHeadFile: () => new Promise(() => {}), readBaseFile: async () => "",
+    });
+    expect(performance.now() - start).toBeLessThan(2000);
+    expect(result.door_reasons.map((reason) => reason.code)).toContain("door_scan_budget");
+    expect(result.door).toBe("one-way");
+    expect(withoutDoor(result)).toEqual(withoutDoor(baseline));
+  });
+  it.each([
+    ["blank lines before a timestamp", "\n".repeat(200_000) + "// migration: 20261027000000", "", "O-MIGDIR"],
+    ["blank lines without a timestamp", "\n".repeat(200_000) + "pure code", "", null],
+    ["unclosed comment starts", "/* ".repeat(50_000), "", null],
+    ["removed blank lines before a job", "", "\n".repeat(200_000) + "name: ci", "O-GATE"],
+  ])("%s completes under two seconds", async (_, content, base, code) => {
+    const start = performance.now();
+    const result = await run([modified("worker/src/dispatchLogic.ts")], content, base);
+    expect(performance.now() - start).toBeLessThan(2000);
+    expect(result.door_reasons.map((reason) => reason.code)).not.toContain("door_scan_budget");
+    expect(result.door).toBe(code ? "one-way" : "revertable");
+    if (code) expect(result.door_reasons.map((reason) => reason.code)).toContain(code);
+  });
+  it.each([
+    [" \t// migration: 20261027000000_example", "O-MIGDIR"],
+    ["20261027000000", "O-MIGDIR"],
+    ["const timestamp = 20261027000000;", null],
+    ["// migration: 2026102700000", null],
+    ["CREATE /* spacer */ POLICY p ON t", "O-SQL"],
+    ["CREATE /* first */ /* second */ TABLE t (id int)", "O-SQL"],
+    ["CREATE /* unclosed POLICY p ON t", null],
+    ["CREATE /* spacer */ ordinary text", null],
+  ])("preserves normal content classification for %s", async (content, code) => {
+    const result = await run([modified("worker/src/dispatchLogic.ts")], content);
+    expect(result.door).toBe(code ? "one-way" : "revertable");
+    if (code) expect(result.door_reasons.map((reason) => reason.code)).toContain(code);
+  });
+  it("any one-way file dominates docs and revertable logic", async () => {
+    expect((await run([modified("docs/notes.md"), modified("worker/src/dispatchLogic.ts"), modified("supabase/migrations/example.sql")])).door).toBe("one-way");
+  });
+  it("counts a migration renamed outside its directory and sensitive deletions", async () => {
+    for (const file of [
+      { filename: "docs/old.md", previous_filename: "supabase/migrations/20261027000000_example.sql", status: "renamed" },
+      { filename: "worker/src/providerParser.ts", status: "removed" },
+    ]) {
+      const result = await run([file]);
+      expect(result.door).toBe("one-way");
+      expect(result.door_reasons.map((reason) => reason.code)).toContain("O-RM");
+    }
+  });
+  it("renaming between a provider and safe category fails closed", async () => {
+    const result = await run([{ filename: "docs/parser.md", previous_filename: "worker/src/providerParser.ts", status: "renamed" }]);
+    expect(result.door_reasons.map((reason) => reason.code)).toContain("rename_mixed_doors");
+  });
+  it("deleting a test, workflow job or required section is one-way", async () => {
+    expect((await run([{filename: "e2e/example.test.ts", status: "removed"}])).door).toBe("one-way");
+    for (const base of ["name: ci", "test('checks', () => {});", 'const REQUIRED_SECTIONS = ["Summary"];']) {
+      const result = await run([modified("scripts/example.mjs")], "", base);
+      expect(result.door_reasons.map((reason) => reason.code)).toContain("O-GATE");
+    }
+  });
+  it("ignores an existing literal RPC name and existing secret name", async () => {
+    const base = 'db.rpc("existing"); const name = process.env.EXAMPLE;';
+    const result = await run([modified("worker/src/providerParser.ts")], base + "\nconst pure = true;", base);
+    expect(result.door).toBe("revertable");
+  });
+  it("a base string mentioning a new RPC name cannot exempt a new call", async () => {
+    const result = await run([modified("worker/src/providerParser.ts")], 'db.rpc("new_function")', 'const unrelated = "new_function";');
+    expect(result.door_reasons.map((reason) => reason.code)).toContain("O-SQL");
+  });
+  it("fails closed on stale SHA, partial coverage, errors, throws and timeouts without changing old fields", async () => {
+    const result = await run([modified("worker/src/dispatchLogic.ts")]);
+    const reads = { readHeadFile: async () => "", readBaseFile: async () => "", config };
+    for (const [value, options] of [
+      [{...result, status:"error"}, reads], [result, {...reads, headSha:"b".repeat(40)}],
+      [result, {...reads, changedFiles:2}], [result, {...reads, files:[]}],
+      [result, {...reads, config:{}}], [result, {...reads, readHeadFile:async () => {throw new Error("unreadable");}}],
+      [result, {...reads, readHeadFile:() => new Promise(() => {}), timeoutMs:1}],
+    ]) {
+      const output = await doorTier(value, options);
+      expect(output.door).toBe("one-way");
+      expect(output.door_reasons.map((reason) => reason.code)).toContain("classifier_error");
+      const withoutDoor = ({door: _door, door_reasons: _reasons, ...legacy}) => legacy;
+      expect(withoutDoor(output)).toEqual(withoutDoor(value));
+    }
+  });
+  it("removed sensitive globs and door rule changes remain gate loosening", () => {
+    const head = structuredClone(rawConfig);
+    head.door.classes.infra_ci = "revertable";
+    expect(detectGateLoosening({baseRaw:rawConfig,headRaw:head,gateFiles:[{path:CONFIG_REPO_PATH,status:"modified"}]}).reasons.map((reason) => reason.kind)).toContain("door_changed");
+  });
+});
+
+// Verify the additive hold against the real shipping config, independently of
+// the legacy shared-list regression fixture above.
+describe("enforced gate machinery overlay", () => {
+  it("preserves every shared sensitive class across the complete path fixture", () => {
+    for (const {path:file,classes} of sharedFixture) {
+      const result=classifyPath(file,enforcedConfig);
+      expect(result.classes.filter((name)=>name!=="gate_machinery"),file).toEqual(classes);
+      if(result.classes.includes("gate_machinery")) expect(result.category,file).toBeNull();
+    }
+  });
+
+  it.each(["AGENTS.md","scripts/ovd-merge-gate.mjs","scripts/ovd-merge-gate.test.mjs","scripts/sensitive-classes.json","scripts/lib/jev-screen-marker.mjs",".github/workflows/ovd-merge-gate.yml","scripts/emit-verdict.mjs","config/branch-protection.json","scripts/sonar-safe-mark.mjs",
+    // Council 6538642259: secret-scan allowlists, RLS/definer baselines, migration and target guards, hooks and agent settings.
+    ".gitleaks.toml",".gitleaksignore","scripts/rls-deny-baseline.json","scripts/security-definer-baseline.json",
+    "scripts/check-migration-immutability.mjs","scripts/supabase-target-guard.mjs","scripts/check-lock-order.mjs",
+    ".husky/pre-commit","scripts/hooks/pre-push",".claude/settings.json",".claude/hooks/stop.sh",".mcp.json",
+  ])("holds %s", async (file) => {
+    expect(classifyPath(file,enforcedConfig).classes).toContain("gate_machinery");
+    const result=await detect({files:[modified(file)],config:enforcedConfig,sha:"a".repeat(40),readHeadFile:noSql});
+    expect(result.classes).toContain("gate_machinery");
+    expect(result.door).toBe("one-way");
+  });
+
+  it("does not hold ordinary docs or all sensitive source changes", () => {
+    expect(classifyPath("docs/recurring-workflows.md",enforcedConfig)).toMatchObject({classes:[],category:"docs"});
+    expect(classifyPath("src/lib/auth-options.ts",enforcedConfig).classes).toEqual(["auth"]);
+  });
+
+  it("rejects invalid machinery config instead of silently ignoring it", () => {
+    for(const gate_machinery of [{paths:3},{paths:["scripts/**"],exclude:["scripts/ovd-merge-gate.mjs"]},null]) expect(compileConfig({...rawConfig,gate_machinery}).config).toBeNull();
+  });
+
+  it("removing or narrowing machinery patterns is a gate loosening", () => {
+    for(const paths of [[],["scripts/ovd-merge-gate.mjs"]]) {
+      const headRaw={...rawConfig,gate_machinery:{paths}};
+      const result=detectGateLoosening({baseRaw:rawConfig,headRaw,gateFiles:[{path:CONFIG_REPO_PATH,status:"modified"}]});
+      expect(result.detected).toBe(true);
+      expect(result.reasons.some((reason)=>reason.kind==="gate_machinery_narrowed")).toBe(true);
+    }
+  });
+
+  it.each(["// NOSONAR","api/hotspots/change_status","sonar mark SAFE","api/issues/do_transition"])("holds inline Sonar marks: %s", (text) => {
+    expect(heldContent(text)).toContain("sonar_safe_mark");
+  });
+
+  it.each(["createBranchProtectionRule","deleteBranchProtectionRule","/branches/main/protection","/repos/o/r/rulesets"])("holds branch protection operations: %s", (text) => {
+    expect(heldContent(text)).toContain("branch_protection");
   });
 });

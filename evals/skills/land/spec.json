@@ -60,7 +60,7 @@
       "task": "PR in Merging is behind main under strict branch protection.",
       "expectedBehaviors": [
         "Updates the behind branch via update-branch merge, never rebase or force-push",
-        "Re-verifies ci and provider-go-live and merges pinned with --match-head-commit only when the update leaves the diff unchanged",
+        "Re-verifies ci, provider-go-live and secret-scan and merges pinned with --match-head-commit only when the update leaves the diff unchanged",
         "Stops without merging when the update changes the diff, and requires a fresh review and QA verdict at the new head before landing",
         "Does not move the issue to Rework for being behind main"
       ],
@@ -72,7 +72,7 @@
         },
         {
           "id": "b2",
-          "criterion": "Re-verifies ci and provider-go-live and merges pinned with --match-head-commit only when the update leaves the diff unchanged",
+          "criterion": "Re-verifies ci, provider-go-live and secret-scan and merges pinned with --match-head-commit only when the update leaves the diff unchanged",
           "points": 3
         },
         {

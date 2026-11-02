@@ -13,6 +13,8 @@ export const FINGERPRINT = "a".repeat(64);
 export const MILLIMETER_FINGERPRINT = "d".repeat(64);
 export const CHANGED_FINGERPRINT = "c".repeat(64);
 const timestamp = "2026-09-01T00:00:00Z";
+/** Synthetic confirmed quote shipping destination (OVD-570); no real address. */
+export const SHIPPING = { street: "123 Synthetic Avenue", city: "Testville", region: "AZ", postalCode: "85001", country: "US" };
 
 export const detail: PartDetailAggregate = {
   job: {
@@ -58,15 +60,14 @@ export const detail: PartDetailAggregate = {
   },
 };
 
-export function scope(units: XometryBetaModelUnits = "inch", changed = false): XometryBetaDispatchScope {
+export function scope(units: XometryBetaModelUnits = "inch", changed = false, destination = SHIPPING): XometryBetaDispatchScope {
   return {
     organizationId: ID.organization, jobId: ID.job, partId: ID.part, provider: "xometry",
     requestedQuantity: 1, scopeVersion: 1, scopeFingerprint: changed ? CHANGED_FINGERPRINT : units === "inch" ? FINGERPRINT : MILLIMETER_FINGERPRINT,
     declaredModelUnits: units, policyRevision: POLICY, envelopeRevision: "xometry-controlled-beta-envelope.v1",
     scope: {
       schema: "quote-lane-scope.v1", vendor: "xometry", quantity: 1,
-      destination: { confirmationRevision: "1", state: "confirmed", street: "123 Synthetic Avenue",
-        city: "Testville", region: "AZ", postalCode: "85001", country: "US" },
+      destination: { confirmationRevision: "1", state: "confirmed", ...destination },
       part: { id: ID.part, cad: { fileId: "synthetic-cad-metadata", sha256: "b".repeat(64),
         name: "synthetic-bracket.step", mimeType: "model/step", sizeBytes: 0 }, drawing: null },
       requirements: { id: "synthetic-requirement", capturedAt: timestamp,

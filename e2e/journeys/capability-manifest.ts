@@ -78,16 +78,14 @@ export const capabilityManifest: readonly CapabilitySurface[] = [
     name: "Jarvis phone web app",
     linearIssue: "OVD-803",
     entryPoints: [
-      // The only Jarvis-like page today: the engineering conversation behind a
-      // build flag and the platform admin allowlist.
-      { kind: "route", path: "/engineering" },
+      // OVD-803: production /jarvis exists only when JARVIS_PWA_ENABLED=1, then the server allowlist admits.
+      // The dev server still serves the OVD-805 sample. A no-flag non-admin check does not count that door.
       { kind: "route", path: "/jarvis" },
       { kind: "link", from: "/", to: "/jarvis" },
     ],
     knownMissing: {
-      issue: "OVD-805",
-      reason:
-        "Only the flag-gated, admin-only /engineering page exists; there is no public route or link to Jarvis.",
+      issue: "OVD-803",
+      reason: "Production /jarvis is compiled out unless JARVIS_PWA_ENABLED=1, and admission is the server allowlist. DNS for jarvis.overdrafter.com is OVD-1016.",
     },
   },
   channelSurface(

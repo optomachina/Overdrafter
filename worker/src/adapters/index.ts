@@ -13,10 +13,9 @@ import { ProtolabsAdapter } from "./protolabs.js";
 import { SendCutSendAdapter } from "./sendcutsend.js";
 import { XometryAdapter } from "./xometry.js";
 import {
-  buildQuickpartsOfflinePortalDefinition,
   buildQuickpartsProductionPortalDefinition,
 } from "./quickpartsPortal.js";
-import { buildGeomiqPortalDefinition } from "./geomiqPortal.js";
+import { buildGeomiqProductionPortalDefinition } from "./geomiqProductionPortal.js";
 import { buildWeergProductionPortalDefinition, createWeergPortalDefinition } from "./weergPortal.js";
 import { PortalQuoteWorkflowAdapter } from "./portalWorkflow.js";
 import type { ProviderPortalDefinition } from "./providerPortalKernel.js";
@@ -31,11 +30,13 @@ import {
   evaluateCandidateEvaluationPreflight,
 } from "./candidateEvaluationPreflight.js";
 
-/** Portal vendors whose live evaluation runs the local preflight kernel and never reaches the provider. */
+/**
+ * Portal vendors whose live evaluation runs the local preflight kernel and never
+ * reaches the provider. Geomiq (OVD-1058) left the set: its evaluation reaches
+ * the portal, so the harness gates and guards it with the operator kill switch.
+ */
 export const OFFLINE_EVALUATION_PORTAL_VENDORS: ReadonlySet<VendorName> = new Set<VendorName>([
-  "quickparts",
   "weerg",
-  "geomiq",
   "ponoko",
   "protolabsnetwork",
   "rapiddirect",
@@ -60,9 +61,9 @@ class LiveEvaluationAdapter extends VendorAdapter {
     return this.delegate.quote(await this.authorize(input));
   }
 
-  /** Portal delegates run the local preflight kernel; every other delegate evaluates through its live quote(). */
+  /** Offline portal delegates stop in the local preflight kernel; every other delegate reaches the provider. */
   get evaluateLocallyReachesProvider(): boolean {
-    return !(this.delegate instanceof PortalQuoteWorkflowAdapter);
+    return !(this.delegate instanceof PortalQuoteWorkflowAdapter && OFFLINE_EVALUATION_PORTAL_VENDORS.has(this.vendor));
   }
 
   /** Explicit standalone operation; it does not widen the production quote() return contract. */
@@ -136,11 +137,13 @@ function buildRegistry(
   // Weerg also require generic provider-dispatch authorization (OVD-674/675).
   // OSH Cut's implementation is retained, but production configuration and
   // the reviewed-envelope allow-list exclude it for 1.0 (OVD-677).
+  // Quickparts evaluates through its production definition, so an approved
+  // local run reaches the portal behind the kill switch and daily cap (OVD-1059).
   const localDefinitions: Partial<Record<VendorName, ProviderPortalDefinition>> = liveEvaluation
     ? {
-      quickparts: buildQuickpartsOfflinePortalDefinition(),
+      quickparts: buildQuickpartsProductionPortalDefinition(),
       weerg: createWeergPortalDefinition(),
-      geomiq: buildGeomiqPortalDefinition(),
+      geomiq: buildGeomiqProductionPortalDefinition(),
     }
     : {
       quickparts: buildQuickpartsProductionPortalDefinition(),

@@ -127,8 +127,44 @@ jobs:
       - name: Test the shared image pull helper offline
         run: node --test scripts/ovd591-image-pull.node-test.mjs
 
+      # Public ECR throttles anonymous pulls (429 "Data limit exceeded"). Cache the
+      # pinned images keyed on their exact references, with the same receipt rule as
+      # free-quote-sql-qualification.yml: a loaded copy has no RepoDigests, so the
+      # pull helper admits it only when its image ID equals the ID receipted from a
+      # real registry pull; anything else is pulled as before. Uses no secrets.
+      - name: Resolve the pinned image cache key
+        id: images
+        run: |
+          echo "OVD591_IMAGE_CACHE=$HOME/.cache/native-sql-images" >> "$GITHUB_ENV"
+          echo "key=native-sql-ecr-v1-$POSTGRES_IMAGE+$STORAGE_IMAGE+$AUTH_IMAGE" >> "$GITHUB_OUTPUT"
+
+      - name: Restore cached pinned images
+        id: image-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.cache/native-sql-images
+          key: ${{ steps.images.outputs.key }}
+
+      - name: Load cached pinned images
+        if: steps.image-cache.outputs.cache-hit == 'true'
+        run: node scripts/ovd591-image-pull.mjs load "$OVD591_IMAGE_CACHE"
+
+      # Skips an image only when it was loaded from the cache with a matching receipt.
       - name: Pull the pinned images with the shared rate-limit-aware helper
         run: node scripts/ovd591-image-pull.mjs pull "$POSTGRES_IMAGE" "$STORAGE_IMAGE" "$AUTH_IMAGE"
+
+      # Only registry-pulled images are saved (the helper refuses loaded copies).
+      - name: Receipt and save the registry-pulled images
+        id: image-save
+        if: steps.image-cache.outputs.cache-hit != 'true'
+        run: if node scripts/ovd591-image-pull.mjs save "$OVD591_IMAGE_CACHE" "$POSTGRES_IMAGE" "$STORAGE_IMAGE" "$AUTH_IMAGE"; then echo "saved=true" >> "$GITHUB_OUTPUT"; fi
+
+      - name: Store the pinned image cache
+        if: steps.image-save.outputs.saved == 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.cache/native-sql-images
+          key: ${{ steps.images.outputs.key }}
 
       # Informational only: the runner is the gate and fails closed with
       # reviewed_prechange_catalog_or_toolchain_drift on any image ID mismatch.

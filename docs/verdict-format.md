@@ -3,8 +3,9 @@
 The independent verifier and the model reviewers (Opus, Grok, Codex) report a
 typed verdict on a pull request in one shared envelope,
 `overdrafter.verdict/v1`. This document describes the format and the tools that
-emit and parse it. The merge gate that consumes it is OVD-845. This format
-doesn't gate anything on its own.
+emit and parse it. The merge gate that consumes it is `ovd-merge-gate`
+(OVD-845, [below](#ovd-845-merge-gate-ovd-merge-gate)). This format doesn't
+gate anything on its own.
 
 - `scripts/verdict-schema.mjs` is the single source of truth. It exports the
   JSON Schema object, `validateVerdict`, `parseVerdictComments`,
@@ -34,10 +35,10 @@ Field names follow the OVD-845 §6 schema. This format adds the following:
 
 | Field | Rule |
 | --- | --- |
-| `role` | `verifier` or `reviewer`. **Only `verifier` verdicts are gate input.** `reviewer` verdicts are advisory. |
-| `findings` | Required for `reviewer` (use `[]` for none), forbidden for `verifier`. Items are `{ severity, file, line, model }` plus optional `message` and `corroborated`. `line` is an integer ≥ 1 or `null` for a file-level finding. |
+| `role` | `verifier` or `reviewer`. `parseVerdictComments` returns only the `verifier` verdict as `verdict`; `reviewer` verdicts come back in `reviews`. **Both roles are `ovd-merge-gate` input:** it needs a verifier PASS and at least one reviewer PASS (see below). |
+| `findings` | Required for `reviewer` (use `[]` for none), forbidden for `verifier`. Items are `{ severity, file, line, model }` plus optional `message` and `corroborated`. `file` is repo-relative (no leading `/`, no drive letter, no `..` segment), like a gate finding. `line` is an integer ≥ 1 or `null` for a file-level finding. |
 | `notes` | Strings prefixed with a severity: `high: `, `medium: `, `low: ` or `info: `. `PASS_NOTES` needs at least one note. Under OVD-845, a `PASS_NOTES` verdict with a `high:` note (`hasHighNote`) can't be merged. |
-| `verifier.model_family` | Lower-case family token (`opus`, `grok`, `codex`, ...). |
+| `verifier.model_family` | Lower-case family token. The schema accepts any token; `ovd-merge-gate` accepts only ruling 4's `claude`, `codex`, `grok`, `jev` or `human` and the exact lowercase aliases `opus` and `sonnet`, both normalized to `claude`. Other values (including `claude-opus`, `gpt-6`, uppercase variants and empty strings) are rejected with `verdict_schema_error`. The emitter writes the canonical family. |
 | `verifier.github_login` | GitHub login, with an optional `[bot]` suffix. It must match the author of the comment. |
 
 The validator fails closed and reports one message per problem, each prefixed
@@ -165,7 +166,7 @@ node scripts/emit-verdict.mjs --role verifier --verdict PASS \
 The comment has one summary line, the fenced block, and a do-not-edit footer:
 
 ````markdown
-**OverDrafter verdict: PASS** for `<sha>` by astra-verifier (opus).
+**OverDrafter verdict: PASS** for `<sha>` by astra-verifier (claude).
 
 ```overdrafter-verdict
 { ...json... }
@@ -230,29 +231,214 @@ line and end with a closing fence line. It ignores other text and fences in
 other languages. A gate must treat any `conflicts` entry, or any rejected block
 that may belong to the current head, as `verdict_schema_error`.
 
-## OVD-845 responsibilities
+## OVD-845 merge gate (`ovd-merge-gate`)
 
-This format and its parser deliberately leave the following to the OVD-845
-gate. The gate must do each of them; none is enforced here.
+The "OVD-845 responsibilities" this format and its parser leave to the gate
+are implemented by `scripts/ovd-merge-gate.mjs` and
+`.github/workflows/ovd-merge-gate.yml` (OVD-959, PR-G1). The workflow runs
+only default-branch code (`pull_request_target`, `issue_comment` created,
+edited and deleted, `workflow_dispatch` with `pr`, and `merge_group`), fetches
+the PR head and base as git data into a separate bare repository, records
+trusted blocking verdicts in the verdict history from a job named
+`ovd-merge-gate-history`, and then writes one check run named
+`ovd-merge-gate` on the head from a job named `ovd-merge-gate-writer`. On
+`merge_group` it writes `success` on the merge group commit (the queue
+no-op). It re-reads the head right before writing and writes nothing for a
+head that moved.
 
-- **Independence.** The parser only checks that `verifier.github_login`
-  matches the comment author. It does not check the login against the PR
-  author or against the authors and committers of the PR's commits
-  (`verifier_not_independent`), against an allowlist of verifier identities,
-  or `verifier.model_family` against the implementer's model family. OVD-845
-  owns all of these checks.
-- **Corroboration.** The `corroborated` field on findings is self-reported by
-  whoever emitted the verdict and covers only the findings inside that one
-  verdict. Consumers must not trust it: recompute it with `tagCorroborated`
-  over the findings they use. Corroboration across separate reviewer comments
-  (for example an Opus review and a Grok review posted separately) is not
-  computed anywhere in this format; if OVD-845 needs it, it must collect the
-  findings from every valid `reviews` entry and run `tagCorroborated` over the
-  combined list.
-- **Staleness.** The parser doesn't compare `sha` with the live PR head.
-  OVD-845 does, using the PR commits API, and applies the rebase rule above
-  with a `diff_id` it recomputes itself (see "`diff_id`, and why `patch_id` is
-  advisory only"). An equal `patch_id` alone never allows reuse.
+**Trigger filter and status comment (OVD-1144).** An `issue_comment` starts
+the two PR jobs only when the comment body, or for an edit its previous body,
+contains a marker from `TRIGGER_COMMENT_MARKERS` (case-insensitive, like
+GitHub's `contains()`): the `overdrafter-verdict` and `overdrafter-approval`
+fence openers, `VERDICT: PASS` (also PASS_NOTES), `VERDICT: FAIL`, `QA PASS`
+or `QA FAIL`. Both jobs' job-level `if:` is generated by
+`commentFilterExpression()` and pinned by a test, so relay, progress and
+status comments start no job and spend no run. After writing the check run
+the writer keeps exactly one status comment per PR: the oldest
+`github-actions[bot]` comment whose body starts with
+`<!-- ovd-merge-gate-status -->` is edited in place with REST `PATCH`
+(an unchanged body is left alone); a new comment is posted only when none
+exists. The comment holds the head SHA, the conclusion, the title and the
+reason codes; it is advisory (the check run is the gate), carries no trigger
+marker, and a failed edit only warns. The workflow posts no other comment.
+
+`evaluate()` is pure and reads everything for one head SHA. The gate passes
+only when all of these hold:
+
+- **(a) Verifier.** The latest trusted `role: verifier` PASS (or PASS_NOTES
+  with no `high:` note) bound to the head has `readiness.checks: green`.
+  Bound means `sha` is the head, or `diff_id` equals the head `diff_id` the
+  gate recomputes itself with `computeDiffId` over base...head (the current
+  base branch tip). `patch_id` is never used.
+- **(b) Reviewer.** At least one trusted `role: reviewer` PASS or PASS_NOTES
+  is bound to the head. Reviewer verdicts are gate input here.
+- **(c) No outstanding FAIL, no disagreement.** Over the union of every
+  verdict bound to the head SHA or the head `diff_id`, any FAIL stands and a
+  PASS next to it is `verdict_conflict`. A later same-role verdict at the
+  same SHA supersedes a FAIL only with `supersedes: <FAIL comment id>`,
+  `reason: infra` and a `ci-run`/`verify-run` the FAIL did not cite. A FAIL
+  with any finding or a `high:` note is a product FAIL and needs a new head.
+  Any `high` finding or `high:` note on a bound verdict, from either role,
+  blocks.
+- **(d) Trusted authors.** Only comments by `TRUSTED_VERIFIERS` count, a
+  constant in the default-branch script (stage A: `["optomachina"]`), never a
+  repo variable or env value. `verifier.github_login` must equal the comment
+  author (parser rule). Blocks from untrusted authors, author-mismatched
+  blocks and other authors' malformed blocks are ignored and listed in the
+  summary's `ignored`.
+- **(e) Edited, deleted or malformed trusted verdicts.** A trusted verdict
+  comment that may be for the head (its `sha` or `diff_id` matches, or cannot
+  be read) fails the gate until a fresher trusted verdict of that role is
+  posted: `edited_verdict` when it was edited, and `verdict_schema_error`
+  when its block is unparseable, fails the schema, has a `model_family`
+  outside ruling 4, lacks comment timestamps, or opens a
+  ```` ```overdrafter-verdict ```` fence that is never closed
+  (`unterminated_block`; such a block is invisible to `extractVerdictBlocks`,
+  so the gate counts opening fences itself).
+  Removed verdicts come from the verdict history (below), from the
+  `issue_comment` deleted event, and from `deleted_verdicts` in the gate's
+  own earlier check runs on the head, but **only blocking verdicts are
+  carried forward**: a FAIL, or a PASS/PASS_NOTES with a `high` finding or
+  `high:` note. A history entry whose block is no longer posted (the comment
+  was deleted, or edited so it no longer holds that block) is removed. A
+  carried deletion
+  stands in the union exactly as if it were still posted (a deleted FAIL
+  stays outstanding unless a later verdict supersedes it under the normal
+  rules; a deleted verdict is never itself a supersede claim), and it never
+  counts as a pass. A deleted clean PASS/PASS_NOTES simply disappears: it is
+  not recorded, does not satisfy (a) or (b), and does not block. A deleted
+  block that cannot be read (or a carried entry without a readable verdict
+  snapshot) is `edited_verdict` until a fresher trusted verdict is posted.
+- **(f) Sensitive changes.** The default-branch copy of the sensitive-class
+  detector (`scripts/sensitive-class-detect.mjs` over
+  `docs/sensitive-paths.json`) classifies the PR files. Any `.github/**`
+  path, in any spelling, adds `infra_ci`. Any class, including the detector's
+  fail-closed `unclassified`, needs a valid `overdrafter.approval/v1` record
+  (`scripts/approval-record.mjs`) bound to the head SHA or head `diff_id`,
+  posted by `TRUSTED_APPROVERS` in a comment that was never edited;
+  otherwise `approval_missing:<class>` for each class.
+- **(g) Independence.** Stage A (`IDENTITY = "shared-account"`, today):
+  every agent posts as `optomachina`, so verifier ≠ author and verifier ≠
+  merger are **not enforced**; every summary says `identity: shared-account
+  (not enforced)`. Stage B (`IDENTITY = "app"`, PR-G5): only
+  `overdrafter-verifier[bot]` counts, `optomachina` verdicts are ignored as
+  `verifier_is_merger`, and a verdict from the PR author or any commit author
+  or committer is `verifier_not_independent`.
+  Ruling 1 (both stages): when a counted verifier or reviewer verdict's
+  `verifier.id` (the agent id) equals a builder bot id in the PR body's
+  `Built-by:` (or `Model-builder:`) line, the gate reports
+  `verifier_not_independent`. The line is parsed by the maintained parser,
+  `parseBuiltBy` in `scripts/agent-graph/built-by.mjs`, as
+  `docs/agent-pr-tags.md` specifies (canonical `bot=<id> model=model:<pool>`
+  entries and the free-text `<bot> / <family>` form; ids and display names
+  match case-insensitively; a legacy `Model-builder:` line is read as a
+  Built-by line). A missing body, no Built-by line, a line (or one entry of
+  it) the parser cannot read, a second builder in free text, or only a
+  legacy `Model:` line (`bot=unknown`) is `builder_unattributed`: the
+  independence from the builder cannot be checked. Until K3 (stage A) both
+  codes are **warnings** in `warnings` and in the check-run summary, not
+  reasons; from K3 (stage B) both are blocking reasons. The body is read as
+  data from the PR API.
+- **(h) PASS evidence resolves (ruling 6).** A PASS or PASS_NOTES counts for
+  (a) or (b), and a supersede's "new run id" counts for (c), only when one of
+  its https `ci-run` or `verify-run` links is
+  `https://github.com/<this repo>/actions/runs/<id>` (optionally
+  `/job/<id>` or `/attempts/<n>`) and that Actions run reported a GitHub
+  Actions (app 15368) check run on the verdict's `sha`: the revision the
+  verdict is bound to the head by (the head itself, or an older SHA with an
+  equal `diff_id`). The gate checks this through the Checks API
+  (`details_url` of the check runs on that SHA, `filter=all`), so it needs no
+  permission beyond `checks`. Anything else, such as
+  `https://example.invalid/not-a-run`, another repository, a lookalike host,
+  a run that never reported on that SHA, or a check-run list that cannot be
+  read, is `evidence_unverified` and the pass does not count.
+
+**Verdict history (why it is durable, and where it lives).** GitHub keeps no
+readable copy of a deleted issue comment: the comments, timeline and
+issue-events APIs drop it, its edit history (GraphQL `userContentEdits`)
+goes with it, and the public events feed is lossy (at most 300 events over
+90 days, delivered late). A deleted FAIL can therefore only be kept by
+recording it while it is still readable, somewhere that optomachina cannot
+delete and that no single gate run owns. A per-PR concurrency group can
+replace a pending run, so the deletion run's own check run is not enough.
+The gate uses check runs: the workflow already has `checks: write`, there is
+no API to delete a check run, only the app that created it (GitHub Actions)
+can update it, and they are listed with `filter=all`.
+
+- Every workflow run first runs the job `ovd-merge-gate-history`
+  (`node scripts/ovd-merge-gate.mjs record --pr N`). It has no concurrency
+  group, so a newer run never replaces it. It appends the trusted blocking
+  verdicts it sees, from the event comment (on `created`, `edited` and
+  `deleted`) and from every live comment, as one check run named
+  `ovd-merge-gate-history/pr-<N>` holding
+  `{ "schema": "overdrafter.gate-history/v1", "pr", "event", "entries" }`.
+  Recording at creation means a FAIL is kept even if the deletion run itself
+  fails.
+- The writer job `needs` the history job and alone is queued per PR, so
+  every writer starts after its own run's record is written, and the last
+  writer to run sees every record.
+- Size (F1). GitHub caps a check run's `output.text` at 65535 characters.
+  A snapshot never stores note text: `notes` becomes one
+  `high|other: <n> note(s) omitted, sha256 <hex>` marker, so a high note
+  still blocks and distinct blocks stay distinct; evidence and findings are
+  bounded too. Fresh entries are split across as many records as needed.
+  An entry that still cannot fit fails the history job. The writer runs with
+  `if: always()` and gets `--history-result <needs.result>`: anything but
+  `success` is `missing_input`, so a failed history write fails the gate
+  instead of leaving an earlier result on the head. The gate's own summary
+  is shrunk to fit (ignored details, then verdict snapshots, then one
+  unreadable marker), never into a pass.
+- The records sit on `HISTORY_ANCHOR_SHA`, the repository's root commit,
+  which exists forever and is never a PR head. They are keyed on the PR, not
+  a head SHA, and bound to the head like live verdicts (by `sha` or
+  `diff_id`), so a new head with the same `diff_id` still sees a deleted FAIL.
+- Reading fails closed: if the history list cannot be read, any record's
+  provenance does not resolve, or any record is not valid JSON of that schema
+  for that PR, the result is `missing_input`. Provenance is `external_id`
+  (`pr-<N>:run-<id>`), not the check suite.
+  The same holds for the gate's own earlier check runs on the head: a run
+  without a readable JSON summary holding a `deleted_verdicts` list is
+  `missing_input`, never empty history.
+- Residual risk (as R3): a workflow that a PR adds runs as GitHub Actions too
+  and could update a history check run. Any `.github/**` change needs
+  Blaine's approval record, and the land helper recomputes the gate from main.
+
+**Fail closed.** A missing, unparseable, error, unknown or partial input is
+never a pass: no live head or a moved head (`missing_input`, `stale_sha`), a
+`diff_id` that cannot be computed (`error`), unreadable comments, an
+unreadable or incomplete commit list in either stage, unreadable verdict
+history or earlier gate check runs (`missing_input`), and any sensitive-class result
+whose `status` is not exactly `ok`, that is missing, for another SHA, or does
+not cover every changed file (`classifier_error`, and `automerge:
+needs_blaine`). The advisory `jev-screen` status is never read, counted or
+required.
+
+**Output.** The check-run text holds the JSON summary: `gate`, `sha`,
+`diff_id`, `mode`, `identity`, `identity_note`, `verifier_comment_id`,
+`reviewer_comment_ids`, `approval_comment_id`, `automerge`
+(`needs_blaine` for any class or a classifier error, otherwise
+`needs_release`; `eligible` waits for OVD-841), `sensitive_classes`,
+`reasons` (`{ code, detail }`), `warnings`, `ignored` and
+`deleted_verdicts`. `MODE = "report"` writes `success`, or `neutral` with
+the title `REPORT: would block: <codes>`. In enforce mode (PR-G3) the
+conclusion is only `success` or `failure`.
+
+**Corroboration.** The `corroborated` field on findings is self-reported and
+covers only the findings inside one verdict. The gate does not read it: any
+`high` finding blocks whether or not it is corroborated. A consumer that needs
+corroboration across separate reviewer comments must run `tagCorroborated`
+over the combined findings itself.
+
+**CLI.** From a clean default-branch checkout, with `GITHUB_TOKEN` or
+`GH_TOKEN` set: `node scripts/ovd-merge-gate.mjs evaluate --pr N --sha S
+--json` prints the summary and exits 0 for `gate: pass`, 1 for fail and 2 on
+usage errors. It fetches `refs/pull/N/head` and the base branch, as git data
+only, into `refs/ovd-merge-gate/*` of a fresh bare repository in a temporary
+directory, computes `diff_id` there and removes it; nothing is fetched into
+the checkout, and no PR file is checked out or run (`--no-fetch` reads
+`origin/<base>` in the current repository instead). `record --pr N` appends
+to the verdict history.
+The land helper and merge read-back consume it in PR-G2.
 
 ## Corroboration
 
@@ -260,7 +446,7 @@ gate. The gate must do each of them; none is enforced here.
 a finding when another model family raised a finding on the same file at a line
 within `lineTolerance`. File-level findings (`line: null`) only match other
 file-level findings. When one family repeats a finding, that isn't
-corroboration. The emitted field is advisory; see OVD-845 responsibilities.
+corroboration. The emitted field is advisory; see the OVD-845 merge gate section.
 
 ## Tests
 
@@ -305,3 +491,57 @@ cover:
 - posting only with `--post`, through an injected runner: injected PR numbers
   are refused, the argv is fixed, the body file holds the comment during the
   call, and the temp directory is gone afterwards (also when `gh` fails).
+
+PASS evidence must cite a successful run of `.github/workflows/ci.yml` or
+`.github/workflows/verify.yml` in this repository. The Actions run API must
+report `conclusion: success` and `head_sha` equal to the verdict SHA, including
+when a verdict is carried across a rebase by equal `diff_id`. Failed, cancelled,
+in-progress, unrelated-workflow and unreadable runs do not count.
+
+History and prior gate checks must belong to GitHub Actions app 15368.
+Provenance is `external_id` (`pr-<N>:run-<id>`) alone (OVD-1110). The writer
+also sets `details_url` to `https://github.com/<this repo>/actions/runs/<id>`,
+but that is informational: GitHub may replace it with the check run's own URL,
+and the writer asserts it just as it asserts `external_id`. When `details_url`
+is an Actions run URL it must name this repository's run `<id>`. The check suite
+is not the key: a check run posted to a SHA this workflow did not run on can
+land in a suite with no workflow run, or in another workflow's suite, and a
+suite lookup then sticks every later read on `missing_input`. The cited Actions
+run must be `.github/workflows/ovd-merge-gate.yml`, triggered by
+`pull_request_target`, `issue_comment` or `workflow_dispatch` (`merge_group`
+is not a trusted writer: its YAML comes from the queue ref). For
+`issue_comment` and `workflow_dispatch`, `head_branch` must be the
+repository's current default branch. A `pull_request_target` run executes
+the base branch's YAML and its `head_branch` is the PR head, so a non-default
+base could forge these records. `workflow_run.pull_requests` is computed when
+the API is read, not when the run happened, so a base retargeted after the run
+would still look like the default branch. A `pull_request_target` record is
+therefore trusted only when all hold (OVD-1109): `pull_requests` is exactly the
+PR being evaluated, based on the default branch; that PR is still based on the
+default branch and was created no later than the run; the run was created after
+the PR's last `base_ref_changed` event (so a PR retargeted to the default branch
+is trusted again for runs after the retarget); the run's `head_branch` and
+`head_repository` are that PR's head; and every PR, open or closed, from the
+same head branch targets the default branch and had no `base_ref_changed`
+event at or after the run (a closed sibling drops out of `pull_requests` but
+could have triggered the run, and one retargeted before it closed shows only
+its final base). Anything else fails closed with `missing_input`, by design:
+fork PRs (empty `pull_requests`), closed PRs, PRs sharing a head branch with
+another open PR, runs from another head repository or branch, records written
+before a retarget of this PR or a same-head sibling, and head branches whose
+PRs target another base.
+Unverifiable provenance blocks with `missing_input`. Records written before the
+OVD-1110 key (external id `pr-<N>` and a `/runs/<check_run_id>` details URL)
+stay unverifiable. Records exposing distinct `created_at` and `updated_at` are
+rejected. The Checks API does not reliably expose update history; differences
+between `started_at` and `completed_at` do not prove mutation. Provenance alone
+cannot detect an update by another workflow using the same Actions app token.
+Nor does it stop a forged record: any workflow in this repository with
+`checks: write` can post `external_id: pr-<N>:run-<id>` citing a real (public)
+ovd-merge-gate run id, and the cited run is not checked to be a run for PR
+`<N>` (`issue_comment` and `workflow_dispatch` runs carry no PR link). The old
+suite key could not be forged this way. A stored record can only add blocking
+verdicts or force `missing_input`, so a forgery can block a PR but cannot turn
+it into a pass. Removal candidates dedupe only when every field the gate reads
+(`comment_id`, `author`, `created_at`, `sha`, `diff_id`, `role`,
+`verdict_block`) matches, so a forged copy of a genuine record cannot displace it.

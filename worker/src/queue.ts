@@ -1,3 +1,4 @@
+import { drainQuoteRunRollups } from "./vendorQuoteOfferPersistence.js";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { QueueTaskRecord, WorkerConfig } from "./types.js";
 
@@ -146,7 +147,7 @@ export async function markTaskCancelled(
 }
 
 /**
- * Requeues a task for a later retry and clears the current worker lock.
+ * Requeues a task for a later retry and clears the current worker lock and attempt identity.
  *
  * Conditional on the row still being `running` under this worker's lock and
  * claim generation, so a retry can never revive a task that was cancelled (for
@@ -168,6 +169,7 @@ export async function markTaskQueuedForRetry(
     .from("work_queue")
     .update({
       status: "queued",
+      attempt_id: null,
       payload: mergePayload(task, payloadPatch),
       available_at: availableAt,
       locked_at: null,
@@ -205,6 +207,7 @@ export async function reapStaleTasks(
   supabase: SupabaseClient,
   stalenessMinutes = 10,
 ): Promise<number> {
+  await drainQuoteRunRollups(supabase);
   const cutoff = new Date(Date.now() - stalenessMinutes * 60 * 1000).toISOString();
 
   const { data, error } = await supabase

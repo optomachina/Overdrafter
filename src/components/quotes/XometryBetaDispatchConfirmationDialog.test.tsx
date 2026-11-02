@@ -8,6 +8,16 @@ import {
   type XometryBetaDispatchScope,
 } from "./XometryBetaDispatchConfirmationDialog";
 
+const sourcingApi = vi.hoisted(() => ({
+  confirmSourcingDestination: vi.fn(),
+  fetchSourcingDestination: vi.fn(),
+  updateOrganizationAddresses: vi.fn(),
+}));
+vi.mock("@/features/quotes/api/organizations-api", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/features/quotes/api/organizations-api")>()),
+  ...sourcingApi,
+}));
+
 function createScope(overrides: Partial<XometryBetaDispatchScope> = {}): XometryBetaDispatchScope {
   return {
     declaredModelUnits: "inch",
@@ -209,7 +219,7 @@ describe("XometryBetaDispatchConfirmationDialog", () => {
     expect(screen.getByRole("button", { name: "Confirm & queue Xometry quote" })).toBeDisabled();
   });
 
-  it("offers Settings only for a missing confirmed shipping destination", () => {
+  it("falls back to Settings for a missing confirmed shipping destination when no organization is known", () => {
     const onOpenSourcingSettings = vi.fn();
     const { rerender, props } = renderDialog({
       declaredModelUnits: "inch",
@@ -231,6 +241,72 @@ describe("XometryBetaDispatchConfirmationDialog", () => {
     );
     expect(screen.queryByRole("button", { name: "Open Settings to confirm address" })).not.toBeInTheDocument();
     expect(screen.getByText("Enter this part's tightest tolerance.")).toBeInTheDocument();
+  });
+
+  it("confirms a missing shipping address inline and re-runs the scope check without leaving the dialog", async () => {
+    const address = { street: "123 Test Ave", city: "Tucson", region: "AZ", postalCode: "85701", country: "US" };
+    sourcingApi.fetchSourcingDestination.mockResolvedValue({ address, state: "inferred" });
+    sourcingApi.confirmSourcingDestination.mockResolvedValue(undefined);
+    const onOpenSourcingSettings = vi.fn();
+    const onRetryScope = vi.fn();
+    renderDialog({
+      declaredModelUnits: "inch",
+      onOpenSourcingSettings,
+      onRetryScope,
+      organizationId: "org-1",
+      scopeDenialCode: "xometry_beta_confirmed_sourcing_address_required",
+      scopeError: "Xometry needs a confirmed shipping address.",
+    });
+
+    expect(screen.queryByRole("button", { name: "Open Settings to confirm address" })).not.toBeInTheDocument();
+    fireEvent.click(await screen.findByRole("button", { name: "Confirm shipping address" }));
+
+    await waitFor(() => expect(onRetryScope).toHaveBeenCalledTimes(1));
+    expect(sourcingApi.confirmSourcingDestination).toHaveBeenCalledWith("org-1", address);
+    expect(onOpenSourcingSettings).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Confirm & queue Xometry quote" })).toBeDisabled();
+  });
+
+  it("offers the inline address panel for the generic provider destination denial", async () => {
+    sourcingApi.fetchSourcingDestination.mockResolvedValue({
+      address: { street: null, city: null, region: null, postalCode: null, country: "US" },
+      state: "inferred",
+    });
+    renderDialog({
+      declaredModelUnits: "inch",
+      organizationId: "org-1",
+      provider: "fictiv",
+      scopeDenialCode: "provider_dispatch_confirmed_destination_required",
+      scopeError: "Fictiv needs a confirmed shipping address.",
+    });
+
+    expect(await screen.findByText("Add street, city, ZIP, state before confirming.")).toBeInTheDocument();
+    expect(screen.getByText(/Fictiv quotes need the address parts would ship to/)).toBeInTheDocument();
+  });
+
+  it("withdraws ticked affirmations when a refreshed scope names a different destination", () => {
+    const scope = createScope();
+    const { rerender, props } = renderDialog({ declaredModelUnits: "inch", scope });
+    fireEvent.click(screen.getByRole("checkbox", { name: authorityLabel }));
+    fireEvent.click(screen.getByRole("checkbox", { name: exportLabel }));
+    fireEvent.click(screen.getByRole("checkbox", { name: quoteOnlyLabel }));
+    expect(screen.getByRole("button", { name: "Confirm & queue Xometry quote" })).toBeEnabled();
+
+    // The destination is part of the server scope, so a re-confirmed address yields a new fingerprint.
+    const destination = { ...scope.scope.destination, confirmationRevision: "2", street: "200 Sample Road" };
+    rerender(
+      <XometryBetaDispatchConfirmationDialog
+        {...props}
+        declaredModelUnits="inch"
+        scope={createScope({ scopeFingerprint: "e".repeat(64), scope: { ...scope.scope, destination } })}
+      />,
+    );
+
+    expect(screen.getByText("200 Sample Road, Tucson, AZ 85701, US")).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: authorityLabel })).not.toBeChecked();
+    expect(screen.getByRole("checkbox", { name: exportLabel })).not.toBeChecked();
+    expect(screen.getByRole("checkbox", { name: quoteOnlyLabel })).not.toBeChecked();
+    expect(screen.getByRole("button", { name: "Confirm & queue Xometry quote" })).toBeDisabled();
   });
 
   it("shows a truthful denial and refresh path without claiming dispatch approval", async () => {

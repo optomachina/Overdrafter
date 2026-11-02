@@ -89,6 +89,21 @@ URL of that journey test. A PR that only touches docs/ or *.md files is exempt.
 - What could go wrong?
 - How would this be rolled back if needed?
 
+<!--
+Optional report-only section. Current CI does not require it; an explicit
+--door revertable validator invocation checks all fields. Remove this comment
+and replace the prompts when supplying a plan. Owner: a routing bot/model id or blaine.
+## Revert plan
+
+- Revert: git revert <squash-sha>
+- State effects: none
+- Why none: TODO explain why no persistent or external state is affected (20+ characters).
+- Kill switch: TODO flag name, default off; or none: reason
+- Owner: TODO
+- Verify after revert: TODO command or check run
+- Blast radius: TODO affected surfaces or users (12+ characters).
+-->
+
 ## Documentation
 
 - [ ] Docs updated

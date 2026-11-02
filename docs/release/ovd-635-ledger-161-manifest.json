@@ -1,9 +1,9 @@
 {
   "format": "ovd635.ledger-manifest.v1",
-  "sourceCommit": "2cb6e66ce89e177434784a73d4afa70c317d179e",
-  "count": 152,
-  "head": "20261014191541",
-  "versionListMd5": "dea629f567cdcbf87a5f9d83d9215979",
+  "sourceCommit": "826d17d2e219b4e7e770ebf6732bf24203d2d5db",
+  "count": 161,
+  "head": "20261029165751",
+  "versionListMd5": "60d3fdc3744e859521ba64ce62bcf980",
   "migrations": [
     {
       "version": "20251106035356",
@@ -764,6 +764,51 @@
       "version": "20261014191541",
       "file": "20261014191541_ovd414_xometry_admission_read.sql",
       "sha256": "ca051bd5f275517e57ed395fefa568f868276e4227e7e472148a4893762e54c8"
+    },
+    {
+      "version": "20261015214135",
+      "file": "20261015214135_ovd768_admin_list_guards.sql",
+      "sha256": "a58fd72e4a25ecebbea815d5a13233f27c68ec1c264068491a03da6934d72b58"
+    },
+    {
+      "version": "20261015221725",
+      "file": "20261015221725_ovd771_service_kill_switch.sql",
+      "sha256": "de2dd5fc7fe2583d79c27b0613a73442999758acedf8aa304743b57c117b6882"
+    },
+    {
+      "version": "20261016000156",
+      "file": "20261016000156_ovd767_admin_write_aal2_guards.sql",
+      "sha256": "0dc63ded2bde449514624e7b4e6d0643eee2abaac9969ae9743c9c938b1d6721"
+    },
+    {
+      "version": "20261016002932",
+      "file": "20261016002932_ovd769_reconcile_job_parts_guard.sql",
+      "sha256": "c20052fc842f1377be330118d5da2e474eddfef42e1d6cf406839c0b55c73b47"
+    },
+    {
+      "version": "20261016004826",
+      "file": "20261016004826_ovd770_quote_select_editor_guard.sql",
+      "sha256": "e1ccedb3bc0b5655c2f63533330561377d4a5f5587cae7eea290e23f8e3e127b"
+    },
+    {
+      "version": "20261016013742",
+      "file": "20261016013742_ovd736_revoke_anon_definer_execute.sql",
+      "sha256": "b4ffdcced815f4ea877c177e9f41cec198530f078f0dec20be540e17cd1b351c"
+    },
+    {
+      "version": "20261016013832",
+      "file": "20261016013832_ovd766e_job_editor_scope.sql",
+      "sha256": "73c33b06c2f7325f380076a7f7b70e724b56d5254bd7d6f93152172254d1b68f"
+    },
+    {
+      "version": "20261025194414",
+      "file": "20261025194414_ovd1097_refresh_job_extraction_status.sql",
+      "sha256": "68bff7415c8e5a930f99021e587bc44b0515b7cfb9b98477005f0687ea8895ef"
+    },
+    {
+      "version": "20261029165751",
+      "file": "20261029165751_reconcile_claim_fence.sql",
+      "sha256": "67343518f02276127bbdfd2b9ed52dee35a0b4af72bab53d61de54bf6b8cb7ac"
     }
   ]
 }

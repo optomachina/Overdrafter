@@ -91,7 +91,7 @@ describe("published package selection eligibility", () => {
     const card = heading.closest(".border") as HTMLElement;
     expect(card).toHaveClass("border-primary");
     expect(within(card).getByText("Selected", { selector: "span" })).toBeInTheDocument();
-    expect(within(card).getByRole("button", { name: "Save note" })).toBeDisabled();
+    expect(within(card).getByRole("button", { name: "Save decision note" })).toBeDisabled();
     expect(within(card).getByRole("button")).toHaveAttribute("aria-pressed", "true");
     const receipt = screen.getByText("Selection received").closest(".border") as HTMLElement;
     expect(receipt).toHaveTextContent("Fastest delivery · $150.00 · Qty 10");
@@ -128,7 +128,7 @@ describe("published package selection eligibility", () => {
   it("saves another decision note for the already selected option", async () => {
     mocks.fetchClientPackage.mockResolvedValue(fixture("offer-1"));
     renderPackage();
-    const save = await screen.findByRole("button", { name: "Save note" });
+    const save = await screen.findByRole("button", { name: "Save decision note" });
     expect(save).toBeDisabled();
     expect(save).toHaveAttribute("aria-pressed", "true");
     fireEvent.change(screen.getByRole("textbox"), { target: { value: "  Ship to dock B  " } });
@@ -141,10 +141,10 @@ describe("published package selection eligibility", () => {
   });
 
   it.each(["", "   ", "Previous selection note", "  Previous selection note  "])(
-    "disables Save note for an empty or unchanged note (%j)", async (note) => {
+    "disables Save decision note for an empty or unchanged note (%j)", async (note) => {
       mocks.fetchClientPackage.mockResolvedValue(fixture("offer-1"));
       renderPackage();
-      const save = await screen.findByRole("button", { name: "Save note" });
+      const save = await screen.findByRole("button", { name: "Save decision note" });
       fireEvent.change(screen.getByRole("textbox"), { target: { value: note } });
       expect(save).toBeDisabled();
       fireEvent.click(save);

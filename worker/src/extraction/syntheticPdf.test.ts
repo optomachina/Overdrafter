@@ -35,10 +35,10 @@ const fullyRead = hasBinary("tesseract");
 const ROW_DROPPED = fullyRead ? 0.005 : null;
 const FOUR_PLACE_ROW = fullyRead ? 0.001 : null;
 const LAYOUT_REVIEW_FIELDS = ["partNumber", "revision", "material", "finish"];
-// This template's legacy description candidate is DRAWN, an approvals label. I3 now
-// requires review for it on every path; the four cell-field assertions remain strict.
+// OVD-1009: the description is the TITLE cell's value (a 14 pt title 37 pt right of its 7 pt label), proven with the
+// four cells where they are proven; layout text, or a drawing not fully read, flags every cell field.
 const expectedReviewFields = (source: string, cellFields: string[]) =>
-  ["description", ...(!fullyRead || source === "layout text" ? LAYOUT_REVIEW_FIELDS : cellFields)];
+  !fullyRead || source === "layout text" ? ["description", ...LAYOUT_REVIEW_FIELDS] : cellFields;
 
 // Every test writes a PDF and reads it with poppler and, when it is installed, tesseract: about a second each on
 // an idle machine, several on a loaded one, so the default 5 seconds is not a bound the tests can keep.
@@ -529,12 +529,16 @@ describe.skipIf(!hasPoppler)("synthetic sheets through poppler", { timeout: 60_0
       }
     });
 
-    it("still approves the four cells but reviews the label-only description", async () => {
+    // OVD-1009: the description is read from the TITLE cell, where the old anchors took the approvals label DRAWN.
+    it("reads the title from the TITLE cell and approves it with the four cells", async () => {
       for (const [source, result] of await extractBoth(syntheticSheet())) {
         expect(result.material.raw, source).toBe("AL 6061-T6");
         expect(result.finish.raw, source).toBe("AS MACHINED");
-        expect(result.reviewFields, source).toEqual(expectedReviewFields(source, []));
-        expect(result.status, source).toBe("needs_review");
+        expect(result.description, source).toBe("SAMPLE BRACKET");
+        expect(result.extractedDescriptionRaw.reasons, source).toContain("label_match");
+        const flagged = expectedReviewFields(source, []);
+        expect(result.reviewFields, source).toEqual(flagged);
+        if (flagged.length > 0) expect(result.status, source).toBe("needs_review");
       }
     });
   });
@@ -1053,15 +1057,22 @@ describe.skipIf(!hasPoppler)("synthetic sheets through poppler", { timeout: 60_0
       const result = inferDrawingSignalsFromPdf({ titleBlockApprovalEnabled: true, baseName: "upload", pdfText: data });
       for (const [field, , value] of fields) expect(result[field]).toMatchObject({ value, reviewNeeded: !fullyRead });
     });
+    // The paint is in PDF coordinates (y up): on the page it lies at the MATERIAL label's row and under it. The curve's
+    // control points reach up to the row of the label, which is the TITLE cell's cap, within the margin of the
+    // description's region (OVD-1009: the description is a cell field), so the curve vetoes the description too; the
+    // image and the clip lie under the label, in the material's region alone. Neither identifier is touched.
     it.each([
-      ["curve", "0 G 100 380 m 110 390 125 370 140 380 c S"],
-      ["image_xobject", "q 20 0 0 20 100 360 cm BI /W 1 /H 1 /BPC 8 /CS /G ID x EI Q"],
-      ["clip_path", "q 100 360 40 20 re W n 0 G 90 370 m 150 370 l S Q"],
-    ])("the compound border plus local %s reviews only material", async (cause, paintAfter) => {
+      ["curve", "0 G 100 380 m 110 390 125 370 140 380 c S", ["description", "material"]],
+      ["image_xobject", "q 20 0 0 20 100 360 cm BI /W 1 /H 1 /BPC 8 /CS /G ID x EI Q", ["material"]],
+      ["clip_path", "q 100 360 40 20 re W n 0 G 90 370 m 150 370 l S Q", ["material"]],
+    ] as const)("the compound border plus local %s reviews only the cells whose regions hold it", async (cause, paintAfter, vetoedFields) => {
       const data = await pdfTextOf(items, { paint: frame, paintAfter });
       const result = inferDrawingSignalsFromPdf({ titleBlockApprovalEnabled: true, baseName: "upload", pdfText: data });
-      for (const [field, , value] of fields) expect(result[field]).toMatchObject({ value, reviewNeeded: !fullyRead || field === "material" });
-      expect(result.material.reasons).toContain(`geometry_${cause}`);
+      const vetoed = new Set<string>(vetoedFields);
+      for (const [field, , value] of fields) {
+        expect(result[field], field).toMatchObject({ value, reviewNeeded: !fullyRead || vetoed.has(field) });
+        expect(result[field].reasons.includes(`geometry_${cause}`), field).toBe(vetoed.has(field));
+      }
     });
     it("a light-grey divider vetoes MATERIAL binding to LOT CODE", async () => {
       const data = await pdfTextOf([

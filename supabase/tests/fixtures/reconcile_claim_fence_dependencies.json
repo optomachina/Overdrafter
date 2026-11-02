@@ -1,0 +1,211 @@
+{
+  "relations": {
+    "public.vendor_quote_results": [
+      "id",
+      "quote_run_id",
+      "part_id",
+      "organization_id",
+      "vendor",
+      "requested_quantity",
+      "status",
+      "unit_price_usd",
+      "total_price_usd",
+      "lead_time_business_days",
+      "quote_url",
+      "dfm_issues",
+      "notes",
+      "raw_payload",
+      "updated_at"
+    ],
+    "public.vendor_quote_offers": [
+      "id",
+      "vendor_quote_result_id",
+      "organization_id",
+      "offer_key",
+      "supplier",
+      "lane_label",
+      "sourcing",
+      "geographic_origin",
+      "tier",
+      "quote_ref",
+      "quote_date",
+      "quoted_at",
+      "valid_until",
+      "validity_duration_days",
+      "validity_source",
+      "validity_terms",
+      "provenance_status",
+      "unit_price_usd",
+      "total_price_usd",
+      "lead_time_business_days",
+      "ship_receive_by",
+      "process",
+      "material",
+      "finish",
+      "tightest_tolerance",
+      "notes",
+      "sort_rank",
+      "raw_payload",
+      "updated_at"
+    ],
+    "public.quote_runs": [
+      "id",
+      "job_id",
+      "organization_id",
+      "status",
+      "quote_request_id",
+      "created_at"
+    ],
+    "public.quote_requests": [
+      "id",
+      "organization_id",
+      "job_id",
+      "status",
+      "service_request_line_item_id"
+    ],
+    "public.work_queue": [
+      "id",
+      "organization_id",
+      "job_id",
+      "part_id",
+      "quote_run_id",
+      "task_type",
+      "status",
+      "locked_by",
+      "locked_at",
+      "attempts",
+      "payload",
+      "last_error"
+    ],
+    "public.jobs": [
+      "id",
+      "organization_id",
+      "status",
+      "selected_vendor_quote_offer_id"
+    ],
+    "public.parts": [
+      "id",
+      "organization_id",
+      "job_id"
+    ],
+    "public.organizations": [
+      "id"
+    ],
+    "public.quote_request_lanes": [
+      "id",
+      "quote_request_id",
+      "vendor_quote_result_id",
+      "quote_run_id",
+      "organization_id",
+      "part_id",
+      "vendor",
+      "requested_quantity",
+      "cooldown_released_by_offer_id"
+    ],
+    "public.service_request_line_items": [
+      "id"
+    ],
+    "public.published_quote_options": [
+      "id",
+      "source_vendor_quote_offer_id"
+    ],
+    "public.audit_events": [
+      "organization_id",
+      "job_id",
+      "actor_user_id",
+      "event_type",
+      "payload"
+    ],
+    "private.quote_access_admissions": [
+      "id",
+      "quote_run_id",
+      "quote_request_id",
+      "admission_source",
+      "state"
+    ],
+    "private.xometry_beta_dispatch_permits": [
+      "id",
+      "work_queue_task_id",
+      "vendor_quote_result_id",
+      "quote_request_id",
+      "organization_id",
+      "job_id",
+      "quote_run_id",
+      "part_id",
+      "provider",
+      "quote_request_lane_id"
+    ],
+    "private.provider_dispatch_permits": [
+      "id",
+      "work_queue_task_id",
+      "vendor_quote_result_id",
+      "quote_request_id",
+      "organization_id",
+      "job_id",
+      "quote_run_id",
+      "part_id",
+      "provider",
+      "requested_quantity",
+      "quote_request_lane_id"
+    ]
+  },
+  "functions": [
+    "private.finalize_free_quote_job(uuid)",
+    "public.reconcile_vendor_quote_offers(uuid,jsonb,jsonb)"
+  ],
+  "types": [
+    "pg_catalog.uuid",
+    "pg_catalog.text",
+    "pg_catalog.timestamptz",
+    "pg_catalog.int4",
+    "pg_catalog.int8",
+    "pg_catalog.jsonb",
+    "pg_catalog.numeric",
+    "pg_catalog.trigger",
+    "pg_catalog.void",
+    "pg_catalog.record",
+    "public.vendor_name",
+    "public.vendor_status",
+    "public.job_status",
+    "public.quote_run_status",
+    "public.queue_task_status"
+  ],
+  "builtins": [
+    "array_agg",
+    "cardinality",
+    "clock_timestamp",
+    "convert_to",
+    "count",
+    "current_setting",
+    "encode",
+    "gen_random_uuid",
+    "jsonb_array_elements",
+    "jsonb_build_object",
+    "jsonb_populate_recordset",
+    "jsonb_typeof",
+    "now",
+    "sha256",
+    "timezone",
+    "to_jsonb",
+    "unnest"
+  ],
+  "roles": [
+    "postgres",
+    "anon",
+    "authenticated",
+    "service_role"
+  ],
+  "createdByMigration": [
+    "private.vendor_quote_acceptance_receipts",
+    "private.quote_run_rollup_followups",
+    "private.quote_run_rollup_followups_id_seq",
+    "private.reject_vendor_quote_acceptance_receipt_mutation()",
+    "private.apply_vendor_quote_result_offers(uuid,jsonb,jsonb)",
+    "private.vendor_quote_acceptance_request_ids(uuid)",
+    "public.accept_vendor_quote_result(uuid,text,timestamptz,integer,uuid,jsonb,jsonb,jsonb)",
+    "private.aggregate_quote_run_status(public.vendor_status[])",
+    "public.drain_quote_run_rollup_followups(integer)",
+    "vendor_quote_acceptance_receipts_append_only",
+    "quote_run_rollup_followups_pending"
+  ]
+}

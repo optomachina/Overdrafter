@@ -45,6 +45,7 @@ quote, file transfer, provider execution, payment behavior, or release readiness
 | Exact replay succeeds | Deduplicated success, one synthetic create, disabled further confirmation | Repeat submission or duplicate admission |
 | Explicit stale-scope/free-allowance denial | No create; refreshed scope shown, consent reset; fresh confirmation has new key and scope | Stale confirmation automatically reused after denial |
 | Unknown recovery explicitly denied while access blocked | No create, no fresh consent, no request/recovery action after closing | Recovery privilege survives definitive denial |
+| Scope denied for a missing shipping address (OVD-1068) | Inline form names missing fields; Save and confirm writes shipping fields, confirms the read-back address, re-runs the scope by itself; after reload the scope loads with no panel and no second confirmation | Customer sent to Settings, a draft confirmed instead of the saved address, or client-only confirmation state |
 | Close before submit, reopen, Escape | Unsubmitted consent discarded; no dispatch or stale dialog | Accidental submit or stale consent |
 | Scope 400, dispatch 500 or quote-access 401 whose body carries JWT, `service_role`, `storageState`, stack-frame and email sentinels (`errors.browser.ts`) | Bounded copy with Retry scope check, Close then Check previous quote request, or reload; no sentinel in body text, toasts, dialogs or markup | Server error text or secrets forwarded to customers |
 

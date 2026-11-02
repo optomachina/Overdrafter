@@ -8,7 +8,7 @@ const readRootFile = (path: string): string =>
   readFileSync(resolve(process.cwd(), path), "utf8");
 
 describe("1.0 multi-provider release contract", () => {
-  it("pins the seven-provider portfolio and process-specific release proof", () => {
+  it("pins the four-provider 1.0 launch set and process-specific release proof", () => {
     const prd = readRootFile("PRD.md");
     const plan = readRootFile("PLAN.md");
     const roadmap = readRootFile("ROADMAP.md");
@@ -26,6 +26,26 @@ describe("1.0 multi-provider release contract", () => {
       runbook,
       foundingBeta,
     ];
+    // Blaine's October 20, 2026 decision: 1.0 ships with Xometry, Fictiv and Quickparts (CNC) and
+    // RMFG (sheet metal); Weerg, Geomiq and OSH Cut are 1.1. Every contract still names all seven
+    // so the 1.1 deferral stays explicit, and states the four-provider minimum in its own words.
+    const fourProviderSet =
+      /\bfour\b[\s\S]{0,80}?independently\s+admitted\s+and\s+production-\s*certified|all\s+four\s+(?:providers\s+are\s+independently\s+admitted|qualify)|Four\s+automatic\s+quote\s+sources\s+must\s+be\s+independently\s+admitted/i;
+    // PLAN keeps the superseded September 4 and September 28 decisions as dated history under the
+    // decision-log heading; only the wording above that heading is the current contract.
+    const decisionLogIndex = plan.indexOf("## Decision log");
+    expect(decisionLogIndex).toBeGreaterThan(0);
+    const planCurrent = plan.slice(0, decisionLogIndex);
+    const currentWording = [
+      prd,
+      planCurrent,
+      roadmap,
+      acceptance,
+      readme,
+      runbook,
+      foundingBeta,
+    ];
+
     for (const source of currentContracts) {
       for (const provider of [
         "Xometry",
@@ -38,42 +58,78 @@ describe("1.0 multi-provider release contract", () => {
       ]) {
         expect(source).toContain(provider);
       }
-      expect(source).toMatch(/at\s+least\s+(?:five|four\s+additional)/i);
+      expect(source).toMatch(fourProviderSet);
+      expect(source).toMatch(/Weerg,\s+Geomiq\s+and\s+OSH\s+Cut\s+are\s+1\.1/);
       expect(source).toMatch(/CNC/i);
       expect(source).toMatch(/process-specific|applicable process/i);
-      expect(source).not.toMatch(/complete five-provider launch set/i);
-    }
-
-    for (const source of currentContracts) {
       expect(source).toMatch(/production-\s*certified/i);
-      expect(source).toMatch(/at\s+least\s+(?:five|four\s+additional)/i);
+      expect(source).not.toMatch(/complete five-provider launch set/i);
       expect(source).not.toMatch(/five\s+preferred/i);
       expect(source).not.toMatch(
         /at\s+least\s+(?:two|three)(?:\s+(?:additional|independently))?(?:\s+production-\s*certified)?\s+(?:automatic\s+)?quote\s+(?:sources|providers)/i,
       );
     }
 
+    for (const source of currentWording) {
+      expect(source).not.toMatch(
+        /at\s+least\s+five\s+(?:eligible|independently|CNC-qualified|qualifying|production-\s*certified|automatic)/i,
+      );
+      expect(source).not.toMatch(/at\s+least\s+four\s+additional/i);
+      expect(source).not.toMatch(
+        /seven-provider\s+(?:1\.0|beta)|seven\s+named\s+1\.0|all\s+seven\s+named|beyond\s+the\s+(?:seven|named\s+seven)/i,
+      );
+      expect(source).not.toMatch(/Quickparts,\s+Weerg,\s+Geomiq,\s+RMFG,?\s+and\s+OSH\s+Cut/i);
+    }
+
     for (const source of [prd, plan, acceptance, readme, runbook, foundingBeta]) {
       expect(source).toMatch(/Xometry/i);
     }
 
-    expect(prd).toMatch(/Completion:\*\*[\s\S]*?at\s+least\s+four\s+additional\s+eligible\s+providers/);
-    expect(plan).toMatch(/at\s+least\s+five\s+independently[\s\S]*?package-eligible\s+sources/);
-    expect(acceptance).toMatch(/at\s+least\s+four\s+additional\s+automatic\s+quote\s+providers/);
-    expect(runbook).toContain("Xometry plus at least four");
-    expect(roadmap).toMatch(/CNC-first comparison requires at\s+least\s+five\s+eligible/);
+    expect(prd).toMatch(
+      /Completion:\*\*\s+all\s+four\s+named\s+providers[\s\S]*?proves\s+Xometry,\s+Fictiv\s+and\s+Quickparts[\s\S]*?proves\s+RMFG/,
+    );
+    expect(plan).toMatch(
+      /from\s+the\s+four\s+independently\s+admitted\s+and\s+production-certified,\s+package-eligible\s+sources/,
+    );
+    expect(acceptance).toMatch(/Xometry,\s+Fictiv\s+and\s+Quickparts\s+are\s+independently\s+admitted\s+and\s+production-certified\s+for\s+the\s+same\s+CNC\s+validation\s+envelope,\s+and\s+RMFG\s+for\s+the\s+sheet-metal\s+validation\s+envelope/);
+    expect(runbook).toContain("1.0 ships only when all four providers are independently admitted");
+    expect(roadmap).toMatch(
+      /CNC-first comparison requires\s+Xometry,\s+Fictiv\s+and\s+Quickparts\s+to\s+return\s+current\s+live\s+offers/,
+    );
     expect(foundingBeta).toContain(
-      "At least five automatic quote sources—Xometry plus at least four additional",
+      "Four automatic quote sources must be independently admitted and",
     );
     for (const source of [plan, acceptance, runbook, foundingBeta]) {
       expect(source).toMatch(
-        /at\s+least\s+one\s+unaided\s+eligible\s+CNC\s+participant\s+attempt[\s\S]{0,140}current,\s+independently\s+traceable\s+live\s+offer[\s\S]{0,160}at\s+least\s+five\s+CNC-qualified\s+providers[\s\S]{0,120}same\s+disclosed\s+package\s+and\s+scope/i,
+        /at\s+least\s+one\s+unaided\s+eligible\s+CNC\s+participant\s+attempt[\s\S]{0,140}current,\s+independently\s+traceable\s+live\s+offer[\s\S]{0,160}each\s+of\s+Xometry,\s+Fictiv\s+and\s+Quickparts[\s\S]{0,120}same\s+disclosed\s+package\s+and\s+scope/i,
       );
     }
-    expect(acceptance).toMatch(/provider lanes beyond the seven named 1\.0 providers/i);
+    expect(acceptance).toMatch(/provider lanes beyond the four named 1\.0 providers/i);
     expect(plan).toMatch(/RapidDirect is outside the named 1\.0\s+portfolio and is not a release gate/i);
+    expect(plan).toContain("### October 20, 2026 — Four-provider 1.0 launch set");
+    expect(plan).toContain("### September 28, 2026 — Seven-provider 1.0 portfolio (superseded)");
     expect(plan).toContain("September 4, 2026 — Five-provider launch contract (superseded)");
+    expect(plan.indexOf("### October 20, 2026")).toBeLessThan(plan.indexOf("### September 28, 2026"));
     expect(acceptance).toMatch(/Account existence,[\s\S]*?source integration,[\s\S]*?live quote verification,[\s\S]*?production certification/);
+
+    // The reviewed provider data carries the same decision: the permissions matrix `in_1_0` flags
+    // and the registry `oneDotZero` list (compared by scripts/provider-permissions-check.mjs) name
+    // exactly the four launch providers, and the 1.1 providers stay in the matrix as not in 1.0.
+    const launchKeys = ["fictiv", "quickparts", "rmfg", "xometry"];
+    const matrix = JSON.parse(readRootFile("docs/providers/permissions-matrix.v1.json")) as {
+      providers: { key: string; in_1_0: boolean; enabled_for_paid_automation: boolean }[];
+    };
+    const registry = JSON.parse(readRootFile("provider-integrations/provider-registry.v1.json")) as {
+      oneDotZero: string[];
+    };
+    expect(matrix.providers.filter((row) => row.in_1_0).map((row) => row.key).sort()).toEqual(launchKeys);
+    expect(registry.oneDotZero).toEqual(launchKeys);
+    for (const key of ["geomiq", "oshcut", "sendcutsend", "weerg"]) {
+      expect(matrix.providers.find((row) => row.key === key)).toMatchObject({
+        in_1_0: false,
+        enabled_for_paid_automation: false,
+      });
+    }
   });
 
   it("routes provider expansion to 1.1 and monetization to 1.2 consistently", () => {

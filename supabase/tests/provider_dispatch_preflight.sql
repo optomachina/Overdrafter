@@ -368,7 +368,11 @@ select ok(
 select ok(
   (select decision::text not like '%part.step%' and decision::text not like '%drawing.pdf%'
       and decision::text not like '%ovd459/%' and decision::text not like '%storage%'
-      and decision::text not like '%7075%' and decision::text not like '%reviewed_by%'
+      -- Anchor 7075 on a token boundary. Digits inside a hex fingerprint or a
+      -- UUID field do not match. A hyphen counts only for the alloy temper
+      -- (7075-T6), where the next character is not hex.
+      and decision::text !~ '\m[A-Za-z]{0,6}7075(\M[^0-9A-Fa-f-]|-($|[^0-9A-Fa-f])|$)'
+      and decision::text not like '%reviewed_by%'
       and decision::text not like '%change_reason%'
    from ovd459_authorized),
   'the response carries no file names, storage paths, scope snapshot, or raw policy rows'

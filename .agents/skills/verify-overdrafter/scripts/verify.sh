@@ -67,7 +67,13 @@ isolation() {
 doctor() {
   local bad=0 cfg port
   isolation || bad=1
-  node -e "require.resolve('@playwright/test')" 2>/dev/null || { echo "FAIL @playwright/test missing (npm ci)"; bad=1; }
+  if node -e "require.resolve('@playwright/test')" 2>/dev/null; then
+    # Launch Chromium the way playwright.config.ts does (sandboxed; installed Chrome in CI),
+    # so a missing browser build or an unusable sandbox fails here, not in global setup.
+    node -e "require('@playwright/test').chromium.launch({ chromiumSandbox: true, channel: process.env.CI === 'true' ? 'chrome' : undefined }).then((b) => b.close())" >/dev/null 2>&1 ||
+      { echo "FAIL Playwright cannot launch sandboxed Chromium (browser build missing for this @playwright/test, or running as root)"; bad=1; }
+  else echo "FAIL @playwright/test missing (npm ci)"; bad=1
+  fi
   for s in "${SPECS[@]}"; do [ -f "$s" ] || { echo "FAIL missing spec $s"; bad=1; }; done
   for cfg in "${CONFIGS[@]}"; do
     [ -f "$cfg" ] || { echo "FAIL missing config $cfg"; bad=1; }

@@ -10,9 +10,15 @@ import type { RmfgQuoteRequest, RmfgQuoteTransport } from "./rmfgQuoteTransport.
 export const RMFG_HTTP_TRANSPORT_REVISION = "rmfg-http-transport.v1" as const;
 export const RMFG_API_ORIGIN = "https://api.rmfg.com";
 const PROVIDER_KEY = "rmfg";
-const REQUEST_TIMEOUT_MS = 10_000;
+/**
+ * Kept under the quote runner's ten second budget for a whole step, which also
+ * covers the kill switch read (two seconds at most). A production export
+ * control recheck before analyze shares that budget too, so a slow one ends
+ * the step as a transport error rather than leaving a request behind.
+ */
+const REQUEST_TIMEOUT_MS = 7_000;
 
-export type RmfgBlockReason = "authorization_required" | "rate_limited";
+export type RmfgBlockReason = "authorization_required" | "rate_limited" | "account_action_required";
 
 export type RmfgHttpTransportOptions = {
   /** Resolved from Secret Manager by the caller; never read from a default or logged. */
@@ -27,7 +33,7 @@ export type RmfgHttpTransportOptions = {
 };
 
 export type RmfgHttpTransport = RmfgQuoteTransport & {
-  /** Set after any 401, 403 or 429; every later call is refused without a request. */
+  /** Set after any 401, 402, 403 or 429; every later call is refused without a request. */
   blockedReason(): RmfgBlockReason | null;
 };
 
@@ -38,6 +44,10 @@ export type RmfgHttpTransport = RmfgQuoteTransport & {
  */
 type ProviderState = { blocked: RmfgBlockReason | null };
 const providerState = new Map<string, ProviderState>();
+
+const BLOCKED_STATUS: Record<RmfgBlockReason, number> = {
+  authorization_required: 403, rate_limited: 429, account_action_required: 402,
+};
 
 function stateFor(provider: string): ProviderState {
   let state = providerState.get(provider);
@@ -103,6 +113,8 @@ function buildRequest(request: RmfgQuoteRequest, apiKey: string): { path: string
       return { path: `${request.path}${query}`, init: { method: "GET", headers } };
     }
     case "design":
+      // Polling skips the website review link, which RMFG would otherwise create.
+      return { path: `${request.path}?include_review_link=false`, init: { method: "GET", headers } };
     case "quote_status":
       return { path: request.path, init: { method: "GET", headers } };
   }
@@ -119,9 +131,9 @@ export function createRmfgHttpTransport(options: RmfgHttpTransportOptions): Rmfg
 
   const transport: RmfgHttpTransport = Object.assign(
     async (request: RmfgQuoteRequest) => {
-      if (state.blocked) return { status: state.blocked === "rate_limited" ? 429 : 403, body: null };
+      if (state.blocked) return { status: BLOCKED_STATUS[state.blocked], body: null };
       if (options.isBlocked && (await options.isBlocked())) return { status: 403, body: null };
-      if (state.blocked) return { status: state.blocked === "rate_limited" ? 429 : 403, body: null };
+      if (state.blocked) return { status: BLOCKED_STATUS[state.blocked], body: null };
       const { path, init } = buildRequest(request, apiKey);
       const url = new URL(path, `${origin}/`);
       if (!path.startsWith("/") || url.origin !== origin || !allowedPath(request, url.pathname)) {
@@ -131,9 +143,14 @@ export function createRmfgHttpTransport(options: RmfgHttpTransportOptions): Rmfg
         ...init, redirect: "error", signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       });
       if (response.status === 401 || response.status === 403) state.blocked = "authorization_required";
+      // A payment, plan or terms demand is never answered by this client.
+      if (response.status === 402) state.blocked = "account_action_required";
       if (response.status === 429) state.blocked = "rate_limited";
+      // A body that never finished arriving (a timeout mid read) is a transport error, not a page.
+      let text: string;
+      try { text = await response.text(); } catch { return { status: 0, body: null }; }
       let body: unknown = null;
-      try { body = await response.json(); } catch { body = null; }
+      try { body = JSON.parse(text); } catch { body = null; }
       return { status: response.status, body };
     },
     {

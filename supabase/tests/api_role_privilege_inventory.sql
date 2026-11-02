@@ -172,7 +172,6 @@ insert into api_priv_anon_truncate_debt (rel) values
   ('public.payments'),
   ('public.pricing_policies'),
   ('public.project_invites'),
-  ('public.project_jobs'),
   ('public.project_memberships'),
   ('public.projects'),
   ('public.published_quote_options'),

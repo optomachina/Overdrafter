@@ -1,5 +1,5 @@
 -- public.project_jobs is written only through the SECURITY DEFINER RPC path
--- (docs/migration-drafts/project-jobs-write-path.sql, defense in depth).
+-- (20261030204050_ovd1018_restrict_project_jobs_writes.sql).
 --
 -- Proves, acting as the API roles:
 --   (1) a direct INSERT, UPDATE, DELETE or TRUNCATE on project_jobs is denied
@@ -14,12 +14,13 @@
 --   (3) api_assign_job_to_project keeps a link inside the job's organization;
 --   and that the rollback restores the prior grants and policy exactly.
 --
--- The draft is not in supabase/migrations yet. fixtures/ holds byte copies of
--- the draft and its rollback, kept identical by
--- scripts/run-supabase-policy-tests.node-test.mjs. The draft is installed
--- inside this rolled back transaction only while authenticated still holds
--- INSERT. Once it is promoted the guard is false and every assertion runs
--- against the real schema. No assertion is skipped in either case.
+-- fixtures/ holds byte copies of the migration and its rollback
+-- (docs/migration-drafts/ovd-1018.rollback.sql), kept identical by
+-- scripts/run-supabase-policy-tests.node-test.mjs. The migration copy is
+-- installed inside this rolled back transaction only while authenticated still
+-- holds INSERT (a database behind the migration); once applied the guard is
+-- false and every assertion runs against the real schema. No assertion is
+-- skipped in either case.
 -- Synthetic records only; everything rolls back.
 begin;
 
@@ -307,8 +308,8 @@ select is((select count(*)::integer from public.project_jobs where job_id = :'jo
 
 -- ---------------------------------------------------------------- rollback round trip
 -- fixtures/project_jobs_write_path_rollback.inc is a byte copy of
--- docs/migration-drafts/project-jobs-write-path.rollback.sql. Each file is
--- applied twice to prove it replays.
+-- docs/migration-drafts/ovd-1018.rollback.sql. Each file is applied twice to
+-- prove it replays.
 \ir fixtures/project_jobs_write_path_rollback.inc
 \ir fixtures/project_jobs_write_path_rollback.inc
 select is(pg_temp.pjw_write_grants(array['anon', 'authenticated']),
@@ -322,9 +323,9 @@ select is(pg_temp.pjw_manage_policy(), :'pjw_prior_policy',
 \ir fixtures/project_jobs_write_path.inc
 \ir fixtures/project_jobs_write_path.inc
 select is(pg_temp.pjw_write_grants(array['public', 'anon', 'authenticated']), '{}'::text[],
-  'reapplying the draft after the rollback removes the write grants again');
+  'reapplying the migration after the rollback removes the write grants again');
 select is(pg_temp.pjw_policies(), array['project_jobs_select_accessible:r'],
-  'reapplying the draft after the rollback leaves only the SELECT policy');
+  'reapplying the migration after the rollback leaves only the SELECT policy');
 
 select * from finish();
 rollback;

@@ -538,6 +538,7 @@ const ClientPart = () => {
         onResetAllFields={handleResetAllFields}
         fieldDefaults={partFieldDefaults}
         singleQuantity={singleQuantity}
+        jobTags={partDetail.job.tags}
         statusContent={
           <>
             {revisionOptions.length > 1 ? (
@@ -684,6 +685,7 @@ const ClientPart = () => {
             : `Automatic ${LIVE_DISPATCH_PROVIDER_LABELS[dispatchProvider]} beta dispatch is not enabled for this organization.`
         }
         scopeDenialCode={automaticQuoteCollectionEnabled ? xometryDispatchScopeDenialCode : null}
+        organizationId={partDetail?.job.organization_id ?? null}
         onOpenSourcingSettings={() => {
           handleQuoteRequestFlowOpenChange(false);
           requestAccountSettingsPanel();

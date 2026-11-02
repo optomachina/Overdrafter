@@ -1,8 +1,10 @@
 -- OVD-978: client part metadata projection (warnings, missing fields, shape).
 --
 -- Targets the draft docs/migration-drafts/ovd-978.sql,
--- applied on top of 20261011170000_fix_no_drawing_lifecycle.sql and
--- 20261015074957_ovd736_revoke_anon_definer_execute.sql.
+-- applied on top of 20261011170000_fix_no_drawing_lifecycle.sql,
+-- 20261015074957_ovd736_revoke_anon_definer_execute.sql and
+-- 20261031052436_ovd746_client_rpc_auth_gate.sql (the body lives in private
+-- behind the public wrapper).
 -- PENDING: the draft is NOT applied (NEEDS BLAINE MIGRATION WINDOW). This file
 -- carries a .pending suffix so the policy-test runner stages it but never
 -- executes it. In the approved window, the draft is promoted and this file is
@@ -26,8 +28,9 @@
 -- projection must never return them.
 --
 -- Covers:
---   * pg_proc: SECURITY DEFINER, search_path=public, language sql, STABLE,
---     owner postgres; EXECUTE for authenticated and service_role, not anon/PUBLIC
+--   * pg_proc: the private body is SECURITY DEFINER, search_path=public,
+--     language sql, STABLE, owner postgres; the public wrapper grants EXECUTE
+--     to authenticated and service_role, not anon/PUBLIC
 --   * top-level shape (no clientExtraction key)
 --   * partial: lifecycle, warningCount from the column (the operator-only model
 --     diagnostic is not counted), missingFields computed from resolved values,
@@ -138,27 +141,27 @@ values
 -- Function attributes and privileges (unchanged from the replaced definition).
 -- ---------------------------------------------------------------------------
 select ok(
-  (select prosecdef from pg_proc where oid = 'public.api_list_client_part_metadata(uuid[])'::regprocedure),
+  (select prosecdef from pg_proc where oid = 'private.api_list_client_part_metadata(uuid[])'::regprocedure),
   'api_list_client_part_metadata stays SECURITY DEFINER'
 );
 select is(
-  (select proconfig from pg_proc where oid = 'public.api_list_client_part_metadata(uuid[])'::regprocedure),
+  (select proconfig from pg_proc where oid = 'private.api_list_client_part_metadata(uuid[])'::regprocedure),
   array['search_path=public']::text[],
   'search_path stays pinned to public'
 );
 select is(
   (select l.lanname::text from pg_proc p join pg_language l on l.oid = p.prolang
-   where p.oid = 'public.api_list_client_part_metadata(uuid[])'::regprocedure),
+   where p.oid = 'private.api_list_client_part_metadata(uuid[])'::regprocedure),
   'sql',
   'language stays sql'
 );
 select is(
-  (select provolatile::text from pg_proc where oid = 'public.api_list_client_part_metadata(uuid[])'::regprocedure),
+  (select provolatile::text from pg_proc where oid = 'private.api_list_client_part_metadata(uuid[])'::regprocedure),
   's',
   'volatility stays STABLE'
 );
 select is(
-  (select pg_get_userbyid(proowner)::text from pg_proc where oid = 'public.api_list_client_part_metadata(uuid[])'::regprocedure),
+  (select pg_get_userbyid(proowner)::text from pg_proc where oid = 'private.api_list_client_part_metadata(uuid[])'::regprocedure),
   'postgres',
   'owner stays postgres'
 );

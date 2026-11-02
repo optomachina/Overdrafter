@@ -37,8 +37,8 @@ runs:
         echo "$count .deb files, cache key ${KEY_PREFIX}${digest}"
 
     - name: Save apt package archives
-      if: ${{ steps.key.outputs.count != '0' && steps.key.outputs.key != inputs.matched-key }}
-      uses: actions/cache/save@v4
+      if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && steps.key.outputs.count != '0' && steps.key.outputs.key != inputs.matched-key }}
+      uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
       with:
         path: ~/.cache/ovd-apt-archives/*.deb
         key: ${{ steps.key.outputs.key }}

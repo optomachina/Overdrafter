@@ -23,6 +23,9 @@ readonly HAPROXY_CONFIG="$POLICY_DIR/ovd420-haproxy.cfg"
 readonly STATE_DIR='/run/ovd420-recovery-egress'
 readonly DIGEST_PATH="$STATE_DIR/policy.sha256"
 readonly EVIDENCE_PATH="$STATE_DIR/evidence.json"
+readonly LAUNCH_LOCK_PATH="$STATE_DIR/launch.lock"
+readonly ADDRESS_REFRESH_UNCHANGED='3'
+readonly ADDRESS_REFRESH_OUTCOME_PATH="$STATE_DIR/address-refresh.outcome"
 readonly INSTALL_PHASE_PATH='/run/ovd420-recovery-egress-install-phase'
 readonly RECOVERY_PHASE_DIR='/run/ovd410-recovery-phase'
 readonly RECOVERY_PHASE_PATH="$RECOVERY_PHASE_DIR/last-stage"
@@ -266,8 +269,9 @@ address_map_matches_pinned_contract() {
   local policy_path="${1:-$POLICY_PATH}" address_map_path="${2:-$ADDRESS_MAP_PATH}"
   local canonical_map status=0
   canonical_map="$(mktemp)" || return 1
-  # Resolution is install-time only. Readiness validates the exact pinned map
-  # and rendered gateway contract without depending on mutable upstream DNS.
+  # Readiness never resolves. Only install and the pre-launch refresh resolve
+  # upstream DNS; readiness validates the exact pinned map and rendered gateway
+  # contract without depending on mutable upstream DNS.
   if ! ( canonicalize_address_map "$address_map_path" "$policy_path" >"$canonical_map" ); then
     status=1
   fi
@@ -362,6 +366,144 @@ render_haproxy_config() {
   } >"$output_path"
 }
 
+haproxy_config_matches_address_map() {
+  local policy_path="$1" address_map_path="$2" haproxy_config="$3"
+  local expected status=0
+  expected="$(mktemp)" || return 1
+  if ! ( render_haproxy_config "$expected" "$policy_path" "$address_map_path" ) ||
+    ! cmp -s "$expected" "$haproxy_config"; then
+    status=1
+  fi
+  rm -f "$expected"
+  return "$status"
+}
+
+# Resolve the policy hostnames again into staging files. The fresh map must
+# pass the same CNAME, public-IPv4 and canonical-bytes checks as install.
+stage_address_map_refresh() {
+  local policy_path="$1" staged_map="$2" staged_config="$3"
+  local resolver_host="$4" resolver_port="$5" check_gateway_config="$6"
+  resolve_address_map "$policy_path" "$staged_map" "$resolver_host" "$resolver_port" ||
+    fail 'dns_resolution_unavailable'
+  address_map_matches_pinned_contract "$policy_path" "$staged_map" || fail 'address_refresh_map_invalid'
+  render_haproxy_config "$staged_config" "$policy_path" "$staged_map" || fail 'address_refresh_render_failed'
+  if [[ "$check_gateway_config" == '1' ]]; then
+    haproxy -c -f "$staged_config" >/dev/null 2>&1 || fail 'gateway_config_invalid'
+  fi
+}
+
+# Replace a consistent live address map and HAProxy config pair with freshly
+# resolved copies. Nothing live changes until every check passes; each file is
+# then swapped by rename. Returns ADDRESS_REFRESH_UNCHANGED when the fresh map
+# equals the live one. The running gateway keeps its old config until the
+# caller restarts it. If the map rename fails after the config rename, the
+# previous config is restored so the live pair stays the old consistent pair.
+# A pair torn by a hard crash between the two renames fails readiness and
+# refresh as rendered_config_drift; recover with `install`, which re-resolves
+# and rewrites both files.
+refresh_address_map_files() {
+  local policy_path="$1" address_map_path="$2" haproxy_config="$3"
+  local resolver_host="$4" resolver_port="$5" check_gateway_config="${6:-0}"
+  local directory staged_map='' staged_config='' previous_config=''
+  directory="$(dirname "$address_map_path")"
+  [[ "$(dirname "$haproxy_config")" == "$directory" ]] || fail 'address_refresh_layout_invalid'
+  address_map_matches_pinned_contract "$policy_path" "$address_map_path" || fail 'address_map_contract_invalid'
+  haproxy_config_matches_address_map "$policy_path" "$address_map_path" "$haproxy_config" ||
+    fail 'rendered_config_drift'
+  # A signal must not leave staged copies behind in the policy directory.
+  trap 'rm -f "$staged_map" "$staged_config" "$previous_config"; trap - INT TERM; exit 130' INT TERM
+  staged_map="$(mktemp "$directory/.ovd420-addresses.XXXXXX")" || fail 'address_refresh_staging_failed'
+  if ! staged_config="$(mktemp "$directory/.ovd420-haproxy.XXXXXX")"; then
+    rm -f "$staged_map"
+    fail 'address_refresh_staging_failed'
+  fi
+  if ! ( stage_address_map_refresh "$policy_path" "$staged_map" "$staged_config" \
+    "$resolver_host" "$resolver_port" "$check_gateway_config" ); then
+    rm -f "$staged_map" "$staged_config"
+    fail 'address_refresh_failed'
+  fi
+  if cmp -s "$staged_map" "$address_map_path"; then
+    rm -f "$staged_map" "$staged_config"
+    trap - INT TERM
+    return "$ADDRESS_REFRESH_UNCHANGED"
+  fi
+  if ! previous_config="$(mktemp "$directory/.ovd420-haproxy-previous.XXXXXX")" ||
+    ! cp -p -- "$haproxy_config" "$previous_config"; then
+    rm -f "$staged_map" "$staged_config" "$previous_config"
+    fail 'address_refresh_staging_failed'
+  fi
+  if ! chmod 0600 "$staged_map" || ! chmod 0644 "$staged_config" ||
+    ! mv -fT -- "$staged_config" "$haproxy_config"; then
+    rm -f "$staged_map" "$staged_config" "$previous_config"
+    fail 'address_refresh_commit_failed'
+  fi
+  if ! mv -fT -- "$staged_map" "$address_map_path"; then
+    rm -f "$staged_map"
+    # Put the old config back so the live pair matches the old map again.
+    if ! mv -fT -- "$previous_config" "$haproxy_config"; then
+      rm -f "$previous_config"
+      fail 'address_refresh_torn_pair'
+    fi
+    fail 'address_refresh_commit_failed'
+  fi
+  rm -f "$previous_config"
+  trap - INT TERM
+}
+
+# Re-pin upstream addresses through the controlled resolver right before a
+# browser launch, so the gateway never starts a session on addresses resolved
+# at host setup. The caller holds the launch lock and has verified the full
+# contract, so the network is empty and restarting the gateway drops nothing.
+refresh_pinned_address_map() {
+  local status=0 before after errors code
+  before="$(address_map_summary "$ADDRESS_MAP_PATH")"
+  errors="$( ( refresh_address_map_files "$POLICY_PATH" "$ADDRESS_MAP_PATH" "$HAPROXY_CONFIG" \
+    "$CONTROLLED_RESOLVER" "$CONTROLLED_RESOLVER_PORT" 1 ) 2>&1 >/dev/null )" || status="$?"
+  if [[ "$status" == "$ADDRESS_REFRESH_UNCHANGED" ]]; then
+    write_address_refresh_outcome unchanged "$before" "$before"
+    printf '%s\n' 'OVD-420 recovery egress upstream addresses refreshed: unchanged'
+    return 0
+  fi
+  if [[ "$status" -ne 0 ]]; then
+    code="$(sed -n 's/^OVD-420 recovery egress control failed: \([a-z_]*\)$/\1/p' <<<"$errors" | head -n 1)"
+    write_address_refresh_outcome "failed:${code:-unknown}" "$before" "$(address_map_summary "$ADDRESS_MAP_PATH")"
+    [[ -z "$errors" ]] || printf '%s\n' "$errors" >&2
+    fail 'address_refresh_failed'
+  fi
+  after="$(address_map_summary "$ADDRESS_MAP_PATH")"
+  if ! systemctl restart "$GATEWAY_SERVICE"; then
+    write_address_refresh_outcome failed:address_refresh_gateway_restart_failed "$before" "$after"
+    fail 'address_refresh_gateway_restart_failed'
+  fi
+  write_address_refresh_outcome replaced "$before" "$after"
+  printf '%s\n' 'OVD-420 recovery egress upstream addresses refreshed: replaced'
+}
+
+# One "hostname address,address" line per host. Only public hostnames and
+# addresses from the pinned map are written; nothing else is logged.
+address_map_summary() {
+  jq -r '.hosts[] | "\(.hostname) \(.addresses | join(","))"' "$1" 2>/dev/null || printf '%s\n' 'unreadable'
+}
+
+# Record the last refresh outcome with a before/after map diff (plan Q3) so a
+# collapsed launch failure code can still be diagnosed. Best effort: a write
+# failure never changes the launch result.
+write_address_refresh_outcome() {
+  local outcome="$1" before="$2" after="$3"
+  {
+    printf 'outcome=%s\n' "$outcome"
+    diff <(printf '%s\n' "$before") <(printf '%s\n' "$after") | sed -n 's/^\([<>]\) /\1 /p'
+  } >"$ADDRESS_REFRESH_OUTCOME_PATH" 2>/dev/null && chmod 0600 "$ADDRESS_REFRESH_OUTCOME_PATH" 2>/dev/null
+  return 0
+}
+
+acquire_launch_lock() {
+  require_commands flock
+  [[ -d "$STATE_DIR" && ! -L "$STATE_DIR" ]] || fail 'policy_not_installed'
+  exec 8>"$LAUNCH_LOCK_PATH" || fail 'launch_lock_unavailable'
+  flock -n 8 || fail 'launch_in_progress'
+}
+
 # Test-only seams exercise address resolution and config rendering without
 # weakening the production resolver or filesystem paths.
 resolve_test_address_map() {
@@ -387,6 +529,28 @@ render_test_config() {
   render_dnsmasq_config "$dns_output" "$temporary_policy"
   render_haproxy_config "$haproxy_output" "$temporary_policy" "$temporary_address_map"
   rm -f "$temporary_policy" "$temporary_address_map"
+}
+
+refresh_test_address_map() {
+  local source_policy="$1" address_map="$2" haproxy_config="$3" resolver_host="$4" resolver_port="$5"
+  local temporary_policy status=0
+  [[ "${OVD420_RECOVERY_EGRESS_TEST_RENDER:-}" == '1' ]] || fail 'test_render_not_enabled'
+  require_commands dig jq cmp
+  temporary_policy="$(mktemp)"
+  if ! ( canonicalize_policy "$source_policy" >"$temporary_policy" ); then
+    rm -f "$temporary_policy"
+    fail 'test_address_map_policy_invalid'
+  fi
+  ( refresh_address_map_files "$temporary_policy" "$address_map" "$haproxy_config" \
+    "$resolver_host" "$resolver_port" 0 ) || status="$?"
+  rm -f "$temporary_policy"
+  if [[ "$status" == "$ADDRESS_REFRESH_UNCHANGED" ]]; then
+    printf '%s\n' 'address-map=unchanged'
+  elif [[ "$status" -eq 0 ]]; then
+    printf '%s\n' 'address-map=replaced'
+  else
+    fail 'test_address_refresh_failed'
+  fi
 }
 
 verify_test_pinned_map() {
@@ -912,18 +1076,31 @@ launch_browser() {
   [[ "$credential_dir" == "$expected_dir" && -d "$credential_dir" && ! -L "$credential_dir" ]] || fail 'credential_directory_invalid'
   expected_digest="${OVD420_RECOVERY_EGRESS_POLICY_SHA256:-}"
   [[ -n "$expected_digest" ]] || fail 'expected_digest_missing'
+  acquire_launch_lock
   if prepare_recovery_phase_channel; then
     phase_enabled=1
     last_validated_phase='control-preverify'
   else
     [[ "$?" -eq 2 ]] || fail 'recovery_phase_preparation_failed'
   fi
+  # Refresh only from a verified, empty boundary, then verify the refreshed
+  # boundary before any browser exists.
   if [[ "$phase_enabled" -eq 1 ]]; then
     if ! ( verify_control "$expected_digest" >/dev/null 2>&1 ); then
       printf '%s\n' "recovery-phase=$last_validated_phase" >&2
       fail 'recovery_control_preverification_failed'
     fi
+    if ! ( refresh_pinned_address_map >/dev/null 2>&1 ); then
+      printf '%s\n' "recovery-phase=$last_validated_phase" >&2
+      fail 'recovery_address_refresh_failed'
+    fi
+    if ! ( verify_control "$expected_digest" >/dev/null 2>&1 ); then
+      printf '%s\n' "recovery-phase=$last_validated_phase" >&2
+      fail 'recovery_control_preverification_failed'
+    fi
   else
+    verify_control "$expected_digest" >/dev/null
+    refresh_pinned_address_map
     verify_control "$expected_digest"
   fi
   if [[ "$phase_enabled" -eq 1 ]]; then
@@ -1060,6 +1237,7 @@ usage() {
     '  ovd420-recovery-egress-control.sh validate <policy-json>' \
     '  OVD420_RECOVERY_EGRESS_TEST_RENDER=1 ovd420-recovery-egress-control.sh test-resolve <policy-json> <address-map> <resolver-host> <resolver-port>' \
     '  OVD420_RECOVERY_EGRESS_TEST_RENDER=1 ovd420-recovery-egress-control.sh test-render <policy-json> <address-map> <dns-config> <haproxy-config>' \
+    '  OVD420_RECOVERY_EGRESS_TEST_RENDER=1 ovd420-recovery-egress-control.sh test-refresh <policy-json> <address-map> <haproxy-config> <resolver-host> <resolver-port>' \
     '  OVD420_RECOVERY_EGRESS_TEST_RENDER=1 ovd420-recovery-egress-control.sh test-pinned-map <policy-json> <address-map>' \
     '  ovd420-recovery-egress-control.sh verify [expected-policy-sha256]' \
     '  ovd420-recovery-egress-control.sh launch <classifier-only|full-recovery> <immutable-worker-image> <credential-dir>' \
@@ -1068,7 +1246,7 @@ usage() {
 
 main() {
   local action="${1:-}" argument_one="${2:-}" argument_two="${3:-}"
-  local argument_three="${4:-}" argument_four="${5:-}"
+  local argument_three="${4:-}" argument_four="${5:-}" argument_five="${6:-}"
   case "$action" in
     install)
       [[ "$#" -eq 2 ]] || fail 'install_arguments_invalid'
@@ -1085,6 +1263,10 @@ main() {
     test-render)
       [[ "$#" -eq 5 ]] || fail 'test_render_arguments_invalid'
       render_test_config "$argument_one" "$argument_two" "$argument_three" "$argument_four"
+      ;;
+    test-refresh)
+      [[ "$#" -eq 6 ]] || fail 'test_refresh_arguments_invalid'
+      refresh_test_address_map "$argument_one" "$argument_two" "$argument_three" "$argument_four" "$argument_five"
       ;;
     test-pinned-map)
       [[ "$#" -eq 3 ]] || fail 'test_pinned_map_arguments_invalid'

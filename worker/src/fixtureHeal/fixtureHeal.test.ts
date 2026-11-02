@@ -146,7 +146,7 @@ function pipeline(options: {
   });
   const persist = vi.fn(async (_output: VendorQuoteAdapterOutput) => {
     calls.push("persist");
-    return { artifactCount: 0 };
+    return { artifactCount: 0, acceptance: { outcome: "accepted" as const } };
   });
   const deps: ProviderTaskPipelineDeps = {
     readLane: async () => ({
@@ -371,7 +371,7 @@ describe("OVD-813 fixture sanity gate", () => {
 
     const outcome = await runProviderTaskPipeline(pipelineInput(), run.deps);
 
-    expect(outcome.persisted).toEqual({ status: "manual_review_pending", offerCount: 0, artifactCount: 0, held: true });
+    expect(outcome.persisted).toEqual({ status: "manual_review_pending", offerCount: 0, artifactCount: 0, acceptance: { outcome: "accepted" }, held: true });
     const persisted = run.persist.mock.calls[0][0];
     // Nothing a customer could be shown: no prices, no offer rows, a pending note.
     expect(persisted).toMatchObject({ status: "manual_review_pending", unitPriceUsd: null, totalPriceUsd: null, offers: [] });

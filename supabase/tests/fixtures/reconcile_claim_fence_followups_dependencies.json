@@ -1,0 +1,18 @@
+{
+  "migration": "20261101110559_reconcile_claim_fence_followups",
+  "functions": [
+    "public.drain_quote_run_rollup_followups(integer)",
+    "public.accept_vendor_quote_result(uuid,text,timestamptz,integer,uuid,jsonb,jsonb,jsonb)",
+    "private.aggregate_quote_run_status(public.vendor_status[])"
+  ],
+  "relations": [
+    "private.vendor_quote_acceptance_receipts",
+    "private.quote_run_rollup_followups",
+    "public.quote_runs",
+    "public.jobs"
+  ],
+  "createdByMigration": [
+    "private.reject_quote_run_job_reassignment()",
+    "quote_runs_job_id_immutable"
+  ]
+}

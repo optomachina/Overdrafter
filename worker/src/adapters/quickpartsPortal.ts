@@ -12,7 +12,7 @@ import { extractUsdOfferCards, type UsdOfferCardLocators } from "./usdOfferCards
 
 export const QUICKPARTS_ADAPTER_REVISION = "quickparts-offline-adapter.v2";
 export const QUICKPARTS_PRODUCTION_ADAPTER_REVISION = "quickparts-production-adapter.v1";
-export const QUICKPARTS_ALLOWED_HOSTS = ["quickparts.com", "quickquote.quickparts.com"] as const;
+export const QUICKPARTS_ALLOWED_HOSTS = ["quickparts.com", "quickquote.quickparts.com", "services.qpinternal.com"] as const;
 const HOSTS = QUICKPARTS_ALLOWED_HOSTS;
 
 const SYNTHETIC_LOCATORS: UsdOfferCardLocators = {

@@ -42,6 +42,9 @@ function fixture() {
     copyFileSync(join(root, file), join(dir, file));
   }
   symlinkSync(join(root, 'node_modules'), join(dir, 'node_modules'));
+  // preflight.sh stops before its test stage unless the worker install matches the worker lockfile.
+  mkdirSync(join(dir, 'worker/node_modules'), { recursive: true });
+  for (const file of ['worker/package-lock.json', 'worker/node_modules/.package-lock.json']) writeFileSync(join(dir, file), '{"packages":{}}');
   writeFileSync(join(dir, 'bin/npm'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
   const git = (...args) => execFileSync('git', args, { cwd: dir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
   git('init', '-q'); git('config', 'user.email', 'fixture@example.invalid'); git('config', 'user.name', 'Fixture');

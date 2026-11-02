@@ -379,7 +379,7 @@ insert into ovd736_authenticated_allowlist (sig, reason) values
   ('public.user_can_access_package(uuid)', 'RLS helper: called by authenticated policies on public.client_selections, public.published_quote_options, public.published_quote_packages'),
   ('public.user_can_access_project(uuid)', 'RLS helper: called by authenticated policies on public.project_jobs, public.project_memberships, public.project_vendor_preferences and 3 more'),
   ('public.user_can_edit_job(uuid)', 'RLS helper: called by authenticated policies on storage.objects'),
-  ('public.user_can_edit_project(uuid)', 'RLS helper: called by authenticated policies on public.project_jobs'),
+  ('public.user_can_edit_project(uuid)', 'SECURITY DEFINER helper: called inside user_can_edit_job, user_can_destructively_edit_job and the project RPCs; no policy calls it since OVD-1018 dropped project_jobs_manage_editors'),
   ('public.user_is_project_owner(uuid)', 'RLS helper: called by authenticated policies on public.project_invites');
 
 select is_empty($$ select sig from pg_temp.ovd736_definers() where pub or anon order by sig $$,

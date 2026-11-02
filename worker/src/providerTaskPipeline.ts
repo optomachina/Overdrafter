@@ -1,3 +1,4 @@
+import type { VendorQuoteAcceptance } from "./vendorQuoteOfferPersistence.js";
 import { createHash } from "node:crypto";
 import { PROVIDER_CATALOG } from "./generated/provider-catalog.js";
 import {
@@ -72,7 +73,7 @@ import { isRetryableVendorTaskError, nextRetryAt } from "./vendorTaskRetry.js";
  *   5. invoke only the admitted adapter through the OVD-461 seam
  *   6. validate the complete normalized result (OVD-463), then the fixture
  *      sanity gate (OVD-813, `deps.sanity`), which may hold the result
- *   7. persist atomically (one `reconcile_vendor_quote_offers` call)
+ *   7. persist atomically (one claim-fenced acceptance call)
  *   8. release the lease
  *
  * Every denial returns an outcome with zero adapter calls. There is no
@@ -300,7 +301,7 @@ export type ProviderTaskOutcome = {
    * Set only when persisted. `held` means the OVD-813 sanity gate withheld the
    * prices and offers: the caller must not compute routing scores from it.
    */
-  persisted: { status: VendorQuoteAdapterOutput["status"]; offerCount: number; artifactCount: number; held?: boolean } | null;
+  persisted: { status: VendorQuoteAdapterOutput["status"]; offerCount: number; artifactCount: number; acceptance: VendorQuoteAcceptance; held?: boolean } | null;
   /**
    * Failure evidence for the worker to keep and clean up: the adapter's own
    * error (for repair candidates) and the artifacts of a failed or refused
@@ -355,7 +356,7 @@ export type ProviderTaskPipelineDeps = {
   /** The registered adapter for exactly `claim.provider`, or null. */
   adapter: { provider: VendorName; quote(input: VendorQuoteAdapterInput): Promise<VendorQuoteAdapterOutput> } | null;
   /** One atomic write of the validated result and its complete offer set. */
-  persist(output: VendorQuoteAdapterOutput): Promise<{ artifactCount: number }>;
+  persist(output: VendorQuoteAdapterOutput, metadata: { offerCount: number }): Promise<{ artifactCount: number; acceptance: VendorQuoteAcceptance }>;
   lease?: ProviderTaskLeasePort | null;
   daySwitch: ProviderDaySwitch;
   /** Replay record for the seam, keyed by permit and fingerprint, so one permit dispatches at most once per process. */
@@ -527,6 +528,7 @@ function isStop(value: unknown): value is Stop {
 
 type Persisted = {
   persisted: true;
+  acceptance: VendorQuoteAcceptance;
   status: VendorQuoteAdapterOutput["status"];
   offerCount: number;
   artifactCount: number;
@@ -818,7 +820,7 @@ function toOutcome(result: Stop | Persisted, state: RunState, attempts: number, 
       retryAt: null,
       rejection: null,
       killSwitch: null,
-      persisted: { status: result.status, offerCount: result.offerCount, artifactCount: result.artifactCount, held: result.held },
+      persisted: { status: result.status, offerCount: result.offerCount, artifactCount: result.artifactCount, acceptance: result.acceptance, held: result.held },
     };
   }
   if (result.killSwitch) {
@@ -1007,9 +1009,10 @@ async function executeValidateAndPersist(
     return stop("failed", "lease_lost", "persist");
   }
   try {
-    const persisted = await deps.persist(gated.output);
+    const persisted = await deps.persist(gated.output, { offerCount: gated.held ? 0 : validation.value.offers.length });
     return {
       persisted: true,
+      acceptance: persisted.acceptance,
       status: gated.output.status,
       offerCount: gated.held ? 0 : validation.value.offers.length,
       artifactCount: persisted?.artifactCount ?? 0,

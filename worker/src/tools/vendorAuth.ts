@@ -5,22 +5,127 @@ import path from "node:path";
 import process from "node:process";
 import readline from "node:readline/promises";
 import { fileURLToPath } from "node:url";
-import { chromium } from "playwright";
+import { chromium, type BrowserContext, type Page } from "playwright";
 import { EXTENDED_VENDOR_WORKFLOWS, getExtendedVendorWorkflow } from "../adapters/extendedVendorWorkflows.js";
+import { GEOMIQ_ALLOWED_HOSTS } from "../adapters/geomiqProductionPortal.js";
+import { OSHCUT_ALLOWED_HOSTS } from "../adapters/oshcutProductionPortal.js";
+import { buildPortalWorkflowDefinition, type PortalQuoteWorkflow } from "../adapters/portalWorkflow.js";
+import { isAllowedProviderUrl, type CapturedSessionStorageOrigin } from "../adapters/providerPortalKernel.js";
+import { QUICKPARTS_ALLOWED_HOSTS, QUICKPARTS_PRODUCTION_SELECTORS } from "../adapters/quickpartsPortal.js";
+import { WEERG_ALLOWED_HOSTS } from "../adapters/weergPortal.js";
 import type { LiveAutomationVendorName } from "../types.js";
 import { writePrivateStorageState } from "./privateStorageState.js";
 import { enabledPortalVendors } from "./enabledPortalVendors.js";
+import { SENDCUTSEND_SESSION_BOOTSTRAP } from "./sendcutsendAuth.js";
 
 type AuthArgs = {
   vendors: LiveAutomationVendorName[];
   explicitOutputPath: string | null;
 };
 
+type StorageState = Awaited<ReturnType<BrowserContext["storageState"]>>;
+
+/** Exact hosts of each reviewed production portal definition. */
+const REVIEWED_SESSION_HOSTS: Partial<Record<LiveAutomationVendorName, readonly string[]>> = {
+  quickparts: QUICKPARTS_ALLOWED_HOSTS,
+  geomiq: GEOMIQ_ALLOWED_HOSTS,
+  weerg: WEERG_ALLOWED_HOSTS,
+  oshcut: OSHCUT_ALLOWED_HOSTS,
+};
+
+/** The hosts a saved session may keep; portals without a reviewed definition use their workflow's own hosts. */
+export function sessionHostsFor(workflow: PortalQuoteWorkflow): readonly string[] {
+  return REVIEWED_SESSION_HOSTS[workflow.vendor] ?? buildPortalWorkflowDefinition(workflow).allowedHosts;
+}
+
+/**
+ * Keeps only cookies and origins on the provider's exact hosts (OVD-1059).
+ * A login page also sets third-party analytics and CAPTCHA state, and the
+ * portal kernel refuses any session that holds it, so an unscoped capture
+ * could never be used.
+ */
+export function scopeStorageStateToHosts(state: StorageState, allowedHosts: readonly string[]): StorageState {
+  const allowed = new Set(allowedHosts.map((host) => host.toLowerCase()));
+  return {
+    ...state,
+    cookies: state.cookies.filter((cookie) => allowed.has(cookie.domain.trim().toLowerCase().replace(/^\./, ""))),
+    origins: state.origins.filter((entry) => isAllowedProviderUrl(entry.origin, allowedHosts)
+      && new URL(entry.origin).origin === entry.origin),
+  };
+}
+
+/** What proves a portal session is logged in and quote-ready before it is saved (OVD-1059). */
+export type LoggedInSignal = {
+  /** A control only the authenticated quoting surface renders. */
+  uploadSelector: string;
+  /** sessionStorage keys the portal's own login writes; Quickparts keeps its bearer token there. */
+  sessionStorageKeys: readonly string[];
+};
+
+export const LOGGED_IN_SIGNALS: Partial<Record<LiveAutomationVendorName, LoggedInSignal>> = {
+  quickparts: { uploadSelector: QUICKPARTS_PRODUCTION_SELECTORS.cadUpload, sessionStorageKeys: ["userToken"] },
+};
+
+type PageLike = Pick<Page, "url" | "evaluate">;
+
+/** Reads sessionStorage from every open page on an allowed exact origin. Values are never logged. */
+export async function captureSessionStorage(
+  pages: readonly PageLike[],
+  allowedHosts: readonly string[],
+): Promise<CapturedSessionStorageOrigin[]> {
+  const allowedPages: { origin: string; page: PageLike }[] = [];
+  for (const page of pages) {
+    let origin: string;
+    try {
+      origin = new URL(page.url()).origin;
+    } catch {
+      continue;
+    }
+    if (isAllowedProviderUrl(origin, allowedHosts)) allowedPages.push({ origin, page });
+  }
+  const captures = await Promise.all(allowedPages.map(async ({ origin, page }) => {
+    const entries = await page.evaluate(() => {
+      const items: { name: string; value: string }[] = [];
+      for (let index = 0; index < globalThis.sessionStorage.length; index += 1) {
+        const name = globalThis.sessionStorage.key(index);
+        if (name !== null) items.push({ name, value: globalThis.sessionStorage.getItem(name) ?? "" });
+      }
+      return items;
+    }).catch(() => [] as { name: string; value: string }[]);
+    return { origin, sessionStorage: entries };
+  }));
+  const byOrigin = new Map<string, CapturedSessionStorageOrigin>();
+  for (const capture of captures) {
+    if (capture.sessionStorage.length > 0 && !byOrigin.has(capture.origin)) byOrigin.set(capture.origin, capture);
+  }
+  return [...byOrigin.values()];
+}
+
+/** Throws, naming only what is missing, unless the capture carries the portal's logged-in signal. */
+export function assertLoggedInCapture(
+  vendor: string,
+  signal: LoggedInSignal,
+  uploadControlPresent: boolean,
+  captured: readonly CapturedSessionStorageOrigin[],
+): void {
+  const keys = new Set(captured.flatMap((entry) => entry.sessionStorage
+    .filter((item) => item.value.length > 0).map((item) => item.name)));
+  const missingKeys = signal.sessionStorageKeys.filter((key) => !keys.has(key));
+  const problems = [
+    ...(uploadControlPresent ? [] : [`upload control "${signal.uploadSelector}" not found on the current page`]),
+    ...(missingKeys.length === 0 ? [] : [`sessionStorage key(s) missing: ${missingKeys.join(", ")}`]),
+  ];
+  if (problems.length > 0) {
+    throw new Error(`Refusing to save the ${vendor} session: it is not logged in and quote-ready (${problems.join("; ")}). `
+      + "Finish signing in, open the quote upload page, then rerun.");
+  }
+}
+
 function usage() {
   return [
     "Usage: npm --prefix worker run auth:vendor -- <vendor|all|vendor1,vendor2> [output-path]",
     "",
-    "Vendors: oshcut, fabworks, ponoko, quickparts, rapiddirect, geomiq, weerg, protolabsnetwork",
+    "Vendors: oshcut, fabworks, ponoko, quickparts, rapiddirect, geomiq, weerg, protolabsnetwork, sendcutsend",
     "",
     "The script opens the vendor login/signup page and saves Playwright storage state after you finish manually.",
   ].join("\n");
@@ -42,6 +147,11 @@ function parseVendors(rawVendor: string | undefined): LiveAutomationVendorName[]
 
   const supportedVendors: LiveAutomationVendorName[] = [];
   for (const vendor of requestedVendors) {
+    // OVD-1056: SendCutSend is not a generic portal workflow; it has its own session bootstrap.
+    if (vendor === "sendcutsend") {
+      supportedVendors.push("sendcutsend");
+      continue;
+    }
     const workflow = getExtendedVendorWorkflow(vendor);
     if (!workflow) {
       return null;
@@ -87,9 +197,33 @@ async function ensureParentDir(filePath: string) {
   await fs.mkdir(path.dirname(filePath), { recursive: true });
 }
 
+/**
+ * OVD-1056: exact-host, signed-in-only SendCutSend save; no production next step to print.
+ * A refused save keeps the browser open so the operator can finish signing in and retry.
+ */
+async function saveSendCutSendSession(
+  bootstrap: typeof SENDCUTSEND_SESSION_BOOTSTRAP,
+  session: Parameters<typeof SENDCUTSEND_SESSION_BOOTSTRAP.save>[0],
+  outputPath: string,
+  rl: readline.Interface,
+): Promise<void> {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      // Sequential by design: each retry waits for the operator to finish signing in.
+      await bootstrap.save(session, outputPath);
+      return;
+    } catch (error) {
+      if (attempt >= 3) throw error;
+      console.log(error instanceof Error ? error.message : String(error));
+      await rl.question("Finish signing in in the browser, then press Enter to check again...");
+    }
+  }
+}
+
 export async function bootstrapVendor(vendor: LiveAutomationVendorName, explicitOutputPath: string | null) {
   if (vendor === "oshcut") refuseOshcutPortalAutomation();
-  const workflow = getExtendedVendorWorkflow(vendor);
+  const sendCutSend = vendor === "sendcutsend" ? SENDCUTSEND_SESSION_BOOTSTRAP : null;
+  const workflow = sendCutSend ?? getExtendedVendorWorkflow(vendor);
   if (!workflow) {
     throw new Error(`Unsupported vendor "${vendor}".\n\n${usage()}`);
   }
@@ -107,10 +241,12 @@ export async function bootstrapVendor(vendor: LiveAutomationVendorName, explicit
     console.log(`Storage state output: ${outputPath}`);
     console.log("");
     console.log("What to do:");
-    console.log("1. A Chromium window will open.");
-    console.log(`2. Create or log in to the ${workflow.displayName} account manually.`);
-    console.log("3. Open the quoting/upload surface and confirm it is authenticated.");
-    console.log("4. Return here and press Enter.");
+    for (const line of sendCutSend?.instructions ?? [
+      "1. A Chromium window will open.",
+      `2. Create or log in to the ${workflow.displayName} account manually.`,
+      "3. Open the quoting/upload surface and confirm it is authenticated.",
+      "4. Return here and press Enter.",
+    ]) console.log(line);
     console.log("");
     console.log("Do not paste shared passwords into source files or .env files.");
     console.log("");
@@ -123,10 +259,28 @@ export async function bootstrapVendor(vendor: LiveAutomationVendorName, explicit
     await page.goto(workflow.loginUrl, { waitUntil: "domcontentloaded" });
     await rl.question("Press Enter after the session is authenticated and quote-ready...");
 
-    await writePrivateStorageState(context, outputPath);
+    if ("save" in workflow) {
+      await saveSendCutSendSession(workflow, { browser, context, page }, outputPath, rl);
+      return;
+    }
+    const sessionHosts = sessionHostsFor(workflow);
+    const sessionStorage = await captureSessionStorage(context.pages(), sessionHosts);
+    const signal = LOGGED_IN_SIGNALS[workflow.vendor];
+    if (signal) {
+      const uploadControlPresent = await page.locator(signal.uploadSelector).first()
+        .waitFor({ state: "attached", timeout: 20_000 }).then(() => true, () => false);
+      assertLoggedInCapture(workflow.displayName, signal, uploadControlPresent, sessionStorage);
+    }
+    await writePrivateStorageState({
+      storageState: async () => ({
+        ...scopeStorageStateToHosts(await context.storageState(), sessionHosts),
+        ...(sessionStorage.length > 0 ? { sessionStorage } : {}),
+      }),
+    }, outputPath);
 
     console.log("");
     console.log(`Saved ${workflow.displayName} storage state to: ${outputPath}`);
+    console.log(`Kept only cookies, local storage and session storage for: ${sessionHosts.join(", ")}`);
     console.log(`Last page URL: ${page.url()}`);
     console.log("");
     console.log("Next step:");

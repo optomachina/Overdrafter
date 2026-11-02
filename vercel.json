@@ -43,6 +43,18 @@
       "destination": "/api/health"
     },
     {
+      "source": "/api/jarvis/session",
+      "destination": "/api/jarvis/gate"
+    },
+    {
+      "source": "/api/jarvis",
+      "destination": "/api/jarvis/miss"
+    },
+    {
+      "source": "/api/jarvis/:path*",
+      "destination": "/api/jarvis/miss"
+    },
+    {
       "source": "/(.*)",
       "destination": "/index.html"
     }

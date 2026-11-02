@@ -15,6 +15,7 @@ on:
       - 'docs/migration-drafts/ovd-831-*'
       - 'supabase/tests/pending/ovd831*'
       - '.github/workflows/ovd831-pending-pgtap.yml'
+      - '.github/actions/supabase-image-cache/**'
   workflow_dispatch:
 
 concurrency:
@@ -33,7 +34,7 @@ jobs:
       DB_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
           persist-credentials: false
 
@@ -41,6 +42,16 @@ jobs:
         uses: supabase/setup-cli@b60b5899c73b63a2d2d651b1e90db8d4c9392f51 # v1.6.0
         with:
           version: 2.78.1
+
+      - name: Cache Supabase images
+        uses: ./.github/actions/supabase-image-cache
+        with:
+          group: db
+
+      - name: Cache pgTAP client images
+        uses: ./.github/actions/supabase-image-cache
+        with:
+          group: tools
 
       - name: Start local database and apply supabase/migrations
         run: supabase db start
@@ -59,30 +70,39 @@ jobs:
           printf 'rollback: %s\n' "${rollbacks[@]}"
           printf 'test: %s\n' "${tests[@]}"
           [ "${#drafts[@]}" -gt 0 ] && [ "${#rollbacks[@]}" -gt 0 ] && [ "${#tests[@]}" -gt 0 ] || { echo "::error::no drafts, rollbacks or pending tests selected"; exit 1; }
-          echo "drafts=${drafts[*]}" >> "$GITHUB_OUTPUT"
-          echo "rollbacks=${rollbacks[*]}" >> "$GITHUB_OUTPUT"
-          echo "tests=${tests[*]}" >> "$GITHUB_OUTPUT"
+          {
+            echo "drafts=${drafts[*]}"
+            echo "rollbacks=${rollbacks[*]}"
+            echo "tests=${tests[*]}"
+          } >> "$GITHUB_OUTPUT"
 
       - name: DM-1R rollback returns the exact pre-draft schema
+        env:
+          DRAFTS: ${{ steps.select.outputs.drafts }}
+          ROLLBACKS: ${{ steps.select.outputs.rollbacks }}
         run: |
           dump() {
+            local out_file="$1"
             docker run --rm --network host -v "$PWD:/w" -w /w postgres:17 \
-              pg_dump "$DB_URL" --schema-only --no-owner --restrict-key=ovd831 -f "$1"
+              pg_dump "$DB_URL" --schema-only --no-owner --restrict-key=ovd831 -f "$out_file"
           }
           run_sql() {
+            local sql_file="$1"
             docker run --rm --network host -v "$PWD:/w" -w /w postgres:17 \
-              psql "$DB_URL" -v ON_ERROR_STOP=1 -X -q --single-transaction -f "$1"
+              psql "$DB_URL" -v ON_ERROR_STOP=1 -X -q --single-transaction -f "$sql_file"
           }
           dump pre-draft.sql
-          for f in ${{ steps.select.outputs.drafts }}; do run_sql "$f"; done
-          for f in ${{ steps.select.outputs.rollbacks }}; do run_sql "$f"; done
+          for f in $DRAFTS; do run_sql "$f"; done
+          for f in $ROLLBACKS; do run_sql "$f"; done
           dump post-rollback.sql
           diff -u pre-draft.sql post-rollback.sql
           echo "DM-1R: pg_dump --schema-only diff is empty ($(wc -l < pre-draft.sql) lines)"
 
       - name: Apply drafts to the ephemeral database
+        env:
+          DRAFTS: ${{ steps.select.outputs.drafts }}
         run: |
-          for f in ${{ steps.select.outputs.drafts }}; do
+          for f in $DRAFTS; do
             echo "::group::apply $f"
             docker run --rm --network host -v "$PWD:/w" -w /w postgres:17 \
               psql "$DB_URL" -v ON_ERROR_STOP=1 -X -q -f "$f"
@@ -90,9 +110,11 @@ jobs:
           done
 
       - name: Run pending pgTAP against the drafts
+        env:
+          TESTS: ${{ steps.select.outputs.tests }}
         run: |
           stage="$(mktemp -d)"
-          for f in ${{ steps.select.outputs.tests }}; do
+          for f in $TESTS; do
             cp "$f" "$stage/$(basename "${f%.pending}")"
           done
           ls -l "$stage"
@@ -101,9 +123,11 @@ jobs:
           ! grep -Eq '^not ok|# (SKIP|TODO)' pgtap.txt
 
       - name: Apply rollbacks (they must replay cleanly)
+        env:
+          ROLLBACKS: ${{ steps.select.outputs.rollbacks }}
         run: |
           for pass in 1 2; do
-            for f in ${{ steps.select.outputs.rollbacks }}; do
+            for f in $ROLLBACKS; do
               echo "::group::rollback pass $pass $f"
               docker run --rm --network host -v "$PWD:/w" -w /w postgres:17 \
                 psql "$DB_URL" -v ON_ERROR_STOP=1 -X -q -f "$f"

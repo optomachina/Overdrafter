@@ -1,0 +1,57 @@
+{
+  "schemaVersion": 1,
+  "template": true,
+  "issue": "OVD-635",
+  "repository": "optomachina/Overdrafter",
+  "projectRef": "ozuatdcakezjtevztjlr",
+  "deployCommit": "<merged-deploy-sha>",
+  "sourceCommit": "826d17d2e219b4e7e770ebf6732bf24203d2d5db",
+  "supabaseCliVersion": "2.78.1",
+  "suffixManifest": {
+    "path": "docs/release/ovd-635-next-window-suffix-manifest.json",
+    "sha256": "4e6cc39a88505e1457723b175720f9bf9c2ddf2c3a3bba3052efe0877b245e3e"
+  },
+  "preCheck": {
+    "path": "docs/release/ovd-635-ledger-161-pre-check.sql",
+    "command": "psql \"$PROD_DB_URL\" -X -f docs/release/ovd-635-ledger-161-pre-check.sql",
+    "expect": { "count": 161, "head": "20261029165751", "versionListMd5": "60d3fdc3744e859521ba64ce62bcf980", "missing": [], "extra": [] },
+    "statementFingerprint": "<record-from-owner-reading-not-asserted>"
+  },
+  "productionLedger": {
+    "states": [
+      { "name": "baseline", "packagePrefixLength": 0, "count": 161, "head": "20261029165751", "versionListMd5": "60d3fdc3744e859521ba64ce62bcf980" },
+      { "name": "final", "packagePrefixLength": 1, "count": 162, "head": "20261030204050", "versionListMd5": "389d5a142bc581131035eec1754b5a2e" }
+    ]
+  },
+  "migrations": [
+    { "version": "20261030204050", "filename": "20261030204050_ovd1018_restrict_project_jobs_writes.sql", "sha256": "18bea12e4b6719143d46d219a0569e9fced25ebe4cc3df178051c3a67654e4f6", "rollback": "docs/migration-drafts/ovd-1018.rollback.sql" }
+  ],
+  "containment": {
+    "stagingReconciled": "<staging pre-check output: count, head, md5 equal to the final state plus any staging-only rows named in ovd-635-ledger-161.md>",
+    "workerCompatible": "<deployed web and edge revision that writes public.project_jobs only through the SECURITY DEFINER RPCs (OVD-1018 revokes direct anon/authenticated writes)>",
+    "deployCommitExact": "node scripts/verify-ovd635-ledger-manifest.mjs --exact passes at deployCommit (supabase/migrations holds exactly the 161 baseline plus the suffix, so migration up applies only the suffix)",
+    "noIncludeAll": true,
+    "stopOn": ["missing is not empty", "extra is not a prefix of the suffix", "--exact fails at deployCommit", "any statement error"]
+  },
+  "commands": {
+    "repoCheck": "git checkout <merged-deploy-sha> && node scripts/verify-ovd635-ledger-manifest.mjs --exact",
+    "preaudit": "psql \"$PROD_DB_URL\" -X -f docs/release/ovd-635-ledger-161-pre-check.sql",
+    "apply": "supabase migration up --db-url \"$PROD_DB_URL\"",
+    "postaudit": "psql \"$PROD_DB_URL\" -X -f docs/release/ovd-635-ledger-161-pre-check.sql"
+  },
+  "readback": {
+    "count": 162,
+    "head": "20261030204050",
+    "versionListMd5": "389d5a142bc581131035eec1754b5a2e",
+    "missing": [],
+    "extra": ["20261030204050"]
+  },
+  "recovery": { "baseline": "apply", "final": "postaudit", "other": "incident-review" },
+  "evidenceBoundary": {
+    "customerRows": "private-backup-only",
+    "customerIdentifiers": "private-backup-only",
+    "secrets": "private-only",
+    "aggregateCounts": "private-only"
+  },
+  "singleUse": true
+}

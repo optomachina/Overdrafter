@@ -56,7 +56,8 @@ function database() {
         patch = null;
         return { data: matched ? [{ id: queueRow.id }] : [], error: null };
       }
-      if (mutation) return { data: null, error: table === "vendor_quote_results" && failResultUpdates ? { message: "db down" } : null };
+      if (mutation) return { data: table === "vendor_quote_results" && !failResultUpdates ? [{ id: "result" }] : null,
+        error: table === "vendor_quote_results" && failResultUpdates ? { message: "db down" } : null };
       const data = table === "parts" ? part : table === "job_files" ? [cad]
         : table === "approved_part_requirements" ? requirement
           : table === "vendor_quote_results" ? (columns === "status" ? [{ status: "failed" }] : { id: "result", requested_quantity: 2 })

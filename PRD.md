@@ -43,11 +43,15 @@ non-ITAR CNC-milled aluminum 6061-T6 package envelope in
 `docs/1-0-beta-runbook.md`, review the requirements, request a quote, and reach
 a truthful decision state with a safe vendor handoff.
 
-**1.0 provider portfolio:** Xometry, Fictiv, Quickparts, Weerg, Geomiq, RMFG,
-and OSH Cut. The CNC-milled 6061-T6 package is the first validation milestone;
-only providers certified for that exact envelope may quote it. RMFG and OSH Cut
-also require their own evidence-backed process envelopes and truthful results
-for eligible packages before the seven-provider 1.0 portfolio is complete.
+**1.0 provider portfolio:** the 1.0 launch set (Blaine, October 20, 2026) is
+four automatic quote providers, each independently admitted and
+production-certified for its own envelope: Xometry, Fictiv and Quickparts for
+the CNC validation package and RMFG for the sheet-metal validation package.
+Weerg, Geomiq and OSH Cut are 1.1. The CNC-milled 6061-T6 package is the first
+validation milestone; only providers certified for that exact envelope may
+quote it. RMFG also requires its own evidence-backed process envelope and
+truthful results for eligible packages before the four-provider 1.0 launch set
+is complete; it is never counted as a CNC quote.
 Every automatic route requires independent admission and production
 certification under the common controlled-dispatch contract. An existing
 account, source connector, or standalone evaluation is not live-quote evidence
@@ -61,11 +65,11 @@ activate self-service billing and does not settle the eventual Free-versus-paid
 packaging decision. It also does not open vendor automation to every signed-in
 organization without a reviewed authorization and spend boundary.
 
-**Completion:** all seven named providers have integrated, qualified routes for
-their applicable processes. The initial CNC comparison proves Xometry and at
-least four additional eligible providers from the named 1.0 portfolio with
-current live offers for the same disclosed package; an inapplicable fabrication
-provider is never counted as a CNC quote.
+**Completion:** all four named providers have integrated, qualified routes for
+their applicable processes. The initial CNC comparison proves Xometry, Fictiv
+and Quickparts with current live offers for the same disclosed package, and the
+sheet-metal validation package proves RMFG inside its own envelope; an
+inapplicable fabrication provider is never counted as a CNC quote.
 Each automatic customer route must separately pass production admission and
 certification, while a provider that only supports manual review remains
 truthful guidance rather than a live automatic source. Every purchasable
@@ -226,7 +230,8 @@ Quote freshness rules:
 - Quote scope fingerprints are versioned, internal-only, and derived from the exact outbound files and manufacturing fields disclosed to one vendor for one quantity.
 
 Planned 1.1 provider-expansion decisions:
-- immediately begin certifying providers beyond the seven-provider 1.0 portfolio
+- immediately begin certifying Weerg, Geomiq, OSH Cut and other providers beyond
+  the four-provider 1.0 launch set
   when they fit an existing qualified 1.0 envelope and the same per-provider admission,
   authorization, isolation, provenance, rollback, and no-order contract
 
