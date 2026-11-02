@@ -4,6 +4,7 @@ import react from "@vitejs/plugin-react-swc";
 import { createHash } from "node:crypto";
 import { execSync } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
 import path from "path";
 import { componentTagger } from "lovable-tagger";
 import { createPrivateFixturePlugin } from "./scripts/vite-private-fixture-plugin";
@@ -58,6 +59,7 @@ const appVersion = buildAppVersion({
 });
 const fixtureModeEnabled = process.env.VITE_ENABLE_FIXTURE_MODE === "1";
 const samplePlateEnabled = process.env.OVD_SAMPLE_PLATE_DEMO_ENABLED === "1";
+const sharedModuleGraph = process.env.OVD_VITEST_ISOLATE === "0";
 const quoteIntegrationEnabled = process.env.RUN_QUOTE_INTEGRATION_TESTS === "1";
 const fictivLiveTestEnabled = process.env.RUN_FICTIV_LIVE_TEST === "1";
 
@@ -120,9 +122,26 @@ export default defineConfig(({ mode }) => ({
   test: {
     globals: true,
     environment: "jsdom",
-    setupFiles: process.env.OVD_SOURCE_ONLY_TESTS === "1"
-      ? ["./scripts/test-support/source-only-network.setup.mjs"]
-      : [],
+    // Opt-in experiment, off in CI: OVD_VITEST_ISOLATE=0 shares each worker's
+    // module graph across files, with a per-file reset hook (see
+    // scripts/test-support/per-file-reset.setup.mjs). It cut ~14% of local suite
+    // time but hit a Vitest worker RPC timeout ("Timeout calling fetch") in 2 of
+    // 10 full runs, which isolated runs never show, so isolation stays on.
+    isolate: !sharedModuleGraph,
+    // One worker per runner core, less the core Vitest's coordinator process
+    // uses. A worker on every core measured ~20% faster but pushed wall-clock
+    // bound tests (pdfDrawing's 500 ms reads) over their limits under load.
+    maxWorkers: Math.max(1, os.availableParallelism() - 1),
+    // Testing Library binds `screen` to the document and registers its cleanup
+    // hooks when first imported; with a shared module graph it must run through
+    // Vitest's module runner so the reset hook re-evaluates it for each file.
+    ...(sharedModuleGraph ? { server: { deps: { inline: [/@testing-library\//] } } } : {}),
+    setupFiles: [
+      ...(sharedModuleGraph ? ["./scripts/test-support/per-file-reset.setup.mjs"] : []),
+      ...(process.env.OVD_SOURCE_ONLY_TESTS === "1"
+        ? ["./scripts/test-support/source-only-network.setup.mjs"]
+        : []),
+    ],
     include: [
       "api/**/*.test.ts",
       "server/**/*.test.ts",
