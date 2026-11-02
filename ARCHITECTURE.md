@@ -577,9 +577,11 @@ Provider-neutral dispatch envelope SQL obligations (requirements for every SQL p
 
 Provider-neutral 1.0 target (remaining work, not yet as-built):
 
-- beta activation requires an explicit effective provider set containing
-  Xometry plus at least four additional independently admitted and production-
-  certified automatic providers compatible with the supported 1.0 envelope
+- beta activation requires an explicit effective provider set containing all
+  four 1.0 providers, each independently admitted and production-certified for
+  its own supported envelope: Xometry, Fictiv and Quickparts for the CNC
+  validation package and RMFG for the sheet-metal validation package (Blaine,
+  October 20, 2026); Weerg, Geomiq and OSH Cut are 1.1
 - enum/catalog presence, legacy fallback, manual-RFQ availability, evaluation-
   only execution, or a bare provider count cannot satisfy that set
 - every set member retains its own current policy, envelope, confirmation,

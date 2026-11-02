@@ -22,9 +22,13 @@ import {
 import { detectExportControlMarkings } from "../exportControl";
 import type { DrawingExtractionPayload, JobFileRecord, PartRecord } from "../types";
 import { runHybridExtraction } from "./hybridExtraction";
+import { inferDrawingSignalsFromPdf } from "./pdfDrawing";
 import { buildStoredExtractionPayload, summarizeExtractionOutcome } from "./sharedResult";
+import { isLabelLikeToken } from "./titleBlockCells";
 
 const NEUTRAL_NAMES = ["upload.pdf", "bracket.pdf"] as const;
+// Layout text proves no cell, so every cell field is flagged: the four of #884 and, since OVD-1009, the description.
+const LAYOUT_REVIEW_FIELDS = ["description", "partNumber", "revision", "material", "finish"];
 
 async function extractSheet(sheet: string, fileName = "upload.pdf") {
   const extraction = await runHybridExtraction(
@@ -71,7 +75,7 @@ describe("B-size title block layout", () => {
         expect(extraction.extractedRevisionRaw.reasons).not.toContain("filename_stem");
         // The four-place row (.0010) is not used by any dimension on the sheet; three places (.005) is.
         expect(stored.tolerances).toMatchObject({ tightest: "±0.005", valueInch: null, unit: "unknown", drawingUnits: "inch" });
-        expect(extraction.reviewFields).toEqual(["partNumber", "revision", "material", "finish"]);
+        expect(extraction.reviewFields).toEqual(LAYOUT_REVIEW_FIELDS);
         expect(extraction.status).toBe("needs_review");
         expect(missing).toEqual(["tightestToleranceInch"]);
         expect(extraction.threads).toEqual([]);
@@ -110,7 +114,7 @@ describe("B-size title block layout", () => {
       const { extraction } = await extract({ drawingNumber });
       expect(extraction.partNumber).toBe(drawingNumber);
       expect(extraction.revision).toBe(DEFAULTS.revision);
-      expect(extraction.reviewFields).toEqual(["partNumber", "revision", "material", "finish"]);
+      expect(extraction.reviewFields).toEqual(LAYOUT_REVIEW_FIELDS);
     });
 
     it.each(["A", "C", "C2", "10", "AB", "02"])("reads revision %s from the REV cell, not the SIZE cell beside it", async (revision) => {
@@ -159,6 +163,69 @@ describe("B-size title block layout", () => {
     });
   });
 
+  // OVD-1009: on the owner's template the description was read as "NOTES:" and flagged on every drawing. The old TITLE
+  // anchors dropped a title that held a label word (PART in "SAMPLE PART"), and the fallback took another line of the
+  // block. The description is the TITLE cell's value, read like the other four cells; a cell that gives none leaves the
+  // field empty and flagged, and a label is never the description.
+  describe("the TITLE cell (OVD-1009)", () => {
+    const signalsOf = (options: TitleBlockTemplateOptions) =>
+      inferDrawingSignalsFromPdf({ titleBlockApprovalEnabled: true, baseName: "upload", pdfText: pdfTextOf(titleBlockTemplateSheet(options)) });
+
+    it.each(["SAMPLE PART", "PART", "BRACKET, PART OF WELDMENT", "SAMPLE PLATE"])(
+      "reads the title %s from the TITLE cell, label word or not",
+      async (title) => {
+        const { extraction } = await extract({ title });
+        expect(extraction.description).toBe(title);
+        expect(extraction.extractedDescriptionRaw.reasons).toEqual(expect.arrayContaining(["label_match", "spatial_match"]));
+        // Layout text proves no cell: the description is flagged with the other four, never approved from it.
+        expect(extraction.reviewFields).toEqual(LAYOUT_REVIEW_FIELDS);
+        expect(extraction.status).toBe("needs_review");
+        expect(extraction.material.raw).toBe(DEFAULTS.material);
+      },
+    );
+
+    it("reads the title at every layout the stretch tests use", async () => {
+      for (const factor of [0.75, 0.9, 1.1, 1.25, 1.5]) {
+        const { extraction } = await extractSheet(stretchColumns(titleBlockTemplateSheet({ title: "SAMPLE PART" }), factor));
+        expect(extraction.description, `scaled by ${factor}`).toBe("SAMPLE PART");
+      }
+    });
+
+    it("leaves the description empty and flagged when the TITLE cell is empty", async () => {
+      const signals = signalsOf({ title: null });
+      expect(signals.description).toMatchObject({ value: null, reviewNeeded: true });
+      expect(signals.reviewFields).toContain("description");
+      // Nothing is taken from the lines around the cell (the notes, the company block, the SURFACE FINISH note).
+      expect(signals.debugCandidates.description).toEqual([]);
+      const { extraction } = await extract({ title: null });
+      expect(extraction.reviewFields).toContain("description");
+      expect(extraction.description).not.toMatch(/NOTES|SAMPLE|SURFACE|ORG/);
+    });
+
+    it.each(["NOTES:", "NOTES: SEE SHEET 2", "TITLE", "DESCRIPTION"])(
+      "never reads the label %s printed where the title would be as the description",
+      async (printed) => {
+        const signals = signalsOf({ title: printed });
+        expect(signals.description).toMatchObject({ value: null, reviewNeeded: true });
+        for (const candidate of signals.debugCandidates.description) {
+          expect(isLabelLikeToken(candidate.value), candidate.value).toBe(false);
+        }
+        const { extraction } = await extract({ title: printed });
+        expect(extraction.description).not.toBe(printed);
+        expect(isLabelLikeToken(extraction.description)).toBe(false);
+        expect(extraction.reviewFields).toContain("description");
+      },
+    );
+
+    it("fails closed on a title the cell cannot read whole", async () => {
+      // A trailing comma is a title cut short (its second line was not read), a date is the approvals block.
+      for (const title of ["BRACKET, MOUNTING,", "ACM 01/02/2026", "SEE NOTE 1"]) {
+        const signals = signalsOf({ title });
+        expect(signals.description, title).toMatchObject({ value: null, reviewNeeded: true });
+      }
+    });
+  });
+
   describe("the approvals block beside the label row", () => {
     const TOKENS = ["Q.A.", "CHECKED", "DRAWN", "APPROVED", "ENG", "MFG", "ENG APPR.", "QA APPR."];
 
@@ -167,7 +234,7 @@ describe("B-size title block layout", () => {
         underLabelRow: [[150, "ENG"], [160, "MFG"], [170, "APPROVED"], [184, "DRAWN"], [195, "Q.A."], [205, "CHECKED"]],
       });
       expectDefaultFields(extraction);
-      expect(extraction.reviewFields).toEqual(["partNumber", "revision", "material", "finish"]);
+      expect(extraction.reviewFields).toEqual(LAYOUT_REVIEW_FIELDS);
     });
 
     it.each(TOKENS)("reports %s as neither the part number nor the revision when the real cells hold it", async (token) => {
@@ -328,7 +395,7 @@ describe("B-size title block layout", () => {
     it.each([0.75, 0.9, 1.1, 1.25, 1.5])("reads the same fields with the layout scaled by %s", async (factor) => {
       const { extraction, stored } = await extractSheet(stretchColumns(titleBlockTemplateSheet(), factor));
       expectDefaultFields(extraction);
-      expect(extraction.reviewFields).toEqual(["partNumber", "revision", "material", "finish"]);
+      expect(extraction.reviewFields).toEqual(LAYOUT_REVIEW_FIELDS);
       expect(stored.tolerances).toMatchObject({ tightest: "±0.005", valueInch: null, unit: "unknown" });
     });
 

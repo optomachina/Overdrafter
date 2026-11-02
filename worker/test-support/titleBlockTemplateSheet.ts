@@ -20,7 +20,8 @@ export type TitleBlockTemplateOptions = {
   material?: string | null;
   /** null leaves the FINISH cell empty. */
   finish?: string | null;
-  title?: string;
+  /** null leaves the TITLE cell empty. */
+  title?: string | null;
   /** The units line of the tolerance block; null prints none. */
   units?: string | null;
   /** The ASME Y14.5 line under INTERPRET IN ACCORDANCE WITH. */
@@ -78,7 +79,12 @@ export function titleBlockTemplateSheet(options: TitleBlockTemplateOptions = {})
   const drawingNumber = options.drawingNumber ?? TEMPLATE_DEFAULTS.drawingNumber;
   const revision = options.revision ?? TEMPLATE_DEFAULTS.revision;
   // A default applies to a missing option only: null is a cell left empty on purpose.
-  const { material = TEMPLATE_DEFAULTS.material, finish = TEMPLATE_DEFAULTS.finish, units = "DIMENSIONS ARE IN INCHES" } = options;
+  const {
+    material = TEMPLATE_DEFAULTS.material,
+    finish = TEMPLATE_DEFAULTS.finish,
+    title = TEMPLATE_DEFAULTS.title,
+    units = "DIMENSIONS ARE IN INCHES",
+  } = options;
   const dimensions = DIMENSION_ROWS[options.dimensions ?? "two_and_three_places"];
   const fourPlaceRow = options.fourPlaceRow ?? true;
   const inspectionNotes = options.inspectionNotes ?? true;
@@ -114,7 +120,7 @@ export function titleBlockTemplateSheet(options: TitleBlockTemplateOptions = {})
     row([153, "TOLERANCES:"], [185, "DRAWN"], [197, "ABC"], [204, "01/01/2026"]),
     row([85, "DIMENSIONS APPLY AFTER PLATING"]),
     row([121, "THIRD ANGLE PROJECTION"], [153, "ANGULAR: 0.5"], [217, "TITLE:"]),
-    row([229, options.title ?? TEMPLATE_DEFAULTS.title]),
+    title === null ? "" : row([229, title]),
     row([166, "BEND 1.0"], [185, "CHECKED"]),
     ...(inspectionNotes ? [row([85, "ENVIRONMENT NOTES:"])] : []),
     row([153, "ONE PLACE DECIMAL         .05"], [274, "A"]),

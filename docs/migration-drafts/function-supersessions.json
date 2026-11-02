@@ -34,8 +34,8 @@
     {
       "signature": "public.api_authorize_xometry_beta_worker_dispatch(uuid,uuid,jsonb,text,timestamptz)",
       "file": "docs/migration-drafts/ovd-723-contract.sql",
-      "supersedesSha256": "133bf547e8d6f0d7220f38e94600a3c541f53d9e6f1da560aff148835cc47f87",
-      "reason": "OVD-723 contract draft (window 2): written against the body deployed today. Recorded as the baseline when this check was added; if a newer migration changes this function before the draft is promoted, this entry stops matching and the draft must be rebased onto it."
+      "supersedesSha256": "6ac058551b5cee59ea495e06f4f029d3dc874809c5979823516d82c99e2e721f",
+      "reason": "OVD-723 contract renames the deployed OVD-987 body unchanged into its private core, preserving its quantity checks beneath the export-control wrapper; rollback restores that same core."
     },
     {
       "signature": "public.api_authorize_xometry_beta_worker_dispatch(uuid,uuid,jsonb,text,timestamptz)",
@@ -46,8 +46,8 @@
     {
       "signature": "public.api_authorize_xometry_beta_worker_dispatch(uuid,uuid,jsonb,text,timestamptz)",
       "file": "docs/migration-drafts/ovd-762-xometry-fanout-scope.sql",
-      "supersedesSha256": "133bf547e8d6f0d7220f38e94600a3c541f53d9e6f1da560aff148835cc47f87",
-      "reason": "OVD-762 fan out draft: written against the body deployed today. Recorded as the baseline when this check was added; if a newer migration changes this function before the draft is promoted, this entry stops matching and the draft must be rebased onto it. The OVD-987 controlled beta user quantity migration (PR 886, not merged) also restates this function and will trigger exactly that."
+      "supersedesSha256": "6ac058551b5cee59ea495e06f4f029d3dc874809c5979823516d82c99e2e721f",
+      "reason": "OVD-762 fan out draft rebased onto the MD5-guarded OVD-987 body: preserves its quantity checks and adds the existing fan out provider-set rule. Rollback restores the OVD-987 body."
     },
     {
       "signature": "public.api_finalize_job_file_upload(uuid,text,text,text,job_file_kind,text,bigint,text)",
