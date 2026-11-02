@@ -218,6 +218,7 @@ function emitSignedInAuthEvent() {
         user: {
           id: "user-1",
           email: "client@example.com",
+          email_confirmed_at: "2026-03-11T00:00:00.000Z",
           app_metadata: {},
           user_metadata: {},
           aud: "authenticated",
@@ -454,52 +455,56 @@ describe("useClientHomeController membership recovery", () => {
     unmount();
   });
 
-  it("does not bootstrap from the auth-event seed before the network session resolves", async () => {
-    const deferredSession = deferredPromise<AppSessionData>();
-    fetchAppSessionDataMock
-      .mockResolvedValueOnce({
-        user: null,
-        memberships: [],
-        isVerifiedAuth: false,
-        authState: "anonymous",
-      })
-      .mockReturnValueOnce(deferredSession.promise);
-
-    const { result, unmount } = renderHook(() => useClientHomeController(), {
-      wrapper: createWrapper(),
-    });
-
-    emitSignedInAuthEvent();
-
-    await waitFor(() => {
-      expect(result.current.user?.id).toBe("user-1");
-    });
-
-    expect(createSelfServiceOrganizationMock).not.toHaveBeenCalled();
-
-    await act(async () => {
-      deferredSession.resolve(
-        createSessionData({
-          memberships: [
-            {
-              id: "membership-1",
-              role: "client",
-              organizationId: "org-1",
-              organizationName: "Client Org",
-              organizationSlug: "client-org",
-            },
-          ],
-        }),
-      );
-    });
-
-    await waitFor(() => {
-      expect(result.current.activeMembership?.organizationId).toBe("org-1");
-    });
-
-    expect(createSelfServiceOrganizationMock).not.toHaveBeenCalled();
-    unmount();
-  });
+  it.each(["existing-org", "platform-admin", "new-user"] as const)(
+    "waits for resolved memberships after anonymous sign-in for %s",
+    async (account) => {
+      getSessionMock.mockResolvedValue({ data: { session: null }, error: null });
+      const deferredSession = deferredPromise<AppSessionData>();
+      const membership = {
+        id: "membership-1", role: "client" as const, organizationId: "org-1",
+        organizationName: "Client Org", organizationSlug: "client-org",
+      };
+      const resolvedSession = createSessionData({
+        memberships: account === "existing-org" ? [membership] : [],
+        isPlatformAdmin: account === "platform-admin",
+      });
+      fetchAppSessionDataMock.mockResolvedValueOnce({
+        user: null, memberships: [], isVerifiedAuth: false, authState: "anonymous",
+      }).mockReturnValueOnce(deferredSession.promise).mockResolvedValue(resolvedSession);
+      createSelfServiceOrganizationMock.mockResolvedValue({ outcome: "created" });
+      const statuses: string[] = [];
+      const { result, unmount } = renderHook(() => {
+        const controller = useClientHomeController();
+        statuses.push(controller.workspaceReadiness.status);
+        return controller;
+      }, { wrapper: createWrapper() });
+      await waitFor(() => {
+        expect(result.current.user).toBeNull();
+        expect(result.current.isAuthInitializing).toBe(false);
+      });
+      getSessionMock.mockResolvedValue({ data: { session: {
+        user: { ...resolvedSession.user, email_confirmed_at: "2026-03-11T00:00:00.000Z" },
+      } }, error: null });
+      emitSignedInAuthEvent();
+      await waitFor(() => {
+        expect(result.current.user?.id).toBe("user-1");
+        expect(fetchAppSessionDataMock).toHaveBeenCalledTimes(2);
+      });
+      expect(createSelfServiceOrganizationMock).not.toHaveBeenCalled();
+      expect(result.current.workspaceReadiness.status).toBe("loading");
+      await act(async () => deferredSession.resolve(resolvedSession));
+      if (account === "existing-org") {
+        await waitFor(() => expect(result.current.activeMembership?.organizationId).toBe("org-1"));
+        expect(statuses).not.toContain("provisioning");
+      } else if (account === "platform-admin") {
+        await waitFor(() => expect(result.current.isPlatformAdmin).toBe(true));
+      } else {
+        await waitFor(() => expect(createSelfServiceOrganizationMock).toHaveBeenCalledTimes(1));
+      }
+      if (account !== "new-user") expect(createSelfServiceOrganizationMock).not.toHaveBeenCalled();
+      unmount();
+    },
+  );
 
   it("does not bootstrap when membership resolution is degraded", async () => {
     fetchAppSessionDataMock.mockResolvedValue(

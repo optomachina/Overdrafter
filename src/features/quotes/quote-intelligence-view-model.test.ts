@@ -46,6 +46,24 @@ function makeSummary(overrides: Partial<QuoteIntelligenceSummary> = {}): QuoteIn
 }
 
 describe("parseEngineeringQuery", () => {
+  it.each([
+    ['1/2"', "measurement", 0.5, "1/2 in"],
+    ['Ø1/2"', "diameter", 0.5, "Diameter 1/2 in"],
+    ["3/8 in", "measurement", 0.375, "3/8 in"],
+    ['.5"', "measurement", 0.5, ".5 in"],
+    ["Ø1/4 in", "diameter", 0.25, "Diameter 1/4 in"],
+    ["1/2 dia", "diameter", 0.5, "Diameter 1/2 in"],
+    ["1/2 diameter mm", "diameter", 0.5, "Diameter 1/2 mm"],
+  ])("parses the whole engineering number in %s", (query, kind, value, label) => {
+    expect(parseEngineeringQuery(query).chips).toEqual([
+      expect.objectContaining({ kind, value, label, unit: query.endsWith("mm") ? "mm" : "in" }),
+    ]);
+  });
+
+  it("does not interpret a unitless thread fraction as a measurement", () => {
+    expect(parseEngineeringQuery("1/4-20").chips).toEqual([]);
+  });
+
   it.each(["1.00 dia", "1.00 diameter", "Ø1.00", "⌀1.00"])(
     "normalizes the quoted inch-diameter convention for %s",
     (query) => {
