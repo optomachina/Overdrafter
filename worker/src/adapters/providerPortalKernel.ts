@@ -444,6 +444,30 @@ function normalizedCookieDomain(value: unknown): string | null {
   return normalized;
 }
 
+function isAllowedCookie(cookie: unknown, allowed: ReadonlySet<string>): boolean {
+  if (!cookie || typeof cookie !== "object" || Array.isArray(cookie)) {
+    return false;
+  }
+  const domain = normalizedCookieDomain((cookie as Record<string, unknown>).domain);
+  return domain !== null && allowed.has(domain);
+}
+
+function isAllowedExactOriginEntry(originEntry: unknown, allowedHosts: readonly string[]): boolean {
+  if (!originEntry || typeof originEntry !== "object" || Array.isArray(originEntry)) {
+    return false;
+  }
+  const origin = (originEntry as Record<string, unknown>).origin;
+  if (typeof origin !== "string" || !isAllowedProviderUrl(origin, allowedHosts)) {
+    return false;
+  }
+  const parsedOrigin = new URL(origin);
+  return parsedOrigin.pathname === "/"
+    && !parsedOrigin.search
+    && !parsedOrigin.hash
+    && !parsedOrigin.username
+    && !parsedOrigin.password;
+}
+
 function parseStorageState(
   value: unknown,
   allowedHosts: readonly string[],
@@ -456,35 +480,67 @@ function parseStorageState(
     return null;
   }
   const allowed = new Set(allowedHosts.map((host) => host.toLowerCase()));
-  for (const cookie of record.cookies) {
-    if (!cookie || typeof cookie !== "object" || Array.isArray(cookie)) {
-      return null;
-    }
-    const domain = normalizedCookieDomain((cookie as Record<string, unknown>).domain);
-    if (!domain || !allowed.has(domain)) {
-      return null;
-    }
+  if (!record.cookies.every((cookie) => isAllowedCookie(cookie, allowed))) {
+    return null;
   }
-  for (const originEntry of record.origins) {
-    if (!originEntry || typeof originEntry !== "object" || Array.isArray(originEntry)) {
-      return null;
-    }
-    const origin = (originEntry as Record<string, unknown>).origin;
-    if (typeof origin !== "string" || !isAllowedProviderUrl(origin, allowedHosts)) {
-      return null;
-    }
-    const parsedOrigin = new URL(origin);
-    if (
-      parsedOrigin.pathname !== "/"
-      || parsedOrigin.search
-      || parsedOrigin.hash
-      || parsedOrigin.username
-      || parsedOrigin.password
-    ) {
-      return null;
-    }
+  if (!record.origins.every((originEntry) => isAllowedExactOriginEntry(originEntry, allowedHosts))) {
+    return null;
+  }
+  if (record.sessionStorage !== undefined && !isValidSessionStorageCapture(record.sessionStorage, allowedHosts)) {
+    return null;
   }
   return value as Exclude<BrowserContextOptions["storageState"], string | undefined>;
+}
+
+/** Per-origin sessionStorage captured beside Playwright's storage state (OVD-1059); Playwright itself never saves it. */
+export type CapturedSessionStorageOrigin = {
+  origin: string;
+  sessionStorage: { name: string; value: string }[];
+};
+
+function isValidSessionStorageCapture(value: unknown, allowedHosts: readonly string[]): value is CapturedSessionStorageOrigin[] {
+  if (!Array.isArray(value)) return false;
+  return value.every((entry) => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) return false;
+    const { origin, sessionStorage } = entry as Record<string, unknown>;
+    if (typeof origin !== "string" || !isAllowedProviderUrl(origin, allowedHosts)) return false;
+    if (new URL(origin).origin !== origin) return false;
+    return Array.isArray(sessionStorage) && sessionStorage.every((item) => item && typeof item === "object"
+      && typeof (item as Record<string, unknown>).name === "string"
+      && typeof (item as Record<string, unknown>).value === "string");
+  });
+}
+
+/** Splits the sessionStorage capture off, since Playwright's storageState option does not accept it. */
+export function splitSessionStorage(
+  storageState: Exclude<BrowserContextOptions["storageState"], string | undefined>,
+): {
+  playwrightState: Exclude<BrowserContextOptions["storageState"], string | undefined>;
+  sessionStorage: CapturedSessionStorageOrigin[];
+} {
+  const { sessionStorage, ...playwrightState } = storageState as typeof storageState & {
+    sessionStorage?: CapturedSessionStorageOrigin[];
+  };
+  return { playwrightState, sessionStorage: sessionStorage ?? [] };
+}
+
+/** Restores captured sessionStorage on its exact origin before any portal script runs. */
+export async function seedSessionStorage(
+  context: Pick<BrowserContext, "addInitScript">,
+  captured: CapturedSessionStorageOrigin[],
+): Promise<void> {
+  if (captured.length === 0) return;
+  await context.addInitScript((origins: CapturedSessionStorageOrigin[]) => {
+    const match = origins.find((entry) => entry.origin === globalThis.location.origin);
+    if (!match) return;
+    try {
+      for (const { name, value } of match.sessionStorage) {
+        if (globalThis.sessionStorage.getItem(name) === null) globalThis.sessionStorage.setItem(name, value);
+      }
+    } catch {
+      // A sandboxed frame without storage simply stays logged out.
+    }
+  }, captured);
 }
 
 async function hasSymlinkedPathComponent(filePath: string): Promise<boolean> {
@@ -1707,7 +1763,9 @@ async function openProviderPortalSession(
   const launch = dependencies.launchBrowser ?? ((options) => chromium.launch(options));
   const browser = await launch(launchOptions(config));
   try {
-    const context = await browser.newContext({ storageState, serviceWorkers: "block" });
+    const { playwrightState, sessionStorage } = splitSessionStorage(storageState);
+    const context = await browser.newContext({ storageState: playwrightState, serviceWorkers: "block" });
+    await seedSessionStorage(context, sessionStorage);
     context.setDefaultTimeout(config.browserTimeoutMs);
     context.setDefaultNavigationTimeout(config.browserTimeoutMs);
     const page = await context.newPage();

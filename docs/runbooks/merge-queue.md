@@ -1,16 +1,48 @@
 # Merge queue for `main` (OVD-854)
 
 Status: **Option B (strict) and `enforce_admins` were approved by Blaine on
-2026-10-16 and are now in force.** A read-back of the protection on 2026-10-16
+2026-10-16 and applied that day.** A read-back of the protection on 2026-10-16
 after they were applied showed `strict` and `enforce_admins` both `true`, with
 `ci` and `provider-go-live` as the required checks. A later read-only check
 (2026-10-31) shows `secret-scan` (app 15368) required as well, so the required
-checks are now `ci`, `provider-go-live` and `secret-scan`. To re-verify the
-live settings, run:
+checks are now `ci`, `provider-go-live` and `secret-scan`.
+
+**`strict` looks off now (indirect read-only observation, 2026-11-01).** PR
+#1006 was 12 commits behind `main` (`compare/main...docs/mq-followups`:
+`behind_by: 12`) while `GET repos/optomachina/Overdrafter/pulls/1006` reported
+`mergeable_state: "clean"`. With `strict: true`, GitHub reports `behind` for
+such a PR. `GET .../branches/main/protection` returns 403 from cloud sessions,
+so the `strict` flag itself was not read. No approval card for turning
+`strict` off is recorded in this repo. If the direct read-back confirms it,
+that change is the Rollback under Option B below, which needs Blaine's
+approval card. Until someone runs a direct read-back, treat the `strict`
+state as unconfirmed and rely on neither answer. To re-verify the live
+settings, run:
 
 ```bash
-gh api repos/optomachina/Overdrafter/branches/main/protection --jq '{strict: .required_status_checks.strict, enforce_admins: .enforce_admins.enabled}'
+gh api repos/optomachina/Overdrafter/branches/main/protection --jq '{strict: .required_status_checks.strict, enforce_admins: .enforce_admins.enabled, required_checks: [.required_status_checks.checks[]?.context]}'
 ```
+
+The read-back passes only if `required_checks` lists exactly `ci`,
+`provider-go-live` and `secret-scan`. The land helper takes its required
+checks from protection at run time, so a context dropped from protection would
+otherwise go unnoticed until after a merge.
+
+The `land` skill and its eval (`evals/skills/land/spec.json`) are written for
+strict mode, and the helper's stale-base protection depends on it. **Do not
+treat land as safe with `strict` off.** The helper checks that the base is in
+the pinned head before it waits for checks, but its final mergeability loop
+accepts `CLEAN` (also `HAS_HOOKS` and `UNSTABLE`) without fetching the base
+again; only a `BEHIND` state triggers a fresh base check
+(`.codex/skills/land/land_strict_merge.sh`, step 5). With `strict` off,
+GitHub reports `CLEAN` even after `main` has moved during the check wait, and
+`--match-head-commit` pins only the PR head, so a combination no check ran on
+can merge. The tree read-back catches that only after landing. Until a direct
+read-back shows `strict: true`, land only with exclusive serialization over
+the whole update, check and merge sequence: no other merge to `main` from
+the update until this merge lands. Re-checking `main` right before merging
+is not a substitute, because another PR can still merge between that check
+and this merge, and the helper has no hook for such a check anyway.
 
 The `land` skill (`.codex/skills/land/SKILL.md`, step 8) handles strict mode
 through `.codex/skills/land/land_strict_merge.sh` (OVD-889). It brings an
@@ -50,18 +82,25 @@ returned `User`). Two separate decisions for Blaine follow:
    [Prerequisite: organization ownership](#prerequisite-organization-ownership).
 2. **Option B, applicable now:** turn on `strict: true` ("Require branches to be
    up to date before merging") on the classic branch protection. Approved by
-   Blaine on 2026-10-16 together with `enforce_admins`, and now in force (see
-   Status). See
+   Blaine on 2026-10-16 together with `enforce_admins` and applied that day;
+   its current state is unconfirmed (see Status). See
    [Option B: strict up to date checks](#option-b-strict-up-to-date-checks-applicable-now).
 
-Option B is in force. Option A stays drafted so it can be applied once
+Option B was applied on 2026-10-16 (see Status for its current state). Option A stays drafted so it can be applied once
 the repo is org-owned.
+
+> **The merge queue is not live (2026-10-31).** GitHub rejected the
+> `merge_queue` rule because `optomachina/Overdrafter` is user-owned, and merge
+> queues are available only to organization-owned repositories. Until the
+> queue can be enabled, merges stay one at a time, each pinned with
+> `gh pr merge --match-head-commit <sha>`. Whether "require branches to be up
+> to date" is still on is unconfirmed; see Status.
 
 ## Why
 
 Before Option B, `main` required `ci` and `provider-go-live` with
 `strict: false` and had no merge queue, so a PR could merge green against a
-stale base and break `main`. `strict: true` (now in force) fixes that by blocking the merge until the PR branch contains
+stale base and break `main`. `strict: true` (applied 2026-10-16; see Status for its current state) fixes that by blocking the merge until the PR branch contains
 the current `main` and the required checks have passed on it. Merges are then
 serialised by hand (update the branch, wait for checks, merge). A merge queue
 does the same job automatically: it builds each PR on top of the current `main`
@@ -97,12 +136,26 @@ job, (for the no op workflows) gate every real step to `pull_request`, and (for
 head.
 
 **`secret-scan` on the queue commit.** On `merge_group`, `BASE_SHA` is
-`merge_group.base_sha` (the `main` tip the queue built on) and `HEAD_SHA` is
-`merge_group.head_sha` (the queue commit). The range holds the PR's change,
-plus any entries ahead of it in the queue, so it never scans less than the
-`pull_request` run. The config, `.gitleaksignore` and path block come from that
-base, so a PR still cannot relax its own scan. The job keeps
-`continue-on-error` (report mode) on both events.
+`merge_group.base_sha` and `HEAD_SHA` is `merge_group.head_sha` (the queue
+commit). `merge_group.base_sha` is the queue entry's parent commit: the `main`
+tip for the first entry, or the previous entry's queue commit when other PRs
+are ahead. The range is exactly what this entry adds on top of that parent:
+the PR's change, rebuilt on it. It never scans less than the `pull_request`
+run does for the same change. The config, `.gitleaksignore` and path block
+come from that parent, so a PR still cannot relax its own scan. When another
+entry is ahead, though, they come from that entry's queue commit, so a PR
+ahead in the queue (itself reviewed and scanned) can change the config this
+entry is scanned with. The header comment in
+`.github/workflows/secret-scan.yml` still describes the range as "this PR's
+change plus any queue entries ahead of it"; this paragraph is the corrected
+reading, and that comment changes only with the workflow's own approval.
+The job keeps `continue-on-error` (report mode) on both events: findings are
+reported and never fail the job, and a scanner that cannot run (for example
+the gitleaks download or checksum fails, or a git command errors) turns the
+job red. Whether that red job, under job-level `continue-on-error`, reports a
+check conclusion that blocks the PR is **not confirmed**: no run so far has
+had a failed step to show it. Confirm it on a live run before relying on
+either answer.
 
 **`provider-go-live` is not re-checked by the queue.** Its `merge_group` run is
 a no op pass. The rule is evaluated only on the PR's own `pull_request` run,
@@ -112,8 +165,27 @@ provider enablement that only appears once the PR is combined with newer
 `main`.
 
 Check names are the bare job `name`s, because branch protection matches the
-check run name, not `Workflow / job`: `ci` (job `ci` in `ci.yml`) and
-`provider-go-live` (job `provider-go-live` in `pr-body-gate.yml`).
+check run name, not `Workflow / job`: `ci` (job `ci` in `ci.yml`),
+`provider-go-live` (job `provider-go-live` in `pr-body-gate.yml`) and
+`secret-scan` (job `secret-scan` in `secret-scan.yml`).
+
+### Concurrency and the nightly re-run (OVD-1145)
+
+Every required-check workflow (`ci.yml`, `pr-body-gate.yml`, `secret-scan.yml`,
+plus `verify.yml`) uses the concurrency group
+`${{ github.workflow }}-${{ github.event.pull_request.head.sha || github.sha }}`
+with `cancel-in-progress: true`. Only runs for the same head sha (the queue
+commit on `merge_group`, the pushed commit on `push`) cancel each other, so a
+PR event that does not move the head cannot leave a required check cancelled
+at an older run. `pr-body-gate.yml` no longer triggers on `edited`; an edited
+body is re-checked on the next push, reopen or draft -> ready.
+
+`.github/workflows/required-checks-rerun.yml` runs nightly (and on
+`workflow_dispatch`). For each open, non-draft PR into the default branch it
+re-runs, over REST, the workflow run behind a required check that is cancelled,
+missing under a cancelled run, or failed only because a job was cancelled. It
+writes only to its job summary. Its required-check list is pinned to
+`REQUIRED_CHECKS` in `scripts/merge-queue-workflows.test.mjs`.
 
 ### Rule for new required checks
 
@@ -308,9 +380,9 @@ have passed on that state. It does not serialise automatically; after each
 merge, every other open PR goes out of date and must be updated (which reruns
 both checks, since both trigger on `synchronize`) before it can merge.
 
-### Applied settings (in force since 2026-10-16)
+### Applied settings (2026-10-16)
 
-| Setting | Before | After (approved and in force, 2026-10-16) |
+| Setting | Before | After (approved and applied, 2026-10-16) |
 | --- | --- | --- |
 | `required_status_checks.strict` | `false` | `true` |
 | `required_status_checks.checks` | `ci`, `provider-go-live` (app 15368) | unchanged (`secret-scan`, app 15368, was added later; see Status) |
@@ -330,13 +402,14 @@ card.
 
 ### Apply command
 
-> **Reference only: both settings are already in force (see Status).** Do not
+> **Reference only: both settings were applied on 2026-10-16; the current
+> `strict` state is unconfirmed (see Status).** Do not
 > re-run this unless the read-back shows the protection has drifted, and then
 > only with Blaine's approval card. Grok Bot applies protection changes only
 > after approval, with the card naming this runbook's commit SHA.
 
 ```bash
-# Reference only (already in force). Re-run only with Blaine's approval card.
+# Reference only (applied 2026-10-16; current state: see Status). Re-run only with Blaine's approval card.
 gh api --method PATCH repos/optomachina/Overdrafter/branches/main/protection/required_status_checks --input - <<'JSON'
 {
   "strict": true,

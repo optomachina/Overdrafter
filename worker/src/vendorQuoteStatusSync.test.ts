@@ -28,7 +28,7 @@ const quote = vi.fn(async () => {
 type Row = Record<string, unknown>;
 
 /** Stateful Supabase mock: writes honor every filter and errors do not commit. */
-function database(failTable = "", failures = 0, failStatus?: string) {
+function database(failTable = "", failures = 0, failStatus?: string, drainFailures = 0, lostAcceptanceReplies = 0) {
   const rows: Record<string, Row[]> = {
     work_queue: [{ id: "task", task_type: "run_vendor_quote", organization_id: "org", job_id: "job",
       part_id: "part", quote_run_id: "run", status: "running", attempts: 1, locked_by: "worker",
@@ -81,7 +81,23 @@ function database(failTable = "", failures = 0, failStatus?: string) {
   };
   const rpc = vi.fn((name: string, args: Row) => {
     if (name === "reconcile_vendor_quote_offers") Object.assign(rows.vendor_quote_results[0], args.p_result);
-    const data = name === "api_reserve_spend" ? { allowed: true, reservationId: "reservation" }
+    // The claim-fenced acceptance settles the result and the task in one transaction.
+    if (name === "accept_vendor_quote_result") {
+      Object.assign(rows.vendor_quote_results[0], args.p_result);
+      Object.assign(rows.work_queue[0], { status: "completed", locked_by: null, locked_at: null,
+        payload: { ...(rows.work_queue[0].payload as Row), ...(args.p_task_payload_patch as Row) } });
+    }
+    if (name === "accept_vendor_quote_result" && lostAcceptanceReplies-- > 0) {
+      const lost = Promise.reject(new TypeError("fetch failed"));
+      lost.catch(() => undefined);
+      return Object.assign(lost, { abortSignal: () => lost });
+    }
+    if (name === "drain_quote_run_rollup_followups" && drainFailures-- > 0) {
+      const failed = Promise.resolve({ data: null, error: { message: "drain refused" } });
+      return Object.assign(failed, { abortSignal: () => failed });
+    }
+    const data = name === "accept_vendor_quote_result" ? { outcome: "accepted" }
+      : name === "api_reserve_spend" ? { allowed: true, reservationId: "reservation" }
       : name === "api_check_export_control_dispatch" ? { allowed: true }
         : name === "api_get_worker_sourcing_intent" ? { activeDeadline: null, destination: { state: "confirmed",
           confirmationRevision: "1", street: "street", city: "city", region: "AZ", postalCode: "00000", country: "US" } }
@@ -110,8 +126,42 @@ beforeEach(() => {
 });
 
 describe("vendor quote status persistence (OVD-1134)", () => {
-  it.each(["quote_runs", "jobs"])("retries one failed %s write from the stored result without another provider call", async (table) => {
+  it("settles a fresh provider result through the claim-fenced acceptance, not worker status writes", async () => {
+    const db = database();
+    await processClaimedTask(db.client, db.claim(1), config, createWorkerRuntimeState());
+    expect(db.queue.status).toBe("completed");
+    expect(db.result.status).toBe("instant_quote_received");
+    expect(db.rpc.mock.calls.filter(([name]) => name === "accept_vendor_quote_result")).toHaveLength(1);
+    expect(db.rpc.mock.calls.filter(([name]) => name === "drain_quote_run_rollup_followups")).toHaveLength(1);
+    expect(db.writes.some((write) => write.table === "quote_runs" || write.table === "jobs")).toBe(false);
+    expect(db.writes.some((write) => write.table === "work_queue")).toBe(false);
+    expect(quote).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps an accepted task completed when the rollup drain fails, without another provider call", async () => {
+    const db = database("", 0, undefined, 1);
+    await processClaimedTask(db.client, db.claim(1), config, createWorkerRuntimeState());
+    expect(db.queue.status).toBe("completed");
+    expect(db.result.status).toBe("instant_quote_received");
+    expect(db.writes.some((write) => write.table === "work_queue")).toBe(false);
+    expect(console.warn).toHaveBeenCalledWith(expect.stringContaining('"source":"worker.quote_run_rollups"'));
+    expect(quote).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["instant_quote_received", "manual_review_pending"] as const)("keeps a task completed when the acceptance committed a %s result but every reply was lost", async (status) => {
+    quote.mockImplementation(async () => { markProviderMutationStarted(); return { ...output, status }; });
+    const db = database("", 0, undefined, 0, Infinity);
+    await processClaimedTask(db.client, db.claim(1), config, createWorkerRuntimeState());
+    expect(db.rpc.mock.calls.filter(([name]) => name === "accept_vendor_quote_result")).toHaveLength(3);
+    expect(db.result.status).toBe(status);
+    expect(db.queue.status).toBe("completed");
+    expect(db.queue.last_error).toBeUndefined();
+    expect(quote).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["quote_runs", "jobs"])("retries one failed %s write from a stored result without provider work", async (table) => {
     const db = database(table, 1);
+    db.result.status = "instant_quote_received";
     const runtime = createWorkerRuntimeState();
     await processClaimedTask(db.client, db.claim(1), config, runtime);
     expect(db.queue.status).toBe("queued");
@@ -124,9 +174,8 @@ describe("vendor quote status persistence (OVD-1134)", () => {
     expect(db.queue.status).toBe("completed");
     expect(db.run.status).toBe("completed");
     expect(db.job.status).toBe("internal_review");
-    expect(quote).toHaveBeenCalledTimes(1);
-    expect(createRunDir).toHaveBeenCalledTimes(1);
-    expect(db.rpc.mock.calls.filter(([name]) => name === "reconcile_vendor_quote_offers")).toHaveLength(1);
+    expect(quote).not.toHaveBeenCalled();
+    expect(createRunDir).not.toHaveBeenCalled();
   });
 
   it("exhausts the existing backoff and leaves a visible failed task when status writes keep failing", async () => {
@@ -134,6 +183,7 @@ describe("vendor quote status persistence (OVD-1134)", () => {
     const now = new Date("2026-10-30T00:00:00Z");
     vi.setSystemTime(now);
     const db = database("quote_runs", Infinity);
+    db.result.status = "instant_quote_received";
     const runtime = createWorkerRuntimeState();
     for (const [attempts, delay] of [[1, 60_000], [2, 300_000], [3, 900_000], [4, null]] as const) {
       await processClaimedTask(db.client, db.claim(attempts), config, runtime);
@@ -143,7 +193,7 @@ describe("vendor quote status persistence (OVD-1134)", () => {
     expect(db.queue.last_error).toContain("quote_runs write refused");
     expect(db.run.status).toBe("running");
     expect(db.job.status).toBe("quoting");
-    expect(quote).toHaveBeenCalledTimes(1);
+    expect(quote).not.toHaveBeenCalled();
     expect(db.writes.some((write) => write.table === "work_queue" && write.patch.status === "completed")).toBe(false);
     expect(console.error).toHaveBeenCalledWith(expect.stringContaining('"source":"worker.task.failure"'));
     const failure = JSON.parse(vi.mocked(console.error).mock.calls.at(-1)![0]);

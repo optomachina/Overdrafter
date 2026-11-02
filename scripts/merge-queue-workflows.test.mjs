@@ -102,7 +102,8 @@ describe("merge queue workflows", () => {
           expect(block).toContain(
             "HEAD_SHA: ${{ github.event_name == 'merge_group' && github.event.merge_group.head_sha || github.event.pull_request.head.sha }}",
           );
-          expect(text).toMatch(/^ {2}group: [^\n]*\|\| github\.ref \}\}$/m);
+          // github.sha is the queue commit on merge_group, unique per queue entry.
+          expect(text).toMatch(/^ {2}group: [^\n]*\|\| github\.sha \}\}$/m);
         });
       } else if (check.noOp) {
         it("has no job-level if that could skip the job", () => {
@@ -165,6 +166,60 @@ describe("merge queue workflows", () => {
         "  contents: read\n  pull-requests: read\n",
       );
       expect(jobBlock(text, "vendor-pr-serialization")).not.toMatch(/^ {4}permissions:/m);
+    });
+  });
+
+  // OVD-1145: required checks are cancelled only by a newer run for the same head
+  // sha, never by an unrelated event on the PR.
+  describe("required check concurrency (OVD-1145)", () => {
+    const HEAD_SHA_GROUP =
+      "  group: ${{ github.workflow }}-${{ github.event.pull_request.head.sha || github.sha }}\n  cancel-in-progress: true\n";
+    for (const workflow of [...new Set([...REQUIRED_CHECKS.map((check) => check.workflow), "verify.yml"])]) {
+      it(`${workflow} groups runs by head sha`, () => {
+        const text = readWorkflow(workflow);
+        const block = text.match(/^concurrency:\n((?: {2}.*\n)+)/m)?.[1] ?? "";
+        expect(block.replace(/^ {2}#.*\n/gm, "")).toBe(HEAD_SHA_GROUP);
+        expect(text.match(/^concurrency:/gm)).toHaveLength(1);
+      });
+    }
+
+    it("pr-body-gate.yml does not trigger on edited", () => {
+      expect(onBlock(readWorkflow("pr-body-gate.yml"))).not.toMatch(/^ {6}- edited$/m);
+    });
+  });
+
+  describe("required checks rerun (OVD-1145)", () => {
+    const text = readWorkflow("required-checks-rerun.yml");
+
+    it("runs nightly and on demand only", () => {
+      expect(onBlock(text)).toBe('  schedule:\n    - cron: "41 9 * * *"\n  workflow_dispatch:\n\n');
+    });
+
+    it("keeps least-privilege permissions and no job-level override", () => {
+      expect(text.match(/^permissions:\n((?: {2}.*\n)+)/m)?.[1]).toBe(
+        "  actions: write\n  checks: read\n  pull-requests: read\n",
+      );
+      expect(text).not.toMatch(/^ {4}permissions:/m);
+      expect(text).not.toContain("actions/checkout");
+    });
+
+    it("re-runs over REST and never writes to a PR", () => {
+      expect(text).toContain('actions/runs/$run_id/$endpoint');
+      expect(text).toContain('endpoint="rerun"');
+      expect(text).toContain('endpoint="rerun-failed-jobs"');
+      expect(text).not.toMatch(/\/comments|\/labels|\/reviews|gh pr |--method (?:PATCH|PUT|DELETE)/);
+      expect(text.match(/--method POST/g)).toHaveLength(1);
+    });
+
+    it("falls back to main for the default branch and fails closed when it is empty", () => {
+      // schedule event payloads have no repository object, so the expression alone would be "".
+      expect(text).toContain("DEFAULT_BRANCH: ${{ github.event.repository.default_branch || 'main' }}");
+      expect(text).toMatch(/\[ -n "\$\{DEFAULT_BRANCH:-\}" \] \|\| \{ echo "::error::[^"]*"; exit 1; \}/);
+    });
+
+    it("covers exactly the required checks and their workflows", () => {
+      const pairs = REQUIRED_CHECKS.map((check) => `${check.job}=${check.workflow}`).join(" ");
+      expect(text).toContain(`REQUIRED_CHECKS: "${pairs}"`);
     });
   });
 

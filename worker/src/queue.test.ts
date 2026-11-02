@@ -29,6 +29,7 @@ describe("claimNextTask", () => {
       status: "running",
       payload: {},
       attempts: 1,
+      attempt_id: "97900000-0000-4000-8000-000000000001",
       available_at: new Date().toISOString(),
       locked_at: new Date().toISOString(),
       locked_by: "worker-1",
@@ -97,6 +98,7 @@ function makeQueuedTask(payload: Record<string, unknown> = {}) {
     status: "running",
     payload: { vendor: "xometry", requestedQuantity: 25, ...payload },
     attempts: 1,
+    attempt_id: "97900000-0000-4000-8000-000000000001",
     available_at: new Date().toISOString(),
     locked_at: new Date().toISOString(),
     locked_by: "worker-1",
@@ -216,7 +218,7 @@ describe("reapStaleTasks", () => {
     expect(stub.lt).toHaveBeenCalledWith("locked_at", expect.any(String));
     expect(reaped).toBe(1);
     expect(stub.client.rpc).toHaveBeenCalledWith("api_reconcile_terminal_free_quote_tasks", { p_after_admission_id: null, p_limit: 100 });
-    expect(stub.select.mock.invocationCallOrder[0]).toBeLessThan(stub.client.rpc.mock.invocationCallOrder[0]);
+    expect(stub.select.mock.invocationCallOrder[0]).toBeLessThan(stub.client.rpc.mock.invocationCallOrder[1]);
   });
 
   it("returns 0 when no stale tasks exist", async () => {
@@ -225,7 +227,8 @@ describe("reapStaleTasks", () => {
     const reaped = await reapStaleTasks(stub.client as never, 10);
 
     expect(reaped).toBe(0);
-    expect(stub.client.rpc).toHaveBeenCalledTimes(1);
+    expect(stub.client.rpc).toHaveBeenCalledTimes(2);
+    expect(stub.client.rpc).toHaveBeenCalledWith("drain_quote_run_rollup_followups", { p_limit: 50 });
   });
 
   it("returns 0 when data is null", async () => {
@@ -308,7 +311,7 @@ describe("markTaskQueuedForRetry", () => {
     const requeued = await markTaskQueuedForRetry(stub.client as never, makeQueuedTask(), "boom", "2026-10-12T00:00:00Z");
 
     expect(requeued).toBe(true);
-    expect(stub.update).toHaveBeenCalledWith(expect.objectContaining({ status: "queued", locked_by: null }));
+    expect(stub.update).toHaveBeenCalledWith(expect.objectContaining({ status: "queued", locked_by: null, attempt_id: null }));
     expect(stub.filters).toEqual([
       ["eq", "id", "task-1"],
       ["eq", "status", "running"],
