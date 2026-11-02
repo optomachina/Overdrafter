@@ -131,6 +131,8 @@ export type GlobalSearchResult =
   | { kind: "project"; id: string; title: string; context: string; href: string; explanations: MatchExplanation[] }
   | { kind: "quote"; id: string; title: string; context: string; href: string; explanations: MatchExplanation[] };
 
+const ENGINEERING_NUMBER_PATTERN = String.raw`(?<![\w./])(?<!\d-)(\d+[ -]+\d+\/\d+|\d+\/\d+|\d+(?:\.\d+)?|\.\d+)`;
+
 function normalizeSearchText(value: string): string {
   return value
     .normalize("NFKC")
@@ -144,15 +146,22 @@ function normalizeSearchText(value: string): string {
     .replace(/\b(?:mils?|thousandths?)\b/g, " thou ")
     .replace(/(\d)\s*"/g, "$1 in ")
     .replace(/(\d|\.)\s*(mm|cm|thou|in)\b/g, "$1 $2")
-    .replace(/((?:\d+(?:\.\d+)?|\.\d+))\s+diameter\s+(mm|cm|m|in|thou)\b/g, "diameter $1 $2")
-    .replace(/((?:\d+(?:\.\d+)?|\.\d+))\s+diameter\b/g, "diameter $1 in")
+    .replace(new RegExp(`${ENGINEERING_NUMBER_PATTERN}\\s+diameter\\s+(mm|cm|m|in|thou)\\b`, "g"), "diameter $1 $2")
+    .replace(new RegExp(`${ENGINEERING_NUMBER_PATTERN}\\s+diameter\\b`, "g"), "diameter $1 in")
     .replace(
-      /\bdiameter\s+((?:\d+(?:\.\d+)?|\.\d+))(?![\d.])(?!\s*(?:mm|cm|m|in|thou)\b)/g,
+      new RegExp(`\\bdiameter\\s+${ENGINEERING_NUMBER_PATTERN}(?![\\d./]|[ -]+\\d+/)(?!\\s*(?:mm|cm|m|in|thou)\\b)`, "g"),
       "diameter $1 in",
     )
     .replace(/[,:;=()[\]{}]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function parseEngineeringNumber(text: string): number {
+  const mixed = /^(\d+)[ -]+(\d+)\/(\d+)$/.exec(text);
+  if (mixed) return Number(mixed[1]) + Number(mixed[2]) / Number(mixed[3]);
+  const [numerator, denominator] = text.split("/").map(Number);
+  return denominator === undefined ? numerator : numerator / denominator;
 }
 
 function formatMeasurement(value: number): string {
@@ -167,21 +176,20 @@ export function parseEngineeringQuery(raw: string): ParsedEngineeringQuery {
   const normalized = normalizeSearchText(raw);
   const chips: EngineeringQueryChip[] = [];
   const coveredMeasurements = new Set<string>();
-  const numberPattern = "(?:\\d+(?:\\.\\d+)?|\\.\\d+)";
-  const diameterPattern = new RegExp(`\\bdiameter\\s*(${numberPattern})\\s*(mm|cm|m|in|thou)\\b`, "g");
-  const measurementPattern = new RegExp(`\\b(${numberPattern})\\s*(mm|cm|m|in|thou)\\b`, "g");
+  const diameterPattern = new RegExp(`\\bdiameter\\s*${ENGINEERING_NUMBER_PATTERN}\\s*(mm|cm|m|in|thou)\\b`, "g");
+  const measurementPattern = new RegExp(`${ENGINEERING_NUMBER_PATTERN}\\s*(mm|cm|m|in|thou)\\b`, "g");
 
   for (const match of normalized.matchAll(diameterPattern)) {
-    const value = Number(match[1]);
+    const value = parseEngineeringNumber(match[1]);
     const unit = match[2] as EngineeringQueryChip["unit"];
 
     if (Number.isFinite(value)) {
       const measurementKey = `${value}:${unit}`;
       coveredMeasurements.add(measurementKey);
       chips.push({
-        id: `diameter:${measurementKey}`,
+        id: `diameter:${measurementKey}:${match.index}`,
         kind: "diameter",
-        label: `Diameter ${formatMeasurement(value)} ${unit}`,
+        label: `Diameter ${match[1].includes("/") || match[1].startsWith(".") ? match[1] : formatMeasurement(value)} ${unit}`,
         value,
         unit,
       });
@@ -189,15 +197,15 @@ export function parseEngineeringQuery(raw: string): ParsedEngineeringQuery {
   }
 
   for (const match of normalized.matchAll(measurementPattern)) {
-    const value = Number(match[1]);
+    const value = parseEngineeringNumber(match[1]);
     const unit = match[2] as EngineeringQueryChip["unit"];
     const measurementKey = `${value}:${unit}`;
 
     if (Number.isFinite(value) && !coveredMeasurements.has(measurementKey)) {
       chips.push({
-        id: `measurement:${measurementKey}`,
+        id: `measurement:${measurementKey}:${match.index}`,
         kind: "measurement",
-        label: `${formatMeasurement(value)} ${unit}`,
+        label: `${match[1].includes("/") || match[1].startsWith(".") ? match[1] : formatMeasurement(value)} ${unit}`,
         value,
         unit,
       });
