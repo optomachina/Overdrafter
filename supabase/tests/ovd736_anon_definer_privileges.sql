@@ -320,6 +320,7 @@ insert into ovd736_authenticated_allowlist (sig, reason) values
   ('public.api_get_organization_entitlements(uuid)', 'signed in RPC: called from src/features/quotes/organization-entitlements.ts'),
   ('public.api_get_part_deadline(uuid)', 'signed in RPC: called from src/features/quotes/api/part-deadline-api.ts'),
   ('public.api_get_provider_dispatch_scope(uuid,public.vendor_name,text)', 'signed in RPC: called from src/features/quotes/api/quote-requests-api.ts'),
+  ('public.api_get_quantity_scope(uuid)', 'signed in RPC: called from src/features/quotes/quantity-scope.ts'),
   ('public.api_get_quote_access(uuid)', 'signed in RPC: called from src/features/quotes/quote-access.ts'),
   ('public.api_get_quote_lane_eligibility(uuid,public.vendor_name[])', 'signed in RPC: called from src/features/quotes/api/quote-requests-api.ts'),
   ('public.api_get_quote_run_readiness(uuid)', 'signed in RPC: called from src/features/quotes/api/quote-requests-api.ts'),

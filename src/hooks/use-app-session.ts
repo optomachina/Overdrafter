@@ -166,6 +166,7 @@ export function useAppSession() {
       queryClient.setQueryData<AppSessionData>(APP_SESSION_QUERY_KEY, (current) => ({
         user: session.user,
         memberships: current?.user?.id === session.user.id ? current.memberships : EMPTY_MEMBERSHIPS,
+        membershipsResolved: current?.user?.id === session.user.id ? current.membershipsResolved : false,
         isVerifiedAuth: hasVerifiedAuth(session.user),
         isPlatformAdmin: current?.user?.id === session.user.id ? current.isPlatformAdmin ?? false : false,
         authState: "authenticated",
@@ -515,6 +516,7 @@ export function useAppSession() {
             }
             return {
               user: liveBootstrap.session.user,
+              membershipsResolved: false,
               memberships: currentSession?.user?.id === liveBootstrap.session.user.id
                 ? currentSession.memberships
                 : EMPTY_MEMBERSHIPS,
@@ -721,6 +723,7 @@ export function useAppSession() {
     data: sessionData,
     user: sessionData?.user ?? null,
     memberships,
+    hasResolvedMemberships: sessionQuery.data?.membershipsResolved !== false,
     isVerifiedAuth: sessionData?.isVerifiedAuth ?? false,
     isPlatformAdmin: sessionData?.isPlatformAdmin ?? false,
     authState: sessionData?.authState ?? "anonymous",

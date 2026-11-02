@@ -55,7 +55,7 @@ error text rather than editing the query live.
 begin read only;
 
 -- 1. Rollout disabled before the window. Expect enabled = false for every row
--- (four controls; five once the OVD-987 migration is applied).
+-- (five controls; OVD-987 applied in production 2026-11-02, quantity switch OFF).
 select capability, enabled, revision, updated_at
 from private.commercial_rollout_controls
 order by capability;
