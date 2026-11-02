@@ -3407,7 +3407,7 @@ describe("ClientPart", () => {
         const alert = await openDeniedScope("provider_dispatch_special_requirements_not_supported", drawingThreads);
 
         expect(alert).toHaveTextContent("This package is not ready for controlled Fictiv beta dispatch.");
-        expect(alert).toHaveTextContent("The controlled Fictiv beta cannot carry");
+        expect(alert).toHaveTextContent("The controlled Fictiv beta cannot carry a Need by date, Threads, Notes");
         // The page cannot see every server-checked field (packaging notes are not in the client
         // part metadata), so it names the full list (QA FAIL on #1029 at d268b149).
         expect(alert).toHaveTextContent("an inspection level other than Standard");
