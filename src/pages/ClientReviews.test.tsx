@@ -209,7 +209,8 @@ describe("client review pages", () => {
   });
 
   for (const scope of ["part", "project"] as const) {
-    it(`${scope} review scrolls and focuses the release check on every request`, async () => {
+    it.each([false, true])(`${scope} review scrolls and focuses the release check on every request (reduced motion: %s)`, async (reducedMotion) => {
+      const matchMedia = vi.spyOn(window, "matchMedia").mockReturnValue({ matches: reducedMotion } as MediaQueryList);
       renderWithClient(
         <Routes><Route path={scope === "part" ? "/parts/:jobId/review" : "/projects/:projectId/review"} element={scope === "part" ? <ClientPartReview /> : <ClientProjectReview />} /></Routes>,
         scope === "part" ? "/parts/job-1/review" : "/projects/project-1/review",
@@ -221,8 +222,9 @@ describe("client review pages", () => {
       const heading = screen.getByRole("heading", { name: "More procurement detail is still needed" });
       expect(Element.prototype.scrollIntoView).toHaveBeenCalledTimes(1);
       expect(vi.mocked(Element.prototype.scrollIntoView).mock.contexts[0]).toBe(heading);
-      expect(Element.prototype.scrollIntoView).toHaveBeenCalledWith({ block: "start", behavior: "smooth" });
+      expect(Element.prototype.scrollIntoView).toHaveBeenCalledWith({ block: "start", behavior: reducedMotion ? "auto" : "smooth" });
       expect(heading).toHaveFocus();
+      expect(matchMedia).toHaveBeenCalledWith("(prefers-reduced-motion: reduce)");
       fireEvent.click(button);
       expect(Element.prototype.scrollIntoView).toHaveBeenCalledTimes(2);
       expect(vi.mocked(Element.prototype.scrollIntoView).mock.contexts[1]).toBe(heading);

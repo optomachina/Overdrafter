@@ -1380,6 +1380,7 @@ describe("ClientPart", () => {
     expect(screen.queryByRole("button", { name: /request manual quote/i })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Quote" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Quote" })).toHaveAccessibleDescription(/not enabled/);
+    expect(screen.getAllByText(/Automatic quote collection is not enabled for this organization/)).toHaveLength(1);
     expect(api.requestQuote).not.toHaveBeenCalled();
   });
 

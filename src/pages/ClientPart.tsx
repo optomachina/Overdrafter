@@ -769,7 +769,7 @@ const ClientPart = () => {
                     </Button>
                     {isQuoteCollectionModeLoading || !automaticQuoteCollectionEnabled ? (
                       <span id="quote-disabled-reason" className="sr-only">
-                        {isQuoteCollectionModeLoading ? "Checking automatic quote access." : "Automatic quote collection is not enabled for this organization."}
+                        {isQuoteCollectionModeLoading ? "Checking automatic quote access." : "Quote is unavailable: automatic quote collection is not enabled."}
                       </span>
                     ) : null}
                     <Button
