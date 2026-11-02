@@ -6,6 +6,7 @@
 -- when the writer lacks EXECUTE on the trigger function, and round trips the
 -- rollback. Synthetic records only; everything rolls back.
 begin;
+\ir fixtures/ovd994_rollback.inc
 
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;

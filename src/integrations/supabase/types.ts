@@ -5079,6 +5079,7 @@ export type Database = {
       }
       api_unarchive_job: { Args: { p_job_id: string }; Returns: string }
       api_unarchive_project: { Args: { p_project_id: string }; Returns: string }
+      api_clear_client_part_requested_by_date: { Args: { p_job_id: string }; Returns: string }
       api_update_client_part_request: {
         Args: {
           p_certifications?: Json
@@ -5100,6 +5101,7 @@ export type Database = {
           p_shipping?: Json
           p_sourcing?: Json
           p_threads?: string
+          p_clear_threads?: boolean
           p_tightest_tolerance_inch?: number
         }
         Returns: string

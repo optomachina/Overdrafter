@@ -187,8 +187,9 @@ describe("getXometryBetaScopeFailureMessage", () => {
       ).toBe(plain);
       expect(withThreads.startsWith(plain)).toBe(true);
       expect(withThreads).toContain("Thread callouts read from the drawing are saved as Threads");
-      expect(withThreads).toContain("cannot be cleared");
-      expect(withThreads).toContain("a part with thread callouts is outside the beta");
+      expect(withThreads).toContain("You can clear Threads in the request editor if the part does not need them, then retry.");
+      expect(withThreads).not.toContain("cannot be cleared");
+      expect(withThreads).not.toContain("a part with thread callouts is outside the beta");
     });
   });
 

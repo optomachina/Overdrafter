@@ -70,7 +70,7 @@ import {
   fetchVendorCapabilityProfiles,
   resolveClientPartDetailRoute,
 } from "@/features/quotes/api/workspace-access";
-import { updateClientPartRequest, resetClientPartPropertyOverrides } from "@/features/quotes/api/jobs-api";
+import { clearClientPartRequestedByDate, updateClientPartRequest, resetClientPartPropertyOverrides } from "@/features/quotes/api/jobs-api";
 import { useArchiveUndo } from "@/features/quotes/archive-undo";
 import { buildActivityLogEntries } from "@/features/quotes/activity-log";
 import { formatPartLabel, getClientItemPresentation } from "@/features/quotes/client-presentation";
@@ -235,6 +235,7 @@ function applyResetFields(
         break;
       case "threads":
         nextDraft.threads = refreshedDraft.threads;
+        nextDraft.clearThreads = false;
         break;
       case "process":
         nextDraft.process = refreshedDraft.process;
@@ -250,7 +251,7 @@ function hasText(value: unknown): value is string {
 }
 
 /**
- * The Threads value the request falls back to when its Threads field is cleared:
+ * The extracted Threads default, retained for reset and drawing-specific denial copy:
  * the stored property defaults when present, otherwise the drawing's thread callouts.
  * Mirrors the defaults the part workspace shows beside the Threads field.
  */
@@ -263,16 +264,6 @@ function getRequestThreadDefault(
     return typeof defaults.threads === "string" ? defaults.threads : null;
   }
   return extraction?.threads?.join(", ") ?? null;
-}
-
-/** Threads already stored on the approved request, which the server scope checks read. */
-function getSavedRequestThreads(part: PartAggregate | null): string | null {
-  const snapshot = part?.approvedRequirement?.spec_snapshot;
-  const snapshotThreads =
-    snapshot && typeof snapshot === "object" && !Array.isArray(snapshot) ? snapshot.threads : null;
-  const clientThreads = part?.clientRequirement?.threads;
-  if (hasText(clientThreads)) return clientThreads;
-  return hasText(snapshotThreads) ? snapshotThreads : null;
 }
 
 function requestDraftIncludesPatch(
@@ -314,6 +305,9 @@ export function useClientPartController(
   // undefined follows the request's own date; a value or null is the user's results filter (OVD-981).
   const [viewRequestedByDate, setViewRequestedByDate] = useState<string | null | undefined>(undefined);
   const [requestDraft, setRequestDraft] = useState<ClientPartRequestUpdateInput | null>(null);
+  const preserveRemovedDateDraftRef = useRef(false);
+  const serverDraftRef = useRef<ClientPartRequestUpdateInput | null>(null);
+  const fullSavePendingRef = useRef<ClientPartRequestUpdateInput | null>(null);
   const [quoteQuantityInput, setQuoteQuantityInput] = useState("");
   const [partRenameValue, setPartRenameValue] = useState("");
   const [isPartOptionsOpen, setIsPartOptionsOpen] = useState(false);
@@ -638,13 +632,38 @@ export function useClientPartController(
   const saveRequestMutation = useMutation({
     mutationFn: (input: ClientPartRequestUpdateInput) =>
       serializeRequestMutation(() => updateClientPartRequest(input)),
-    onSuccess: async () => {
+    onSuccess: async (_result, input) => {
+      if (fullSavePendingRef.current === input) {
+        preserveRemovedDateDraftRef.current = false;
+        serverDraftRef.current = null;
+        fullSavePendingRef.current = null;
+      }
       await invalidateClientWorkspaceQueries(queryClient, { jobId: canonicalJobId });
       toast.success("Request details updated.");
     },
-    onError: (error: Error) => {
+    onError: (error: Error, input) => {
+      if (fullSavePendingRef.current === input) fullSavePendingRef.current = null;
       toast.error(error.message || "Failed to update request details.");
     },
+  });
+
+  const clearNeedByMutation = useMutation({
+    mutationFn: () => serializeRequestMutation(() => clearClientPartRequestedByDate(canonicalJobId)),
+    onSuccess: async () => {
+      preserveRemovedDateDraftRef.current = true;
+      setRequestDraft((current) => current ? { ...current, requestedByDate: null } : current);
+      if (patchDraftPreservationRef.current) {
+        patchDraftPreservationRef.current.draft.requestedByDate = null;
+        if ("requestedByDate" in (patchDraftPreservationRef.current.patch ?? {})) {
+          patchDraftPreservationRef.current.patch = {
+            ...patchDraftPreservationRef.current.patch, requestedByDate: null,
+          };
+        }
+      }
+      await invalidateClientWorkspaceQueries(queryClient, { jobId: canonicalJobId });
+      toast.success("Need by date removed.");
+    },
+    onError: (error: Error) => toast.error(error.message || "Failed to remove Need by date."),
   });
 
   const resetFieldMutation = useMutation({
@@ -728,6 +747,9 @@ export function useClientPartController(
     const requestId = patchDraftRequestIdRef.current + 1;
     patchDraftRequestIdRef.current = requestId;
     patchDraftPreservationRef.current = null;
+    serverDraftRef.current = null;
+    preserveRemovedDateDraftRef.current = false;
+    fullSavePendingRef.current = null;
     setRequestDraft(null);
     resetFieldMutation.mutate({
       fields: [...CLIENT_PART_PROPERTY_OVERRIDE_FIELDS],
@@ -741,6 +763,9 @@ export function useClientPartController(
     mutationFn: (input: ClientPartRequestUpdateInput) =>
       serializeRequestMutation(() => updateClientPartRequest(input)),
     onSuccess: async () => {
+      preserveRemovedDateDraftRef.current = false;
+      serverDraftRef.current = null;
+      patchDraftPreservationRef.current = null;
       await invalidateClientWorkspaceQueries(queryClient, { jobId: canonicalJobId });
       toast.success("Part renamed.");
     },
@@ -984,12 +1009,8 @@ export function useClientPartController(
   const needByFilterIsViewOnly = !(
     quoteCollectionMode.state === "blocked" && !quoteCollectionMode.isLoading
   );
-  // OVD-991: Threads falls back to the drawing's thread callouts when cleared, and any full
-  // save of the request records them. Both server scope checks deny a non-blank Threads value.
   const requestThreadDefault = getRequestThreadDefault(partDetail?.part ?? null, extraction);
   const drawingHasThreads = hasText(requestThreadDefault);
-  const needByRemovalSavesDrawingThreads =
-    drawingHasThreads && !hasText(getSavedRequestThreads(partDetail?.part ?? null));
   const quoteViewRequestedByDate =
     needByFilterIsViewOnly && viewRequestedByDate !== undefined
       ? viewRequestedByDate
@@ -1171,6 +1192,9 @@ export function useClientPartController(
     setExcludedVendorKeys(readExcludedVendorKeys(canonicalJobId));
     setActivePreset(null);
     setViewRequestedByDate(undefined);
+    serverDraftRef.current = null;
+    preserveRemovedDateDraftRef.current = false;
+    fullSavePendingRef.current = null;
     patchDraftPreservationRef.current = null;
     setRequestDraft(null);
     setQuoteQuantityInput("");
@@ -1189,11 +1213,23 @@ export function useClientPartController(
 
     const preservation = patchDraftPreservationRef.current;
     const preservedDraft = preservation?.draft ?? null;
-    setRequestDraft(preservedDraft ?? fallbackRequestDraft);
+    const previousServer = serverDraftRef.current;
+    serverDraftRef.current = fallbackRequestDraft;
+    // A refetch updates untouched fields, but must not discard local editor changes.
+    setRequestDraft((current) => {
+      if (preservedDraft) return preservedDraft;
+      if (!preserveRemovedDateDraftRef.current || !current || !previousServer) return fallbackRequestDraft;
+      return Object.fromEntries([...new Set([...Object.keys(current), ...Object.keys(fallbackRequestDraft)])].map((field) => [
+        field,
+        JSON.stringify(current[field as keyof ClientPartRequestUpdateInput]) !==
+          JSON.stringify(previousServer[field as keyof ClientPartRequestUpdateInput])
+          ? current[field as keyof ClientPartRequestUpdateInput] : fallbackRequestDraft[field as keyof ClientPartRequestUpdateInput],
+      ])) as ClientPartRequestUpdateInput;
+    });
     if (!preservedDraft) {
-      setQuoteQuantityInput(
-        formatRequestedQuoteQuantitiesInput(fallbackRequestDraft.requestedQuoteQuantities),
-      );
+      setQuoteQuantityInput((current) => preserveRemovedDateDraftRef.current && previousServer &&
+        current !== formatRequestedQuoteQuantitiesInput(previousServer.requestedQuoteQuantities)
+        ? current : formatRequestedQuoteQuantitiesInput(fallbackRequestDraft.requestedQuoteQuantities));
     }
     setPartRenameValue(fallbackRequestDraft.partNumber ?? presentation?.title ?? "");
   }, [fallbackRequestDraft, presentation?.title]);
@@ -1633,6 +1669,7 @@ export function useClientPartController(
     patchDraftPreservationRef.current = null;
     setRequestDraft(payload);
     setQuoteQuantityInput(formatRequestedQuoteQuantitiesInput(payload.requestedQuoteQuantities));
+    fullSavePendingRef.current = payload;
     saveRequestMutation.mutate(payload);
   };
 
@@ -1642,7 +1679,8 @@ export function useClientPartController(
       setViewRequestedByDate(nextDate);
       return;
     }
-    handleSaveRequestPatch({ requestedByDate: nextDate });
+    if (nextDate === null) clearNeedByMutation.mutate();
+    else handleSaveRequestPatch({ requestedByDate: nextDate });
   };
 
   const handleSaveRequestPatch = (next: Partial<ClientPartRequestUpdateInput>) => {
@@ -1986,7 +2024,7 @@ export function useClientPartController(
     requestSummaryRequestedByDate,
     quoteViewRequestedByDate,
     needByFilterIsViewOnly,
-    needByRemovalSavesDrawingThreads,
+    clearNeedByMutation,
     resolveSidebarProjectIdsForJob,
     navigationModel,
     revisionOptions,

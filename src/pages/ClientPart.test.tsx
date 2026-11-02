@@ -1,3 +1,4 @@
+import type { ClientPartRequestUpdateInput } from "@/features/quotes/types";
 import "@testing-library/jest-dom/vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, renderHook, screen, waitFor, within } from "@testing-library/react";
@@ -66,6 +67,7 @@ const {
     unpinJob: vi.fn(),
     unpinProject: vi.fn(),
     updateClientPartRequest: vi.fn(),
+    clearClientPartRequestedByDate: vi.fn().mockResolvedValue("job-1"),
     updateProject: vi.fn(),
     uploadFilesToJob: vi.fn(),
   },
@@ -116,6 +118,7 @@ vi.mock("@/features/quotes/api/extraction-api", () => ({
 vi.mock("@/features/quotes/api/jobs-api", () => ({
   resetClientPartPropertyOverrides: api.resetClientPartPropertyOverrides,
   updateClientPartRequest: api.updateClientPartRequest,
+  clearClientPartRequestedByDate: api.clearClientPartRequestedByDate,
 }));
 vi.mock("@/features/quotes/api/projects-api", () => ({
   archiveProject: api.archiveProject,
@@ -496,8 +499,8 @@ vi.mock("@/components/workspace/PartInfoPanel", () => ({
     onSave,
     onResetField,
   }: {
-    effectiveRequestDraft?: { description?: string | null; notes?: string | null } | null;
-    onDraftChange?: (next: { description?: string; notes?: string }) => void;
+    effectiveRequestDraft?: ClientPartRequestUpdateInput | null;
+    onDraftChange?: (next: Partial<ClientPartRequestUpdateInput>) => void;
     statusContent?: ReactNode;
     onSave?: () => void;
     onResetField?: (field: "description") => void;
@@ -517,6 +520,11 @@ vi.mock("@/components/workspace/PartInfoPanel", () => ({
           value={effectiveRequestDraft?.notes ?? ""}
           onChange={(event) => onDraftChange?.({ notes: event.target.value })}
         />
+        <input aria-label="Packaging notes" value={effectiveRequestDraft?.shipping.packagingNotes ?? ""}
+          onChange={(event) => effectiveRequestDraft && onDraftChange?.({
+            shipping: { ...effectiveRequestDraft.shipping, packagingNotes: event.target.value },
+          })} />
+        <input aria-label="Draft Need by" value={effectiveRequestDraft?.requestedByDate ?? ""} readOnly />
         <button type="button" onClick={() => onSave?.()}>
           Save Request
         </button>
@@ -3153,70 +3161,111 @@ describe("ClientPart", () => {
     expect(api.updateClientPartRequest).not.toHaveBeenCalled();
   });
 
-  it("explains an already saved Need by date and removes it only on request (OVD-981)", async () => {
+  it("removes saved Need by through only the narrow RPC and preserves unsaved edits (OVD-994)", async () => {
+    api.fetchPartDetailByJobId.mockResolvedValue(createNeedByRequestDetail({ drawingThreads: THREADED_DRAWING }));
     renderWithClient("/parts/job-1");
-
-    expect(await screen.findByText(/does not support a Need by date/i)).toBeInTheDocument();
-    expect(api.updateClientPartRequest).not.toHaveBeenCalled();
-
-    fireEvent.click(screen.getByRole("button", { name: "Remove Need by from request" }));
-
-    await waitFor(() => {
-      expect(api.updateClientPartRequest).toHaveBeenCalledWith(
-        expect.objectContaining({ jobId: "job-1", requestedByDate: null }),
-      );
-    });
-  });
-
-  it("removes the Need by date with a save that changes nothing else (OVD-991)", async () => {
-    api.fetchPartDetailByJobId.mockResolvedValue(createNeedByRequestDetail({ savedThreads: "1/4-20 UNC-2B" }));
-    renderWithClient("/parts/job-1");
-
-    // An unsaved edit in the request form must not ride along with the removal.
     fireEvent.change(await screen.findByLabelText("Notes"), { target: { value: "Unsaved note" } });
     fireEvent.click(await screen.findByRole("button", { name: "Remove Need by from request" }));
+    await waitFor(() => expect(api.clearClientPartRequestedByDate).toHaveBeenCalledWith("job-1"));
+    expect(api.updateClientPartRequest).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("Notes")).toHaveValue("Unsaved note");
+  });
 
+  it("retains Clear threads through Remove refetch and Save (delta OVD-994)", async () => {
+    const initial = createNeedByRequestDetail({ savedThreads: "M6x1", drawingThreads: THREADED_DRAWING });
+    api.fetchPartDetailByJobId.mockResolvedValue(initial);
+    api.clearClientPartRequestedByDate.mockImplementation(async () => {
+      api.fetchPartDetailByJobId.mockResolvedValue({
+        ...initial,
+        job: { ...initial.job, requested_by_date: null },
+        part: { ...initial.part, approvedRequirement: {
+          ...initial.part.approvedRequirement, requested_by_date: null,
+        } },
+      });
+    });
+    const { result } = renderPartControllerHook();
+    await waitFor(() => expect(result.current.effectiveRequestDraft?.threads).toBe("M6x1"));
+    // The editor's Clear threads action emits this exact patch.
+    act(() => result.current.handleDraftChange({ threads: "", clearThreads: true }));
+    act(() => result.current.clearNeedByMutation.mutate());
+    await waitFor(() => expect(result.current.effectiveRequestDraft?.requestedByDate).toBeNull());
+    await waitFor(() => expect(result.current.clearNeedByMutation.isSuccess).toBe(true));
+    act(() => result.current.handleSaveRequest());
+    await waitFor(() => expect(api.updateClientPartRequest).toHaveBeenCalledWith(
+      expect.objectContaining({ threads: "", clearThreads: true }),
+    ));
+  });
+
+  it.each(["save", "rename"] as const)("resyncs normalized values after %s despite an earlier save failure (delta OVD-994)", async (operation) => {
+    const initial = createNeedByRequestDetail();
+    api.fetchPartDetailByJobId.mockResolvedValue(initial);
+    const { result } = renderPartControllerHook();
+    await waitFor(() => expect(result.current.effectiveRequestDraft?.notes).toBe("Deburr all edges"));
+    act(() => result.current.clearNeedByMutation.mutate());
+    await waitFor(() => expect(toastMock.success).toHaveBeenCalledWith("Need by date removed."));
+    const earlier = createDeferredPromise<void>();
+    const later = createDeferredPromise<void>();
+    api.updateClientPartRequest.mockImplementationOnce(() => earlier.promise).mockImplementationOnce(async () => {
+      await later.promise;
+      api.fetchPartDetailByJobId.mockResolvedValue({
+        ...initial,
+        part: { ...initial.part, approvedRequirement: {
+          ...initial.part.approvedRequirement,
+          spec_snapshot: { process: "CNC milling", notes: "Server normalized" },
+        } },
+      });
+    });
+    act(() => result.current.handleSaveRequestPatch({ process: "CNC milling" }));
     await waitFor(() => expect(api.updateClientPartRequest).toHaveBeenCalledTimes(1));
-    expect(api.updateClientPartRequest.mock.calls[0]).toStrictEqual([
-      {
-        jobId: "job-1",
-        requestedServiceKinds: ["manufacturing_quote"],
-        primaryServiceKind: "manufacturing_quote",
-        serviceNotes: null,
-        description: "Bracket",
-        partNumber: "BRKT-001",
-        revision: "A",
-        material: "6061-T6 aluminum",
-        finish: "Black anodize",
-        threads: "1/4-20 UNC-2B",
-        tightestToleranceInch: 0.005,
-        process: "CNC milling",
-        notes: "Deburr all edges",
-        quantity: 10,
-        requestedQuoteQuantities: [10],
-        requestedByDate: null,
-        shipping: { requestedByDateOverride: null, packagingNotes: null, shippingNotes: null },
-        certifications: {
-          requiredCertifications: [],
-          materialCertificationRequired: null,
-          certificateOfConformanceRequired: null,
-          inspectionLevel: null,
-          notes: null,
-        },
-        sourcing: {
-          regionPreferenceOverride: null,
-          preferredSuppliers: [],
-          materialProvisioning: null,
-          notes: null,
-        },
-        release: {
-          releaseStatus: null,
-          reviewDisposition: null,
-          quoteBlockedUntilRelease: null,
-          notes: null,
-        },
-      },
-    ]);
+    act(() => result.current.handleDraftChange({ notes: "Local unnormalized" }));
+    let rename: Promise<void> | undefined;
+    act(() => {
+      if (operation === "save") result.current.handleSaveRequest();
+      else rename = result.current.handleRenamePart("job-1", "Renamed");
+    });
+    await act(async () => { earlier.reject(new Error("Earlier patch failed")); });
+    await waitFor(() => expect(api.updateClientPartRequest).toHaveBeenCalledTimes(2));
+    await act(async () => { later.resolve(); await rename; });
+    await waitFor(() => expect(result.current.effectiveRequestDraft?.notes).toBe("Server normalized"));
+  });
+
+  it.each(["Notes", "Packaging notes"])("preserves unsaved %s through Remove and server refetch (QA OVD-994)", async (label) => {
+    const initial = createNeedByRequestDetail();
+    const cleared = {
+      ...initial,
+      job: { ...initial.job, requested_by_date: null },
+      summary: { ...initial.summary, requestedByDate: null },
+      part: { ...initial.part, approvedRequirement: {
+        ...initial.part.approvedRequirement,
+        requested_by_date: null,
+        spec_snapshot: { process: "CNC milling", notes: "Deburr all edges", requestedByDate: null },
+      } },
+    };
+    api.fetchPartDetailByJobId.mockResolvedValue(initial);
+    api.clearClientPartRequestedByDate.mockImplementation(async () => {
+      api.fetchPartDetailByJobId.mockResolvedValue(cleared);
+    });
+    renderWithClient("/parts/job-1");
+    fireEvent.change(await screen.findByLabelText(label), { target: { value: "QA unsaved text" } });
+    fireEvent.click(await screen.findByRole("button", { name: "Remove Need by from request" }));
+    await waitFor(() => expect(screen.getByLabelText("Draft Need by")).toHaveValue(""));
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Remove Need by from request" })).toBeNull());
+    expect(screen.getByLabelText(label)).toHaveValue("QA unsaved text");
+    expect(api.updateClientPartRequest).not.toHaveBeenCalled();
+
+    api.updateClientPartRequest.mockImplementation(async () => {
+      api.fetchPartDetailByJobId.mockResolvedValue({
+        ...cleared,
+        part: { ...cleared.part, approvedRequirement: {
+          ...cleared.part.approvedRequirement,
+          spec_snapshot: { process: "CNC milling", notes: "Saved normalized note", requestedByDate: null },
+        } },
+      });
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save Request" }));
+    await waitFor(() => expect(api.updateClientPartRequest).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.getByLabelText("Notes")).toHaveValue("Saved normalized note"));
+    expect(screen.getByLabelText("Packaging notes")).toHaveValue("");
   });
 
   it("keeps the saved Need by notice on the request's date while the filter shows another (OVD-991)", async () => {
@@ -3290,7 +3339,7 @@ describe("ClientPart", () => {
 
   it("disables the Need by controls while a request save is pending (OVD-991)", async () => {
     const pendingSave = createDeferredPromise<void>();
-    api.updateClientPartRequest.mockReturnValue(pendingSave.promise);
+    api.clearClientPartRequestedByDate.mockReturnValue(pendingSave.promise);
     renderWithClient("/parts/job-1");
 
     const remove = await screen.findByRole("button", { name: "Remove Need by from request" });
@@ -3311,20 +3360,12 @@ describe("ClientPart", () => {
     expect(screen.getByLabelText("Need by date")).toBeEnabled();
   });
 
-  it("warns that removing Need by also saves the drawing's thread callouts as Threads (OVD-991)", async () => {
+  it("does not claim Remove saves drawing callouts as Threads (OVD-994)", async () => {
     api.fetchPartDetailByJobId.mockResolvedValue(createNeedByRequestDetail({ drawingThreads: THREADED_DRAWING }));
     renderWithClient("/parts/job-1");
-
     const notice = await screen.findByRole("region", { name: "Need by date on the request" });
-    expect(notice).toHaveTextContent("records the thread callouts read from the drawing as Threads");
-
-    // The warning is true: the save sends the callouts as the request's Threads.
-    fireEvent.click(screen.getByRole("button", { name: "Remove Need by from request" }));
-    await waitFor(() => expect(api.updateClientPartRequest).toHaveBeenCalledTimes(1));
-    expect(api.updateClientPartRequest.mock.calls[0]?.[0]).toMatchObject({
-      requestedByDate: null,
-      threads: "1/4-20 UNC-2B, M6x1.0-6H",
-    });
+    expect(notice).toHaveTextContent("changes only the saved Need by date");
+    expect(notice).not.toHaveTextContent(/thread callouts/i);
   });
 
   it.each([
@@ -3376,6 +3417,8 @@ describe("ClientPart", () => {
         expect(alert).toHaveTextContent("Remove them only if the part does not need them, then retry.");
         expect(alert).not.toHaveTextContent("Xometry");
         expect(alert.textContent?.includes("Thread callouts read from the drawing are saved as Threads")).toBe(hasNote);
+        expect(alert.textContent?.includes("You can clear Threads in the request editor if the part does not need them, then retry.")).toBe(hasNote);
+        expect(alert).not.toHaveTextContent("cannot be cleared");
       } finally {
         vi.unstubAllEnvs();
       }
@@ -3559,9 +3602,8 @@ describe("ClientPart", () => {
     fireEvent.click(screen.getByRole("button", { name: "Clear" }));
 
     await waitFor(() => {
-      expect(api.updateClientPartRequest).toHaveBeenCalledWith(
-        expect.objectContaining({ jobId: "job-1", requestedByDate: null }),
-      );
+      expect(api.clearClientPartRequestedByDate).toHaveBeenCalledWith("job-1");
+      expect(api.updateClientPartRequest).not.toHaveBeenCalled();
     });
   });
 

@@ -1328,3 +1328,19 @@ describe("formatCurrency across package, review and quotes", () => {
     },
   );
 });
+
+it("keeps explicitly cleared Threads empty when rebuilding a draft from a threaded drawing (OVD-994)", () => {
+  const part = makePartAggregate({
+    extraction: makeExtractionRecord({ extraction: { threads: ["M6x1"] } }),
+    approvedRequirement: {
+      id: "requirement-1", part_id: "part-1", organization_id: "org-1",
+      approved_by: "user-1", approved_at: "2026-11-02T00:00:00Z",
+      created_at: "2026-11-02T00:00:00Z", updated_at: "2026-11-02T00:00:00Z",
+      description: null, part_number: null, revision: null, material: "6061", finish: null,
+      quantity: 1, quote_quantities: [1], requested_by_date: null,
+      applicable_vendors: [], tightest_tolerance_inch: null,
+      spec_snapshot: { threads: "", projectPartProperties: { overrides: { threads: "" } } },
+    } as PartAggregate["approvedRequirement"],
+  });
+  expect(buildRequirementDraft(part).threads).toBe("");
+});

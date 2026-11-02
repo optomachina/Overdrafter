@@ -235,7 +235,7 @@ const ClientPart = () => {
     requestSummaryRequestedByDate,
     quoteViewRequestedByDate,
     needByFilterIsViewOnly,
-    needByRemovalSavesDrawingThreads,
+    clearNeedByMutation,
     revisionOptions,
     saveRequestMutation,
     singleQuantity,
@@ -391,7 +391,7 @@ const ClientPart = () => {
   };
 
   const handleQuoteRequestFlowOpenChange = (open: boolean) => {
-    if (open && saveRequestMutation.isPending) {
+    if (open && (saveRequestMutation.isPending || clearNeedByMutation.isPending)) {
       return;
     }
 
@@ -533,7 +533,7 @@ const ClientPart = () => {
         onDraftChange={handleDraftChange}
         onSave={handleSaveRequest}
         onUploadRevision={attachFilesPicker.openFilePicker}
-        isSaving={saveRequestMutation.isPending}
+        isSaving={saveRequestMutation.isPending || clearNeedByMutation.isPending}
         onResetField={handleResetField}
         onResetAllFields={handleResetAllFields}
         fieldDefaults={partFieldDefaults}
@@ -677,7 +677,7 @@ const ClientPart = () => {
         provider={dispatchProvider}
         fanout={providerFanout}
         scope={automaticQuoteCollectionEnabled ? xometryDispatchScope : null}
-        isScopeLoading={isXometryDispatchScopeLoading || saveRequestMutation.isPending}
+        isScopeLoading={isXometryDispatchScopeLoading || saveRequestMutation.isPending || clearNeedByMutation.isPending}
         isSubmitting={isRequestingQuote}
         scopeError={
           automaticQuoteCollectionEnabled
@@ -962,7 +962,7 @@ const ClientPart = () => {
                   <ClientSourcingResultPanel
                     result={sourcingResult}
                     selectedProcess={effectiveRequestDraft?.process}
-                    isProcessSaving={saveRequestMutation.isPending}
+                    isProcessSaving={saveRequestMutation.isPending || clearNeedByMutation.isPending}
                     onProcessSelect={(process) => handleSaveRequestPatch({ process })}
                   />
                 ) : null}
@@ -1025,9 +1025,8 @@ const ClientPart = () => {
                         {needByFilterIsViewOnly && requestSummaryRequestedByDate ? (
                           <SavedNeedByNotice
                             requestedByDate={requestSummaryRequestedByDate}
-                            onRemove={() => handleSaveRequestPatch({ requestedByDate: null })}
-                            disabled={saveRequestMutation.isPending}
-                            savesDrawingThreads={needByRemovalSavesDrawingThreads}
+                            onRemove={() => clearNeedByMutation.mutate()}
+                            disabled={saveRequestMutation.isPending || clearNeedByMutation.isPending}
                           />
                         ) : null}
                         <QuoteSelectionFunctionBar
@@ -1037,7 +1036,7 @@ const ClientPart = () => {
                           deadlineCounts={viewDeadline ? deadlineCounts : null}
                           onScopeChange={(nextScope) => applyPartPreset(partPresetMode, nextScope)}
                           onRequestedByDateChange={handleNeedByFilterChange}
-                          disabled={saveRequestMutation.isPending}
+                          disabled={saveRequestMutation.isPending || clearNeedByMutation.isPending}
                           dueDateHelpText={
                             needByFilterIsViewOnly
                               ? NEED_BY_VIEW_ONLY_HELP_TEXT
@@ -1051,7 +1050,7 @@ const ClientPart = () => {
                   <ClientSourcingResultPanel
                     result={sourcingResult}
                     selectedProcess={effectiveRequestDraft?.process}
-                    isProcessSaving={saveRequestMutation.isPending}
+                    isProcessSaving={saveRequestMutation.isPending || clearNeedByMutation.isPending}
                     onProcessSelect={(process) => handleSaveRequestPatch({ process })}
                   />
                 ) : null}
