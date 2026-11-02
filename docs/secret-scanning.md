@@ -13,9 +13,14 @@ Blaine approved the pinned gitleaks v8.30.1 binary and this report-mode
 workflow on 2026-10-16: "secret scanning tool is approved".
 
 The job runs in **report mode** for one week: findings are printed and never
-fail it. It is not a required check, and the `ci` aggregate does not need it.
-Making it required, or switching either layer to enforce, is a **later,
-separate approval**; this approval does not cover it.
+fail it. The `ci` aggregate does not need it. A read-only check on
+2026-10-31 found that branch protection on `main` already lists `secret-scan`
+as a required check. No approval for making it required is recorded in this
+repo; the 2026-10-16 approval does not cover it. Switching either layer to
+enforce is still a **later, separate approval**. A scanner that cannot run
+(download, checksum or git error) turns the job red. Whether that red job,
+under job-level `continue-on-error`, blocks the PR is not confirmed yet (see the
+[workflow section](#workflow-githubworkflowssecret-scanyml)).
 
 ## Path block
 
@@ -102,7 +107,8 @@ checker on the PR range (see below).
   none of the five; the scan step reports all five.
 
 Neither suite runs the real gitleaks binary. These real-binary checks are
-**follow-ups**, due before the job is made required:
+**follow-ups**, due before the job is made enforcing (branch protection
+already lists it as required; see the top of this file):
 
 - gitleaks catches a synthetic AWS access key, Stripe secret key, JWT and PEM
   private key added in a PR range.
@@ -274,8 +280,9 @@ Shape:
   report, kept for 7 days.
 - The path block diffs head against `merge-base(base, head)`, so base commits
   after the branch point are not counted.
-- The job has `continue-on-error: true`, is not a required check, and is not
-  in the `ci` aggregate's `needs`.
+- The job has `continue-on-error: true` and is not in the `ci` aggregate's
+  `needs`. Branch protection on `main` lists it as a required check (read-only
+  check, 2026-10-31; no approval recorded, see the top of this file).
 
 Step behaviour. GitHub runs each `run:` block as `bash -e`. Every exit code
 that matters is captured with `|| rc=$?`, so in each case below `-e` does not
@@ -302,18 +309,26 @@ stop a step before it writes its step summary.
 - PR-controlled text (path names, scanner output) is printed between
   `::stop-commands::` markers, so it cannot issue workflow commands.
 - A step that fails (exit 1) turns the job red, but continue-on-error keeps the
-  run green, and nothing requires the job, so it never blocks a merge. gitleaks
-  still runs when the path block step fails.
+  run green. gitleaks still runs when the path block step fails. Branch
+  protection lists `secret-scan` as required (read-only check, 2026-10-31).
+  Findings are reported and never fail the job. A scanner crash (a gitleaks
+  download, checksum or start failure, or a git error) turns the job red, but
+  whether a red job under continue-on-error blocks a merge depends on the
+  reported check conclusion. No run has had a failed step yet (the last 100
+  runs all concluded `success`), so this is not confirmed. Confirm it on a
+  live run before relying on either answer.
 
 ### Later, separate approval (not covered by the 2026-10-16 approval)
 
 After the report week, each of these needs its own Blaine approval:
 
 - Drop `continue-on-error`, and pass `--enforce` to the path block.
-- Add `secret-scan` to the required checks. A required check must also report
-  on `merge_group` (see `scripts/merge-queue-workflows.test.mjs` and
-  `docs/runbooks/merge-queue.md`), so that change adds a `merge_group` no-op
-  trigger. Today the workflow deliberately has none.
+- Add `secret-scan` to the required checks. A read-only check on 2026-10-31
+  shows branch protection on `main` already lists it. A required check must
+  also report on `merge_group` (see `scripts/merge-queue-workflows.test.mjs`
+  and `docs/runbooks/merge-queue.md`), so the workflow now triggers on
+  `merge_group` and runs the real scan there (never a no op) on
+  `merge_group.base_sha..merge_group.head_sha`.
 - Before either: run the real-binary checks listed under "Test coverage and
   follow-ups", and decide what to do about each item under "What the scan
   still does not see".

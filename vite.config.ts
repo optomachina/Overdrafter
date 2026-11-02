@@ -92,6 +92,9 @@ export default defineConfig(({ mode }) => ({
   },
   define: {
     __APP_VERSION__: JSON.stringify(appVersion),
+    // OVD-803: expose only this one server flag to the client, and only its exact "1" value.
+    // A wider envPrefix would ship any future JARVIS_PWA_* server value to browsers.
+    "import.meta.env.JARVIS_PWA_ENABLED": process.env.JARVIS_PWA_ENABLED === "1" ? JSON.stringify("1") : "undefined",
   },
   build: {
     // Vite inlines every file under 4 KiB as a data: URL, and Vite 5 has no per-import opt-out (`?no-inline`
