@@ -16,6 +16,7 @@ import {
   readStartupSupabaseBootstrap,
   removeStoredSupabaseSession,
 } from "@/features/quotes/api/shared/startup-auth";
+import { clearAllQuoteReferences } from "@/features/quotes/quote-local-reference";
 import { WORKSPACE_SHARED_STALE_TIME_MS } from "@/features/quotes/workspace-navigation";
 import { supabase } from "@/integrations/supabase/client";
 import { hasVerifiedAuth } from "@/lib/auth-status";
@@ -686,6 +687,7 @@ export function useAppSession() {
       "Clearing local Supabase session storage after terminal invalid_session classification.",
     );
     removeStoredSupabaseSession();
+    clearAllQuoteReferences();
     clearSubjectBoundClientState(
       queryClient,
       queryClient.getQueryData<AppSessionData>(APP_SESSION_QUERY_KEY)?.user?.id,
@@ -697,6 +699,7 @@ export function useAppSession() {
 
   const signOut = async () => {
     if (isFixtureSession) {
+      clearAllQuoteReferences();
       clearSubjectBoundClientState(
         queryClient,
         queryClient.getQueryData<AppSessionData>(sessionQueryKey)?.user?.id,
@@ -728,6 +731,7 @@ export function useAppSession() {
     hasResolvedInitialRestoreRef.current = true;
     setHasResolvedInitialRestore(true);
     removeStoredSupabaseSession();
+    clearAllQuoteReferences();
     clearSubjectBoundClientState(
       queryClient,
       queryClient.getQueryData<AppSessionData>(APP_SESSION_QUERY_KEY)?.user?.id,
@@ -749,6 +753,7 @@ export function useAppSession() {
         "Supabase signOut reported no remaining browser session after optimistic logout.",
       );
       removeStoredSupabaseSession();
+      clearAllQuoteReferences();
       clearSubjectBoundClientState(
         queryClient,
         queryClient.getQueryData<AppSessionData>(APP_SESSION_QUERY_KEY)?.user?.id,

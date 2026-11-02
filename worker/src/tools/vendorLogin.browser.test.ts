@@ -208,6 +208,8 @@ function geomiqSite(): Site {
     </script></body>`;
   return {
     "GET app.geomiq.com/": html(root),
+    // The reviewed landing page (`routes.uploadUrl`) shows the same signed-in evidence.
+    "GET app.geomiq.com/quotes": html(root),
     "GET app.geomiq.com/login": html(login),
     "POST app.geomiq.com/api/login": loginResponder(),
   };

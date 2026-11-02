@@ -6,11 +6,13 @@ continue with the selected vendor.
 
 The active 1.0 product is a controlled design-partner beta: an authenticated
 responsive-web journey with a CNC-first machined-aluminum STEP/STP validation
-envelope and at least five eligible, independently admitted and production-
-certified automatic quote sources. The named 1.0 portfolio is Xometry, Fictiv,
-Quickparts, Weerg, Geomiq, RMFG, and OSH Cut. RMFG and OSH Cut need separately
-qualified process-specific routes; their account or source presence is not a
-live quote or production certification. It is not general availability.
+envelope and four eligible, independently admitted and production-certified
+automatic quote sources (Blaine, October 20, 2026): Xometry, Fictiv and
+Quickparts for the CNC validation package and RMFG for the sheet-metal
+validation package, each only for its own envelope. Weerg, Geomiq and OSH Cut
+are 1.1. RMFG needs a separately qualified process-specific route and is never
+a CNC quote source; account or source presence is not a live quote or
+production certification. It is not general availability.
 
 The broader CAD-native manufacturing co-pilot remains a captured incubator
 vision; it is not the current product promise or execution queue.
@@ -83,14 +85,14 @@ bounded probe-failure evidence and Cloud Run CLI repairs; fresh final-digest
 qualification and exact owner authorization are still required before the
 migration-first final OVD-408 worker release and hosted readback can resume.
 `OVD-206` then freezes the Xometry security and certification baseline;
-`OVD-199` certifies at least four additional CNC-eligible automatic providers
-from the named portfolio and qualifies RMFG and OSH Cut for their applicable
-processes before `OVD-319` may enable the seven-provider beta. The
+`OVD-199` certifies Fictiv and Quickparts for the CNC validation package and
+qualifies RMFG for the sheet-metal validation package before `OVD-319` may
+enable the four-provider beta. The
 single authoritative queue and the reason for that ordering are in `PLAN.md`;
 the exact package and operating boundary are in
-[`docs/1-0-beta-runbook.md`](docs/1-0-beta-runbook.md). Providers beyond the
-named seven that fit an existing qualified 1.0 envelope become the first 1.1
-execution lane.
+[`docs/1-0-beta-runbook.md`](docs/1-0-beta-runbook.md). Weerg, Geomiq, OSH Cut
+and other providers beyond the named four that fit an existing qualified 1.0
+envelope become the first 1.1 execution lane.
 
 After production certification, `OVD-358` runs the Founding Beta. Qualified
 friends of the founder are the first intended cohort under the same safeguards

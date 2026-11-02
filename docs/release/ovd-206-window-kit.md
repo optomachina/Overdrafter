@@ -54,7 +54,8 @@ error text rather than editing the query live.
 ```sql
 begin read only;
 
--- 1. Rollout disabled before the window. Expect enabled = false for all four.
+-- 1. Rollout disabled before the window. Expect enabled = false for every row
+-- (four controls; five once the OVD-987 migration is applied).
 select capability, enabled, revision, updated_at
 from private.commercial_rollout_controls
 order by capability;

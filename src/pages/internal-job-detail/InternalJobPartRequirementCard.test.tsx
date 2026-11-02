@@ -428,7 +428,7 @@ describe("internal requirement quantity save integration", () => {
     );
   });
 
-  it.each(["quotes", "quantity"] as const)("allows saving after a service change hides invalid %s text", async (field) => {
+  it.each(["quotes", "quantity"] as const)("blocks stale saves after a service change hides invalid %s text", async (field) => {
     const host = renderRequirements();
     fireEvent.change(host[field], { target: { value: "12.5" } });
     fireEvent.blur(host[field]);
@@ -440,13 +440,11 @@ describe("internal requirement quantity save integration", () => {
     expect(screen.getAllByLabelText("Quote quantities")).toHaveLength(1);
     expect(screen.getAllByLabelText("Quantity")).toHaveLength(1);
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
-    expect(host.save).toBeEnabled();
-    await act(async () => fireEvent.click(host.save));
-    await waitFor(() => expect(approveJobRequirements).toHaveBeenCalledOnce());
-    expect(vi.mocked(approveJobRequirements).mock.calls[0][1][1]).toMatchObject({
-      requestedServiceKinds: ["manufacturing_quote", "cad_modeling"],
-      quantity: 10,
-    });
+    expect(host.save).toBeDisabled();
+    await act(async () => fireEvent.click(screen.getByText("Attempt programmatic save")));
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(expect.stringContaining("Restore quote services")));
+    expect(approveJobRequirements).not.toHaveBeenCalled();
+    expect(toast.success).not.toHaveBeenCalled();
 
     // Returning to quote services exposes the retained text and blocks Save again.
     fireEvent.click(cadModeling);

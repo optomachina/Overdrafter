@@ -340,11 +340,13 @@ Use `docs/debugging-workflows.md` for the exact commands and setup details. Pick
 - verify the private provider-admission registry seeds every current provider, keeps Xometry controlled-beta-only and every other provider disabled, fails closed for missing/incomplete/expired policies, requires a new revision for each change, preserves append-only history, exposes only its bounded service-role resolver, and has no routing/permit/preflight integration until a later reviewed migration adds one
 - for every additional 1.0 provider, verify admitted process/material/file limits, isolated session ownership, exact action-time confirmation, immediate service-side recheck, finite failure/manual-follow-up behavior, normalized price/quantity/lead-time/provider-reference provenance, rollback, and no-order behavior before production certification
 - prove that a permit, policy revision, envelope, file or derivative hash, scope, lane/task, session, or organization for one provider cannot authorize another provider
-- verify the 1.0 beta-enablement preflight rejects fewer than five qualifying
-  providers and excludes manual-only, evaluation-only, disabled, expired,
-  or package-incompatible providers from the count
-- verify the accepted set explicitly names Xometry plus at least four additional
-  providers and that no provider's policy, permit, files, envelope, session, or
+- verify the 1.0 beta-enablement preflight rejects any set that lacks one of
+  the four 1.0 providers (Xometry, Fictiv and Quickparts for the CNC validation
+  package and RMFG for the sheet-metal validation package, each qualified for
+  its own envelope) and excludes manual-only, evaluation-only, disabled,
+  expired, or package-incompatible providers from the count
+- verify the accepted set explicitly names Xometry, Fictiv, Quickparts and RMFG
+  and that no provider's policy, permit, files, envelope, session, or
   evidence authorizes another provider
 - verify that only successful offers from the current admitted and production-certified provider policy, no older than 14 days, are labeled live; the `OVD-206` baseline must accept only Xometry, and simulated, stale, failed, unadmitted, and unproven offers must fall back to recommendations
 - verify buyer-visible provider destinations are HTTPS and match the admitted provider's reviewed domain allowlist; provider admission never permits an arbitrary redirect, and the `OVD-206` baseline remains Xometry-only
