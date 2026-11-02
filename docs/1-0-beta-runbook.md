@@ -317,8 +317,8 @@ switch and exact-scope checks remain in force.
 
 Use the operator procedure in
 [Controlled beta user quantity](workflows/commercial-rollout-controls.md#controlled-beta-user-quantity).
-Turning it off refuses lanes above quantity `1` that have not been authorized
-with `dispatch_quantity_not_admitted`; lanes already authorized still launch.
+Turning it off refuses, with `dispatch_quantity_not_admitted`, lanes above
+quantity `1` that have not yet been authorized; lanes already authorized still launch.
 
 ### Geometry boundary
 

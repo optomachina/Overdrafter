@@ -91,8 +91,8 @@ checks the created lane against the scope's quantity. Worker authorization
 binds the lane to its snapshot, result quantity and task `requestedQuantity`
 when present (`dispatch_lane_identity_mismatch` on disagreement).
 
-Turning the switch off refuses lanes above `1` that have not been authorized
-with `dispatch_quantity_not_admitted`; lanes already authorized still launch.
+Turning the switch off refuses, with `dispatch_quantity_not_admitted`, lanes above
+quantity `1` that have not yet been authorized; lanes already authorized still launch.
 The settlement functions do not read this switch, so existing holds at N
 still settle. See the [operator procedure](workflows/commercial-rollout-controls.md#controlled-beta-user-quantity)
 and [provider-envelope limits](1-0-beta-runbook.md#quantity-in-controlled-beta-requests).

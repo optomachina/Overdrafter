@@ -120,11 +120,17 @@ returns all five controls (the four commercial controls plus OVD-987's
 Record the current revision before proposing a change. Change one capability
 per transaction; see [Controlled beta user quantity](#controlled-beta-user-quantity)
 for the lock order and turn-off semantics. Historical four-control release
-packets are not evidence of the current five-control state. The OVD-987 notes
-identify consumers that pin four controls, including the OVD-410 collector and
-OVD-419 callers, which fail closed on a five-control response unless separately
-updated. Check the [consumer inventory](../migration-drafts/ovd-987-notes.md#known-findings)
-before reusing those tools.
+packets are not evidence of the current five-control state. Updated by PR #891,
+the OVD-410 collector tolerates, but does not certify,
+`controlled_beta_user_quantity`: it sets that row aside and certifies only the
+four commercial controls. The OVD-419 diagnostic adapter reads that filtered
+envelope, and the live-release caller imports the collector; those runs do not
+stop merely because the API returns five controls. The OVD-419 acquisition
+compatibility validator still requires exactly four controls in its hash-pinned
+SQL containment packet. The frozen OVD-373, OVD-418 and OVD-570 scripts still
+require a total control count of four. Check the
+[consumer inventory](../migration-drafts/ovd-987-notes.md#known-findings)
+before reusing those packets or scripts.
 
 Never grant direct table access or update either private rollout table by hand.
 
@@ -199,16 +205,20 @@ state and retain the revision and immutable audit event in the owning issue.
   turn-off raises `xometry_beta_quantity_one_required` before the deduplicated
   return. Its permit and hold remain intact. Reserved holds at N still settle
   normally because settlement does not read the switch.
-- **Worker reporting.** The migration does not change the worker's bounded
-  reason list; it maps `dispatch_quantity_not_admitted` to the generic
-  `dispatch_authorization_denied` until a worker change adds the reason.
+- **Worker reporting.** The worker (`worker/src/xometryDispatchPreflight.ts`)
+  maps `dispatch_quantity_not_admitted` to `dispatch_authorization_denied`
+  until PR #1025 (OVD-998) adds the named reason to its bounded reason list.
 
-Use turn-off for incident containment, not a migration rollback. Schema
-rollback is a separate reviewed operation: turn the switch off, drain all
-Xometry permits above quantity `1`, and follow the guarded rollback and
-read-only checks in [OVD-987 notes](../migration-drafts/ovd-987-notes.md).
-Those notes and the migration header contain historical pre-apply status;
-the current production status is applied and OFF, as stated above.
+Use turn-off for incident containment. The guarded schema rollback refuses
+with errcode `55000` once any immutable audit event names
+`controlled_beta_user_quantity`, including an event from a no-op setter call.
+After any real turn-off, the operational rollback is to keep the migration
+applied and the switch off. Only when no such audit event exists can a separate
+reviewed schema rollback proceed with the switch off and all Xometry permits
+above quantity `1` drained; follow the guarded rollback and read-only checks in
+[OVD-987 notes](../migration-drafts/ovd-987-notes.md#rollback-and-audit-history-decision-refuse-loudly).
+The migration header retains historical pre-apply status; the current production
+status is applied and OFF, as stated above.
 
 ## Rollout order
 
