@@ -21,7 +21,7 @@ declare
   "private.job_file_finalize_delegate(uuid,text,text,text,public.job_file_kind,text,bigint,text)": "d1e7d64c3a20a6a05c55cbe4c316fc0e",
   "public.api_prepare_job_file_upload(uuid,text,public.job_file_kind,text,bigint,text)": "686d958f0545bee88af127afa5a88860",
   "public.api_finalize_job_file_upload(uuid,text,text,text,public.job_file_kind,text,bigint,text)": "fcbee1db0a164cf78f2dd356dcb85c55",
-  "public.api_authorize_xometry_beta_worker_dispatch(uuid,uuid,jsonb,text,timestamptz)": "0fef772880a4122f72475a9905b7ed19",
+  "public.api_authorize_xometry_beta_worker_dispatch(uuid,uuid,jsonb,text,timestamptz)": "5d7e026241a0346a6624063e86a088f7",
   "public.api_authorize_provider_worker_dispatch(uuid,uuid,jsonb,text,timestamptz)": "254e6ce84f67dae43d9664adf4b85673",
   "public.api_request_manual_quote(uuid,boolean)": "8e5f10dabbf9c8c6420e2c14e9b01e79"
 }'::jsonb;
@@ -66,7 +66,7 @@ begin
       ('public.api_finalize_job_file_upload(uuid,text,text,text,public.job_file_kind,text,bigint,text)', '193b46deb75a1d58a34e2526798a9ad9'),
       ('private.job_file_finalize_core(uuid,text,text,text,public.job_file_kind,text,bigint,text)', 'fcbee1db0a164cf78f2dd356dcb85c55'),
       ('public.api_authorize_xometry_beta_worker_dispatch(uuid,uuid,jsonb,text,timestamptz)', '571b326dd5ab8a12389d9e8e39265374'),
-      ('private.xometry_beta_worker_dispatch_core(uuid,uuid,jsonb,text,timestamptz)', '0fef772880a4122f72475a9905b7ed19'),
+      ('private.xometry_beta_worker_dispatch_core(uuid,uuid,jsonb,text,timestamptz)', '5d7e026241a0346a6624063e86a088f7'),
       ('public.api_authorize_provider_worker_dispatch(uuid,uuid,jsonb,text,timestamptz)', 'bb800ea3d7e9d2e850f30eddad2e8fa3'),
       ('private.provider_worker_dispatch_core(uuid,uuid,jsonb,text,timestamptz)', '254e6ce84f67dae43d9664adf4b85673'),
       ('public.api_request_manual_quote(uuid,boolean)', 'ae6ef2e4c3cc9170dbcfe21f77aa8b83'),
