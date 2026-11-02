@@ -16,6 +16,7 @@ import { WEERG_ALLOWED_HOSTS } from "../adapters/weergPortal.js";
 import type { LiveAutomationVendorName } from "../types.js";
 import { writePrivateStorageState } from "./privateStorageState.js";
 import { enabledPortalVendors } from "./enabledPortalVendors.js";
+import { SENDCUTSEND_SESSION_BOOTSTRAP } from "./sendcutsendAuth.js";
 
 type AuthArgs = {
   vendors: LiveAutomationVendorName[];
@@ -124,7 +125,7 @@ function usage() {
   return [
     "Usage: npm --prefix worker run auth:vendor -- <vendor|all|vendor1,vendor2> [output-path]",
     "",
-    "Vendors: oshcut, fabworks, ponoko, quickparts, rapiddirect, geomiq, weerg, protolabsnetwork",
+    "Vendors: oshcut, fabworks, ponoko, quickparts, rapiddirect, geomiq, weerg, protolabsnetwork, sendcutsend",
     "",
     "The script opens the vendor login/signup page and saves Playwright storage state after you finish manually.",
   ].join("\n");
@@ -146,6 +147,11 @@ function parseVendors(rawVendor: string | undefined): LiveAutomationVendorName[]
 
   const supportedVendors: LiveAutomationVendorName[] = [];
   for (const vendor of requestedVendors) {
+    // OVD-1056: SendCutSend is not a generic portal workflow; it has its own session bootstrap.
+    if (vendor === "sendcutsend") {
+      supportedVendors.push("sendcutsend");
+      continue;
+    }
     const workflow = getExtendedVendorWorkflow(vendor);
     if (!workflow) {
       return null;
@@ -191,9 +197,33 @@ async function ensureParentDir(filePath: string) {
   await fs.mkdir(path.dirname(filePath), { recursive: true });
 }
 
+/**
+ * OVD-1056: exact-host, signed-in-only SendCutSend save; no production next step to print.
+ * A refused save keeps the browser open so the operator can finish signing in and retry.
+ */
+async function saveSendCutSendSession(
+  bootstrap: typeof SENDCUTSEND_SESSION_BOOTSTRAP,
+  session: Parameters<typeof SENDCUTSEND_SESSION_BOOTSTRAP.save>[0],
+  outputPath: string,
+  rl: readline.Interface,
+): Promise<void> {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      // Sequential by design: each retry waits for the operator to finish signing in.
+      await bootstrap.save(session, outputPath);
+      return;
+    } catch (error) {
+      if (attempt >= 3) throw error;
+      console.log(error instanceof Error ? error.message : String(error));
+      await rl.question("Finish signing in in the browser, then press Enter to check again...");
+    }
+  }
+}
+
 export async function bootstrapVendor(vendor: LiveAutomationVendorName, explicitOutputPath: string | null) {
   if (vendor === "oshcut") refuseOshcutPortalAutomation();
-  const workflow = getExtendedVendorWorkflow(vendor);
+  const sendCutSend = vendor === "sendcutsend" ? SENDCUTSEND_SESSION_BOOTSTRAP : null;
+  const workflow = sendCutSend ?? getExtendedVendorWorkflow(vendor);
   if (!workflow) {
     throw new Error(`Unsupported vendor "${vendor}".\n\n${usage()}`);
   }
@@ -211,10 +241,12 @@ export async function bootstrapVendor(vendor: LiveAutomationVendorName, explicit
     console.log(`Storage state output: ${outputPath}`);
     console.log("");
     console.log("What to do:");
-    console.log("1. A Chromium window will open.");
-    console.log(`2. Create or log in to the ${workflow.displayName} account manually.`);
-    console.log("3. Open the quoting/upload surface and confirm it is authenticated.");
-    console.log("4. Return here and press Enter.");
+    for (const line of sendCutSend?.instructions ?? [
+      "1. A Chromium window will open.",
+      `2. Create or log in to the ${workflow.displayName} account manually.`,
+      "3. Open the quoting/upload surface and confirm it is authenticated.",
+      "4. Return here and press Enter.",
+    ]) console.log(line);
     console.log("");
     console.log("Do not paste shared passwords into source files or .env files.");
     console.log("");
@@ -227,6 +259,10 @@ export async function bootstrapVendor(vendor: LiveAutomationVendorName, explicit
     await page.goto(workflow.loginUrl, { waitUntil: "domcontentloaded" });
     await rl.question("Press Enter after the session is authenticated and quote-ready...");
 
+    if ("save" in workflow) {
+      await saveSendCutSendSession(workflow, { browser, context, page }, outputPath, rl);
+      return;
+    }
     const sessionHosts = sessionHostsFor(workflow);
     const sessionStorage = await captureSessionStorage(context.pages(), sessionHosts);
     const signal = LOGGED_IN_SIGNALS[workflow.vendor];
