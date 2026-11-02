@@ -1908,6 +1908,7 @@ export function useClientPartController(
     activeMembership,
     isPlatformAdmin,
     automaticQuoteCollectionEnabled: quoteCollectionMode.automaticEnabled,
+    quoteAccessState: quoteCollectionMode.state,
     availableQuoteVendors,
     quoteLaneEligibility: quoteLaneEligibilityQuery.data ?? [],
     selectedQuoteVendors,

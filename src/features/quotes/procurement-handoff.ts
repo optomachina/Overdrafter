@@ -80,6 +80,10 @@ function normalizeValue(value: string) {
   return value.trim();
 }
 
+export function isValidBillingContactEmail(value: string): boolean {
+  return /^[^\s@.]+(\.[^\s@.]+)*@[^\s@.]+(\.[^\s@.]+)+$/.test(value.trim());
+}
+
 export function summarizeProcurementHandoff(
   state: ProcurementHandoffState,
 ): ProcurementHandoffSummary {
@@ -105,6 +109,8 @@ export function summarizeProcurementHandoff(
 
   if (!billingContactEmail) {
     missingFields.push("billing contact email");
+  } else if (!isValidBillingContactEmail(billingContactEmail)) {
+    missingFields.push("a valid billing contact email");
   }
 
   return {

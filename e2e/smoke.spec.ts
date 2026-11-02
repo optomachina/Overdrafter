@@ -114,6 +114,7 @@ async function bringHandoffToReady(page: Page) {
   await fillHandoffForm(page);
   await page.getByRole("button", { name: /review handoff/i }).click();
   await expect(page.getByRole("heading", { name: "Ready for OverDrafter follow-up" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Ready for OverDrafter follow-up" })).toBeInViewport();
 }
 
 test.describe("client procurement handoff flow", () => {
@@ -132,6 +133,7 @@ test.describe("client procurement handoff flow", () => {
 
     await page.getByRole("button", { name: /review handoff/i }).click();
     await expect(page.getByRole("heading", { name: "Ready for OverDrafter follow-up" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Ready for OverDrafter follow-up" })).toBeInViewport();
   });
 
   test("keeps manufacturing payment UI out of the completed handoff", async ({ page }) => {

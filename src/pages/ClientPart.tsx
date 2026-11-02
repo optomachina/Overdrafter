@@ -171,6 +171,7 @@ const ClientPart = () => {
   const {
     activeMembership,
     automaticQuoteCollectionEnabled,
+    quoteAccessState,
     isQuoteCollectionModeLoading,
     isVerifiedAuth,
     activityEntries,
@@ -586,7 +587,11 @@ const ClientPart = () => {
                   !automaticQuoteCollectionEnabled &&
                   (quoteRequestViewModel.action.kind === "request" ||
                     quoteRequestViewModel.action.kind === "retry")
-                    ? "Automatic quote collection is not enabled for this organization. Provider recommendations and official RFQ links remain available. The Founding Beta is free and invitation-only. No payment card, order, or supplier commitment is created."
+                    ? isQuoteCollectionModeLoading
+                      ? "Checking automatic quote access."
+                      : quoteAccessState === "unknown"
+                      ? "Quote is unavailable: automatic quote access could not be verified. Try again shortly."
+                      : "Automatic quote collection is not enabled for this organization. Provider recommendations and official RFQ links remain available. The Founding Beta is free and invitation-only. No payment card, order, or supplier commitment is created."
                     : quoteRequestViewModel.detail
                 }
                 actionLabel={
@@ -612,9 +617,10 @@ const ClientPart = () => {
                     : handleQuoteRequestAction
                 }
                 heading={
-                  automaticQuoteCollectionEnabled
-                    ? "Automatic quote status"
-                    : "Automatic quote access"
+                  !automaticQuoteCollectionEnabled &&
+                  (quoteRequestViewModel.action.kind === "request" || quoteRequestViewModel.action.kind === "retry")
+                    ? "Automatic quote access"
+                    : "Quote status"
                 }
               />
             ) : null}
@@ -761,9 +767,16 @@ const ClientPart = () => {
                       type="button"
                       onClick={() => setIsQuoteRequestFlowOpen(true)}
                       disabled={isQuoteCollectionModeLoading || !automaticQuoteCollectionEnabled}
+                      title={isQuoteCollectionModeLoading ? "Checking automatic quote access." : !automaticQuoteCollectionEnabled ? quoteAccessState === "unknown" ? "Quote is unavailable: automatic quote access could not be verified. Try again shortly." : "Automatic quote collection is not enabled for this organization." : undefined}
+                      aria-describedby={isQuoteCollectionModeLoading || !automaticQuoteCollectionEnabled ? "quote-disabled-reason" : undefined}
                     >
                       Quote
                     </Button>
+                    {isQuoteCollectionModeLoading || !automaticQuoteCollectionEnabled ? (
+                      <span id="quote-disabled-reason" className="sr-only">
+                        {isQuoteCollectionModeLoading ? "Checking automatic quote access." : quoteAccessState === "unknown" ? "Quote is unavailable: automatic quote access could not be verified. Try again shortly." : "Quote is unavailable: automatic quote collection is not enabled."}
+                      </span>
+                    ) : null}
                     <Button
                       type="button"
                       variant="outline"

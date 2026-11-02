@@ -1357,6 +1357,21 @@ describe("ClientPart", () => {
     expect(lastQuoteDecisionPanelProps).toMatchObject({ optionCount: 0 });
   });
 
+  it("uses neutral quote status for received quotes without automatic access", async () => {
+    mockQuoteCollectionMode.automaticEnabled = false;
+    api.fetchPartDetailByJobId.mockResolvedValue(createPartDetail({
+      latestQuoteRun: {
+        id: "run-1", quote_request_id: null, job_id: "job-1", organization_id: "org-1",
+        initiated_by: "user-1", status: "published", requested_auto_publish: false,
+        created_at: "2026-03-01T00:00:00Z", updated_at: "2026-03-01T00:00:00Z",
+      },
+    }));
+    renderWithClient("/parts/job-1");
+    expect(await screen.findByText("Quote status")).toBeInTheDocument();
+    expect(screen.queryByText("Automatic quote access")).not.toBeInTheDocument();
+    expect(screen.getByText(/received/i)).toBeInTheDocument();
+  });
+
   it("shows Founding Beta guidance without exposing the manual quote path", async () => {
     mockQuoteCollectionMode.automaticEnabled = false;
     mockQuoteCollectionMode.hasAutomaticEntitlement = false;
@@ -1372,7 +1387,44 @@ describe("ClientPart", () => {
     ).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /request manual quote/i })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Quote" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Quote" })).toHaveAccessibleDescription(/not enabled/);
+    expect(screen.getAllByText(/Automatic quote collection is not enabled for this organization/)).toHaveLength(1);
     expect(api.requestQuote).not.toHaveBeenCalled();
+  });
+
+  it("explains when automatic quote access could not be verified", async () => {
+    mockQuoteCollectionMode.automaticEnabled = false;
+    mockQuoteCollectionMode.state = "unknown";
+    mockQuoteCollectionMode.isLoading = false;
+
+    renderWithClient("/parts/job-1");
+
+    await screen.findByText("Automatic quote access");
+    const message = "Quote is unavailable: automatic quote access could not be verified. Try again shortly.";
+    expect(screen.getByText(message, { selector: "div" })).toBeInTheDocument();
+    const quoteButton = screen.getByRole("button", { name: "Quote" });
+    expect(quoteButton).toBeDisabled();
+    expect(quoteButton).toHaveAttribute("aria-describedby", "quote-disabled-reason");
+    expect(quoteButton).toHaveAccessibleDescription(message);
+    expect(quoteButton).toHaveAttribute("title", message);
+    expect(screen.queryByText(/automatic quote collection is not enabled/i)).not.toBeInTheDocument();
+    expect(api.requestQuote).not.toHaveBeenCalled();
+  });
+
+  it("says access is being checked, not unverifiable, while the access lookup is loading", async () => {
+    mockQuoteCollectionMode.automaticEnabled = false;
+    mockQuoteCollectionMode.state = "unknown";
+    mockQuoteCollectionMode.isLoading = true;
+
+    renderWithClient("/parts/job-1");
+
+    await screen.findByText("Automatic quote access");
+    expect(screen.getByText("Checking automatic quote access.", { selector: "div" })).toBeInTheDocument();
+    expect(screen.queryByText(/could not be verified/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/automatic quote collection is not enabled/i)).not.toBeInTheDocument();
+    const quoteButton = screen.getByRole("button", { name: "Quote" });
+    expect(quoteButton).toBeDisabled();
+    expect(quoteButton).toHaveAccessibleDescription("Checking automatic quote access.");
   });
 
   it("renders PartInfoPanel in the right rail and omits the old workspace badge cluster", async () => {
