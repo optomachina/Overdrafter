@@ -89,8 +89,8 @@ describe("vendor session profiles", () => {
     });
     expect(resolveVendorSessionProfile("geomiq")).toMatchObject({
       loginUrl: "https://app.geomiq.com/",
-      landingUrl: "https://app.geomiq.com/",
-      sessionHosts: ["app.geomiq.com", "geomiq.com"],
+      landingUrl: "https://app.geomiq.com/quotes",
+      sessionHosts: ["app.geomiq.com", "geomiq.com", "api.geomiq.com", "gserve.geomiq.com"],
     });
     expect(resolveVendorSessionProfile("weerg")).toMatchObject({
       loginUrl: "https://www.weerg.com/",

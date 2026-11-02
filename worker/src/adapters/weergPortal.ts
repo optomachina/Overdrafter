@@ -167,7 +167,10 @@ export function isWeergEnvelopeMaterial(material: string | null | undefined): bo
   return typeof material === "string" && /(?:^|\D)6082(?:\D|$)/.test(material);
 }
 
-const CURRENCY_SYMBOLS: Readonly<Record<LocalEvidenceCurrency, string>> = { EUR: "€", USD: "$" };
+/** Weerg anchors only these ISO codes; other local-evidence currencies never apply here. */
+type WeergCurrency = Extract<LocalEvidenceCurrency, "EUR" | "USD">;
+
+const CURRENCY_SYMBOLS: Readonly<Record<WeergCurrency, string>> = { EUR: "€", USD: "$" };
 
 /**
  * Parses one anchored amount for an already anchored ISO currency. Accepts a
@@ -177,7 +180,7 @@ const CURRENCY_SYMBOLS: Readonly<Record<LocalEvidenceCurrency, string>> = { EUR:
  * `1.234` or `1,234` (grouping or decimals?) and any other currency marker
  * are refused, so a misread amount or currency can never become an offer.
  */
-export function parseWeergAmount(text: string | null, currency: LocalEvidenceCurrency): number | null {
+export function parseWeergAmount(text: string | null, currency: WeergCurrency): number | null {
   let value = text?.trim() ?? "";
   for (const marker of [CURRENCY_SYMBOLS[currency], currency]) {
     if (value.startsWith(marker)) value = value.slice(marker.length).trim();
@@ -191,7 +194,7 @@ export function parseWeergAmount(text: string | null, currency: LocalEvidenceCur
   return Number.isFinite(amount) && amount > 0 ? amount : null;
 }
 
-function anchoredCurrency(text: string | null): LocalEvidenceCurrency | null {
+function anchoredCurrency(text: string | null): WeergCurrency | null {
   const code = text?.trim();
   return code === "EUR" || code === "USD" ? code : null;
 }

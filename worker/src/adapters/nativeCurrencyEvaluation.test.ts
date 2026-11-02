@@ -73,9 +73,19 @@ describe("native local money normalization", () => {
     expect(offer).not.toHaveProperty("rawPayload");
   });
 
+  it("preserves explicitly anchored GBP amounts as native evidence (OVD-1058)", () => {
+    const gbp = candidate();
+    gbp.money.unitCurrency.value = "GBP";
+    gbp.money.totalCurrency.value = "GBP";
+    const [offer] = normalizeAnchoredNativeOffers([gbp], normalization);
+    expect(offer).toMatchObject({ money: { currency: "GBP", unitAmount: 12.34, totalAmount: 61.70 } });
+    expect(offer).not.toHaveProperty("unitPriceUsd");
+    expect(offer).not.toHaveProperty("totalPriceUsd");
+  });
+
   it.each([
     ["missing currency", (c: ProviderPortalNativeOfferCandidate) => { c.money.unitCurrency.value = null; }],
-    ["unsupported currency", (c: ProviderPortalNativeOfferCandidate) => { c.money.unitCurrency.value = "GBP"; c.money.totalCurrency.value = "GBP"; }],
+    ["unsupported currency", (c: ProviderPortalNativeOfferCandidate) => { c.money.unitCurrency.value = "JPY"; c.money.totalCurrency.value = "JPY"; }],
     ["currency symbol without ISO code", (c: ProviderPortalNativeOfferCandidate) => { c.money.unitCurrency.value = "€"; }],
     ["mixed currency", (c: ProviderPortalNativeOfferCandidate) => { c.money.totalCurrency.value = "USD"; }],
     ["whole-page currency", (c: ProviderPortalNativeOfferCandidate) => { c.money.unitCurrency.source = "body_text"; }],
@@ -426,7 +436,7 @@ describe("native currency kernel to standalone CLI boundary", () => {
       { ...result, localOnly: false },
       { ...result, customerOfferPersistence: true },
       { ...result, nativeOffers: [{ ...result.nativeOffers[0], quantity: 10 }] },
-      { ...result, nativeOffers: [{ ...result.nativeOffers[0], money: { ...result.nativeOffers[0].money, currency: "GBP" } }] },
+      { ...result, nativeOffers: [{ ...result.nativeOffers[0], money: { ...result.nativeOffers[0].money, currency: "JPY" } }] },
       { ...result, nativeOffers: [{ ...result.nativeOffers[0], money: { ...result.nativeOffers[0].money, provenance: {} } }] },
       { ...result, nativeOffers: [result.nativeOffers[0], { ...result.nativeOffers[0], providerOptionId: "synthetic-second",
         money: { ...result.nativeOffers[0].money, currency: "USD" } }] },
