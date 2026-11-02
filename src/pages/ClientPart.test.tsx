@@ -1403,6 +1403,22 @@ describe("ClientPart", () => {
     expect(api.requestQuote).not.toHaveBeenCalled();
   });
 
+  it("says access is being checked, not unverifiable, while the access lookup is loading", async () => {
+    mockQuoteCollectionMode.automaticEnabled = false;
+    mockQuoteCollectionMode.state = "unknown";
+    mockQuoteCollectionMode.isLoading = true;
+
+    renderWithClient("/parts/job-1");
+
+    await screen.findByText("Automatic quote access");
+    expect(screen.getByText("Checking automatic quote access.", { selector: "div" })).toBeInTheDocument();
+    expect(screen.queryByText(/could not be verified/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/automatic quote collection is not enabled/i)).not.toBeInTheDocument();
+    const quoteButton = screen.getByRole("button", { name: "Quote" });
+    expect(quoteButton).toBeDisabled();
+    expect(quoteButton).toHaveAccessibleDescription("Checking automatic quote access.");
+  });
+
   it("renders PartInfoPanel in the right rail and omits the old workspace badge cluster", async () => {
     await renderClientPartOnTab("Request");
     expect(screen.getByTestId("part-info-panel")).toBeInTheDocument();

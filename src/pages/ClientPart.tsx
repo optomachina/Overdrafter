@@ -587,7 +587,9 @@ const ClientPart = () => {
                   !automaticQuoteCollectionEnabled &&
                   (quoteRequestViewModel.action.kind === "request" ||
                     quoteRequestViewModel.action.kind === "retry")
-                    ? quoteAccessState === "unknown"
+                    ? isQuoteCollectionModeLoading
+                      ? "Checking automatic quote access."
+                      : quoteAccessState === "unknown"
                       ? "Quote is unavailable: automatic quote access could not be verified. Try again shortly."
                       : "Automatic quote collection is not enabled for this organization. Provider recommendations and official RFQ links remain available. The Founding Beta is free and invitation-only. No payment card, order, or supplier commitment is created."
                     : quoteRequestViewModel.detail
