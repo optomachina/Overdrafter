@@ -349,7 +349,7 @@ const ClientPart = () => {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [handleToggleCurrentPartPin, jobId]);
 
-  if (isAuthInitializing) {
+  if (isAuthInitializing && (!user || !isVerifiedAuth)) {
     // A persisted session means the user is probably signed in: draw the shell now and keep
     // part data and the account menu gated on the verified `user`.
     return hasCachedSession ? (

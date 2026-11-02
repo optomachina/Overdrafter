@@ -1249,7 +1249,7 @@ const ClientProject = () => {
     quoteRequestViewModelsByJobId,
   ]);
 
-  if (isAuthInitializing) {
+  if (isAuthInitializing && (!user || !isVerifiedAuth)) {
     return <AuthBootstrapScreen message="Restoring your project workspace." />;
   }
 

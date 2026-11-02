@@ -3,7 +3,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Link, MemoryRouter, Navigate, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { getSupabaseAuthStorageKey, SESSION_ATTEMPT_TIMEOUT_MS, useAppSession } from "@/hooks/use-app-session";
+import { getSupabaseAuthStorageKey, useAppSession } from "@/hooks/use-app-session";
 import type { AppSessionData } from "@/features/quotes/types";
 import {
   resetStartupAuthBootstrapForTests,
@@ -70,13 +70,7 @@ function renderProbe() {
     },
   });
 
-  const view = render(
-    <QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={["/"]}>
-        <SessionProbe />
-      </MemoryRouter>
-    </QueryClientProvider>,
-  );
+  const view = renderProbeWithQueryClient(queryClient);
 
   return {
     ...view,
@@ -212,6 +206,52 @@ describe("useAppSession", () => {
     vi.unstubAllEnvs();
   });
 
+  async function renderRestoredProbe(queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })) {
+    const localSession = seedLocalSession(storageMock);
+    fetchAppSessionDataMock.mockResolvedValue(makeRestoredSession(localSession));
+    const view = renderProbeWithQueryClient(queryClient);
+    await waitFor(() => expect(screen.getByTestId("membership-count")).toHaveTextContent("1"));
+    await waitFor(() => expect(screen.getByTestId("auth-initializing")).toHaveTextContent("no"));
+    return { ...view, queryClient, localSession };
+  }
+
+  it("does not apply default query retries to a timed-out background fetch", async () => {
+    const { queryClient, localSession } = await renderRestoredProbe(new QueryClient({ defaultOptions: { queries: { retry: 3 } } }));
+    vi.useFakeTimers();
+    const before = fetchAppSessionDataMock.mock.calls.length;
+    fetchAppSessionDataMock.mockReturnValue(new Promise(() => undefined));
+    act(() => { void queryClient.invalidateQueries({ queryKey: ["app-session"] }); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(STARTUP_AUTH_TIMEOUT_MS + 10000); });
+    expect(fetchAppSessionDataMock).toHaveBeenCalledTimes(before + 1);
+    expect(screen.getByTestId("email")).toHaveTextContent(localSession.user.email!);
+    expect(queryClient.getQueryState(["app-session"])?.fetchStatus).toBe("idle");
+  });
+
+  it("restores a 2000 ms fetch on the first attempt", async () => {
+    vi.useFakeTimers();
+    const local = seedLocalSession(storageMock);
+    fetchAppSessionDataMock.mockImplementation(() => new Promise((resolve) => {
+      setTimeout(() => resolve(makeRestoredSession(local)), 2000);
+    }));
+    renderProbe();
+    await act(async () => { await vi.advanceTimersByTimeAsync(2001); });
+    expect(fetchAppSessionDataMock).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId("membership-count")).toHaveTextContent("1");
+    expect(screen.getByTestId("auth-initializing")).toHaveTextContent("no");
+  });
+
+  it("classifies a hung visitor fetch without a stored token as anonymous at both deadlines", async () => {
+    vi.useFakeTimers();
+    fetchAppSessionDataMock.mockReturnValue(new Promise(() => undefined));
+    renderProbe();
+    await act(async () => { await vi.advanceTimersByTimeAsync(STARTUP_AUTH_TIMEOUT_MS + 1); });
+    expect(screen.getByTestId("auth-state")).toHaveTextContent("anonymous");
+    expect(screen.getByTestId("auth-initializing")).toHaveTextContent("no");
+    fireEvent.click(screen.getByRole("button", { name: "Retry session" }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(STARTUP_AUTH_TIMEOUT_MS + 1); });
+    expect(screen.getByTestId("auth-state")).toHaveTextContent("anonymous");
+  });
+
   it.each([true, false])("abandons hung retry attempts and fails closed at the deadline (bootstrap session: %s)", async (hasBootstrapSession) => {
     vi.useFakeTimers();
     const local = makeLocalSession();
@@ -221,14 +261,7 @@ describe("useAppSession", () => {
     fetchAppSessionDataMock.mockResolvedValueOnce({ user: null, memberships: [], isVerifiedAuth: false, authState: "session_error" }).mockReturnValue(abandoned.promise);
     renderProbeWithQueryClient(new QueryClient({ defaultOptions: { queries: { retry: 3, retryDelay: 1 } } }));
     await act(async () => { await vi.advanceTimersByTimeAsync(1); });
-    for (let attempt = 1; attempt <= 3; attempt++) {
-      await act(async () => { await vi.advanceTimersByTimeAsync(SESSION_ATTEMPT_TIMEOUT_MS); });
-      expect(fetchAppSessionDataMock).toHaveBeenCalledTimes(attempt + 2);
-      expect(screen.getByTestId("auth-initializing")).toHaveTextContent("yes");
-      expect(screen.getByTestId("email")).toHaveTextContent(hasBootstrapSession ? local.user.email! : "anonymous");
-      expect(screen.getByTestId("data-user")).toHaveTextContent(hasBootstrapSession ? local.user.id : "none");
-    }
-    await act(async () => { await vi.advanceTimersByTimeAsync(STARTUP_AUTH_TIMEOUT_MS - 3 * SESSION_ATTEMPT_TIMEOUT_MS + 1); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(STARTUP_AUTH_TIMEOUT_MS + 1); });
     expect(screen.getByTestId("auth-initializing")).toHaveTextContent("no");
     expect(screen.getByTestId("auth-state")).toHaveTextContent("session_error");
     expect(screen.getByRole("button", { name: "Retry session" })).toBeEnabled();
@@ -241,7 +274,7 @@ describe("useAppSession", () => {
     expect(screen.getByTestId("email")).toHaveTextContent(local.user.email!);
   });
 
-  it("fails to sign-in when membership hydration and its retry both fail", async () => {
+  it("preserves identity and membershipError for controller recovery after the membership retry fails", async () => {
     const local = makeLocalSession();
     getSessionMock.mockResolvedValue({ data: { session: local }, error: null });
     const pending = deferredPromise<AppSessionData>();
@@ -252,19 +285,17 @@ describe("useAppSession", () => {
     const { queryClient } = renderProbe();
     await waitFor(() => expect(queryClient.getQueryData<AppSessionData>(["app-session"])?.user?.id).toBe(local.user.id));
     await act(async () => pending.resolve(failure));
-    await waitFor(() => expect(screen.getByTestId("auth-state")).toHaveTextContent("session_error"));
-    expect(fetchAppSessionDataMock).toHaveBeenCalledTimes(2);
-    expect(screen.getByTestId("email")).toHaveTextContent("anonymous");
-    expect(screen.getByTestId("data-user")).toHaveTextContent("none");
+    await waitFor(() => expect(fetchAppSessionDataMock).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.getByTestId("auth-initializing")).toHaveTextContent("no"));
+    expect(screen.getByTestId("membership-error")).toHaveTextContent("Memberships unavailable");
+    expect(screen.getByTestId("email")).toHaveTextContent(local.user.email!);
+    expect(screen.getByTestId("membership-count")).toHaveTextContent("0");
   });
 
   it.each(["throw", "session_error"])("keeps a restored session after exhausted background %s retries", async (failure) => {
-    const localSession = seedLocalSession(storageMock);
-    fetchAppSessionDataMock.mockResolvedValue(makeRestoredSession(localSession));
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: 3, retryDelay: 1 } } });
-    renderProbeWithQueryClient(queryClient);
-    await waitFor(() => expect(screen.getByTestId("membership-count")).toHaveTextContent("1"));
-    await waitFor(() => expect(screen.getByTestId("auth-initializing")).toHaveTextContent("no"));
+    const { queryClient, localSession } = await renderRestoredProbe(
+      new QueryClient({ defaultOptions: { queries: { retry: 3, retryDelay: 1 } } }),
+    );
     const before = fetchAppSessionDataMock.mock.calls.length;
     if (failure === "throw") {
       fetchAppSessionDataMock.mockRejectedValue(new Error("Session RPC timed out"));

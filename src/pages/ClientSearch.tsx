@@ -148,7 +148,7 @@ export default function ClientSearch() {
     return () => window.clearTimeout(timeoutId);
   }, [query, searchParamsKey, setSearchParams]);
 
-  if (controller.isAuthInitializing) {
+  if (controller.isAuthInitializing && (!controller.user || !controller.isVerifiedAuth)) {
     return <AuthBootstrapScreen message="Restoring global search." />;
   }
 

@@ -22,7 +22,7 @@ import { hasVerifiedAuth } from "@/lib/auth-status";
 import { recordWorkspaceSessionDiagnostic } from "@/lib/workspace-session-diagnostics";
 
 const APP_SESSION_QUERY_KEY = ["app-session"] as const;
-export const SESSION_ATTEMPT_TIMEOUT_MS = 1_500;
+export const SESSION_ATTEMPT_TIMEOUT_MS = STARTUP_AUTH_TIMEOUT_MS;
 
 class SessionAttemptTimeout extends Error {}
 
@@ -413,7 +413,8 @@ export function useAppSession() {
           throw new Error("Session fetch superseded");
         }
       };
-      // Each abandoned transport is fenced off; only the winning attempt proceeds.
+      // Fence late results at the projection boundary. Underlying auth calls may
+      // still share a client lock or a deduplicated admin request.
       const attemptDeadline = Date.now() + STARTUP_AUTH_TIMEOUT_MS;
       let result: AppSessionData;
       for (;;) {
@@ -433,9 +434,9 @@ export function useAppSession() {
           assertCurrentFetch();
           if (!(error instanceof SessionAttemptTimeout)) throw error;
           if (Date.now() >= attemptDeadline && !isRestoredSession(queryClient.getQueryData(APP_SESSION_QUERY_KEY))) {
-            return { ...EMPTY_APP_SESSION, authState: "session_error" } satisfies AppSessionData;
+            return { ...EMPTY_APP_SESSION, authState: getStoredSupabaseAccessToken() ? "session_error" : "anonymous" } satisfies AppSessionData;
           }
-          // Background fetches are bounded too, but retain React Query's retry policy.
+          // Timeout retries are explicit: never add React Query backoff to this budget.
           if (isRestoredSession(queryClient.getQueryData(APP_SESSION_QUERY_KEY))) throw error;
         }
       }
@@ -482,8 +483,9 @@ export function useAppSession() {
             membershipErrorRetriedRef.current = true;
             scheduleSessionRefresh();
           } else if (!isRestoredSession(currentSession)) {
-            // Initial membership failure remains visible after its retry.
-            return { ...result, user: null, isVerifiedAuth: false, isPlatformAdmin: false, authState: "session_error", restoreComplete: true } satisfies AppSessionData;
+            // Preserve identity and the error for the controller's bounded recovery.
+            // Empty memberships continue to withhold authenticated workspace content.
+            return { ...result, restoreComplete: true };
           }
           // A degraded refetch cannot replace the last completed projection.
           return isRestoredSession(currentSession) && currentSession.user?.id === result.user?.id
@@ -569,6 +571,12 @@ export function useAppSession() {
       );
       return { ...result, restoreComplete: true };
     },
+    retry: (failureCount, error) => {
+      if (error instanceof SessionAttemptTimeout) return false;
+      const retry = queryClient.getDefaultOptions().queries?.retry ?? 3;
+      return typeof retry === "function" ? retry(failureCount, error)
+        : retry === true || (typeof retry === "number" && failureCount < retry);
+    },
     initialData: fixtureSession ?? undefined,
     staleTime: fixtureSession ? Infinity : WORKSPACE_SHARED_STALE_TIME_MS,
   });
@@ -601,7 +609,7 @@ export function useAppSession() {
       clearRetryTimeout();
       pendingAuthTransitionRef.current = false;
       updateInitialAuthCheck("none");
-      queryClient.setQueryData(APP_SESSION_QUERY_KEY, { ...EMPTY_APP_SESSION, authState: "session_error" });
+      queryClient.setQueryData(APP_SESSION_QUERY_KEY, { ...EMPTY_APP_SESSION, authState: getStoredSupabaseAccessToken() ? "session_error" : "anonymous" });
       markInitialRestoreResolved("use-app-session.deadline");
     }, STARTUP_AUTH_TIMEOUT_MS);
     return () => window.clearTimeout(deadline);
