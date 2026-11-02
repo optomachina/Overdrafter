@@ -294,6 +294,57 @@ describe("useAppSession", () => {
     expect(screen.getByTestId("auth-state")).toHaveTextContent("authenticated");
   });
 
+  it("restores on Retry after a timed-out six-second membership failure", async () => {
+    vi.useFakeTimers();
+    const local = seedLocalSession(storageMock);
+    let calls = 0;
+    fetchAppSessionDataMock.mockImplementation(async () => {
+      const first = ++calls === 1;
+      await new Promise((resolve) => setTimeout(resolve, 6000));
+      return first
+        ? { ...makeRestoredSession(local), memberships: [], membershipError: "Membership lookup failed" }
+        : makeRestoredSession(local);
+    });
+    renderProbe();
+    await act(async () => { await vi.advanceTimersByTimeAsync(6001); });
+    expect(screen.getByTestId("auth-state")).toHaveTextContent("session_error");
+    fireEvent.click(screen.getByRole("button", { name: "Retry session" }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(5001); });
+    expect(screen.getByTestId("auth-state")).toHaveTextContent("session_error");
+    fireEvent.click(screen.getByRole("button", { name: "Retry session" }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(6001); });
+    expect(fetchAppSessionDataMock).toHaveBeenCalledTimes(2);
+    expect(screen.getByTestId("auth-state")).toHaveTextContent("authenticated");
+    expect(screen.getByTestId("membership-count")).toHaveTextContent("1");
+    expect(screen.getByTestId("verified-auth")).toHaveTextContent("yes");
+  });
+
+  it("adopts locked serial hydration after same-user SIGNED_IN restarts the query", async () => {
+    vi.useFakeTimers();
+    const local = seedLocalSession(storageMock);
+    let lock = Promise.resolve();
+    fetchAppSessionDataMock.mockImplementation(async () => {
+      for (let step = 0; step < 3; step++) {
+        const next = lock.then(() => new Promise<void>((resolve) => setTimeout(resolve, 2000)));
+        lock = next;
+        await next;
+      }
+      return makeRestoredSession(local);
+    });
+    renderProbe();
+    await act(async () => { await vi.advanceTimersByTimeAsync(2500); });
+    act(() => authStateChangeCallbacks.forEach((callback) => callback("SIGNED_IN", local)));
+    await act(async () => { await vi.advanceTimersByTimeAsync(2501); });
+    expect(fetchAppSessionDataMock).toHaveBeenCalledTimes(2);
+    expect(screen.getByTestId("auth-state")).toHaveTextContent("session_error");
+    expect(screen.getByTestId("verified-auth")).toHaveTextContent("no");
+    await act(async () => { await vi.advanceTimersByTimeAsync(10000); });
+    expect(screen.getByTestId("auth-state")).toHaveTextContent("authenticated");
+    expect(screen.getByTestId("email")).toHaveTextContent(local.user.email!);
+    expect(screen.getByTestId("membership-count")).toHaveTextContent("1");
+    expect(screen.getByTestId("verified-auth")).toHaveTextContent("yes");
+  });
+
   it.each(["SIGNED_OUT", "SIGNED_IN"])("fences late hydration after the deadline and %s", async (event) => {
     vi.useFakeTimers();
     const local = seedLocalSession(storageMock);

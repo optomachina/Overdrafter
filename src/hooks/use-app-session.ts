@@ -434,7 +434,8 @@ export function useAppSession() {
         }, { once: true });
         void entry.promise.then((lateResult) => {
           if (pendingRestores.get(queryClient) !== entry || entry.epoch !== getSessionEpoch(queryClient)) return;
-          if (lateResult.authState === "session_error" || lateResult.membershipError) failedRestores.add(queryClient);
+          // A failure arriving after the UI deadline must not poison future Retry hydration.
+          if (!entry.timedOut && (lateResult.authState === "session_error" || lateResult.membershipError)) failedRestores.add(queryClient);
           if (entry.timedOut && lateResult.authState === "authenticated" && !lateResult.membershipError) {
             const previous = queryClient.getQueryData<AppSessionData>(APP_SESSION_QUERY_KEY);
             clearSubjectBoundClientState(queryClient, previous?.user?.id, lateResult.user?.id);
