@@ -10,6 +10,7 @@ import type { AppMembership, AppSessionData } from "@/features/quotes/types";
 import { getFixtureSessionDataForSearch } from "@/features/quotes/client-workspace-fixtures";
 import { fetchAppSessionData } from "@/features/quotes/api/session-access";
 import {
+  STARTUP_AUTH_TIMEOUT_MS,
   getStoredSupabaseAccessToken,
   readLiveSupabaseBootstrap,
   readStartupSupabaseBootstrap,
@@ -21,6 +22,10 @@ import { hasVerifiedAuth } from "@/lib/auth-status";
 import { recordWorkspaceSessionDiagnostic } from "@/lib/workspace-session-diagnostics";
 
 const APP_SESSION_QUERY_KEY = ["app-session"] as const;
+export const SESSION_ATTEMPT_TIMEOUT_MS = 1_500;
+
+class SessionAttemptTimeout extends Error {}
+
 const EMPTY_MEMBERSHIPS: AppMembership[] = [];
 const EMPTY_APP_SESSION: AppSessionData = {
   user: null,
@@ -408,7 +413,32 @@ export function useAppSession() {
           throw new Error("Session fetch superseded");
         }
       };
-      const result = await fetchAppSessionData();
+      // Each abandoned transport is fenced off; only the winning attempt proceeds.
+      const attemptDeadline = Date.now() + STARTUP_AUTH_TIMEOUT_MS;
+      let result: AppSessionData;
+      for (;;) {
+        let attemptTimer: ReturnType<typeof setTimeout> | undefined;
+        try {
+          result = await Promise.race([
+            fetchAppSessionData(),
+            new Promise<never>((_, reject) => {
+              attemptTimer = setTimeout(
+                () => reject(new SessionAttemptTimeout("Session restore attempt timed out")),
+                Math.min(SESSION_ATTEMPT_TIMEOUT_MS, Math.max(0, attemptDeadline - Date.now())),
+              );
+            }),
+          ]).finally(() => clearTimeout(attemptTimer));
+          break;
+        } catch (error) {
+          assertCurrentFetch();
+          if (!(error instanceof SessionAttemptTimeout)) throw error;
+          if (Date.now() >= attemptDeadline && !isRestoredSession(queryClient.getQueryData(APP_SESSION_QUERY_KEY))) {
+            return { ...EMPTY_APP_SESSION, authState: "session_error" } satisfies AppSessionData;
+          }
+          // Background fetches are bounded too, but retain React Query's retry policy.
+          if (isRestoredSession(queryClient.getQueryData(APP_SESSION_QUERY_KEY))) throw error;
+        }
+      }
       // A cancelled query can keep executing when the transport ignores abort.
       // It must not mutate auth state, clear caches, or schedule another fetch.
       assertCurrentFetch();
@@ -453,7 +483,7 @@ export function useAppSession() {
             scheduleSessionRefresh();
           } else if (!isRestoredSession(currentSession)) {
             // Initial membership failure remains visible after its retry.
-            return { ...result, restoreComplete: true };
+            return { ...result, user: null, isVerifiedAuth: false, isPlatformAdmin: false, authState: "session_error", restoreComplete: true } satisfies AppSessionData;
           }
           // A degraded refetch cannot replace the last completed projection.
           return isRestoredSession(currentSession) && currentSession.user?.id === result.user?.id
@@ -561,19 +591,38 @@ export function useAppSession() {
     }
   }, [isFixtureSession, markInitialRestoreResolved, sessionQuery.data, sessionQuery.fetchStatus, sessionQuery.isError, updateInitialAuthCheck]);
 
+  const restorePending = !isFixtureSession && (!hasResolvedInitialRestore ||
+    (!sessionQuery.data?.restoreComplete && !sessionQuery.isError));
+  useEffect(() => {
+    if (!restorePending) return;
+    const deadline = window.setTimeout(() => {
+      if (queryClient.getQueryData<AppSessionData>(APP_SESSION_QUERY_KEY)?.restoreComplete) return;
+      advanceSessionEpoch(queryClient);
+      clearRetryTimeout();
+      pendingAuthTransitionRef.current = false;
+      updateInitialAuthCheck("none");
+      queryClient.setQueryData(APP_SESSION_QUERY_KEY, { ...EMPTY_APP_SESSION, authState: "session_error" });
+      markInitialRestoreResolved("use-app-session.deadline");
+    }, STARTUP_AUTH_TIMEOUT_MS);
+    return () => window.clearTimeout(deadline);
+  }, [restorePending, queryClient, clearRetryTimeout, updateInitialAuthCheck, markInitialRestoreResolved]);
+
   // A failed initial restore exposes sign-in; a failed background refetch keeps
   // the last completed session and the query's non-blocking error/refetch API.
   const sessionData = sessionQuery.isError && !isRestoredSession(sessionQuery.data)
     ? EMPTY_APP_SESSION
     : sessionQuery.data;
+  const publicSessionData = sessionData?.user && !sessionData.restoreComplete && !isFixtureSession
+    ? { ...sessionData, user: null, isVerifiedAuth: false, isPlatformAdmin: false }
+    : sessionData;
   const memberships = sessionData?.memberships ?? EMPTY_MEMBERSHIPS;
   const activeMembership: AppMembership | null = memberships[0] ?? null;
   const hasResolvedCurrentRestore = hasResolvedInitialRestore &&
-    (!sessionData?.user || isFixtureSession || sessionData.restoreComplete === true);
+    (isFixtureSession || sessionQuery.isError || sessionData?.restoreComplete === true);
   const isAuthInitializing = !sessionQuery.isError &&
     !hasResolvedCurrentRestore &&
     (Boolean(sessionData?.user) || initialAuthCheck === "present" ||
-      (initialAuthCheck === "checking" && startupHadStoredTokenRef.current));
+      startupHadStoredTokenRef.current);
   // The React Query cache is empty after a reload, so also trust the persisted Supabase
   // token read synchronously at startup. This only lets pages draw their shell chrome;
   // `user` stays null (and data queries stay disabled) until the session is verified.
@@ -713,11 +762,11 @@ export function useAppSession() {
 
   return {
     ...sessionQuery,
-    data: sessionData,
-    user: sessionData?.user ?? null,
+    data: publicSessionData,
+    user: publicSessionData?.user ?? null,
     memberships,
-    isVerifiedAuth: sessionData?.isVerifiedAuth ?? false,
-    isPlatformAdmin: sessionData?.isPlatformAdmin ?? false,
+    isVerifiedAuth: publicSessionData?.isVerifiedAuth ?? false,
+    isPlatformAdmin: publicSessionData?.isPlatformAdmin ?? false,
     authState: sessionData?.authState ?? "anonymous",
     membershipError: sessionData?.membershipError ?? null,
     isAuthInitializing,

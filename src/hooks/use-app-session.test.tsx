@@ -3,7 +3,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Link, MemoryRouter, Navigate, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { getSupabaseAuthStorageKey, useAppSession } from "@/hooks/use-app-session";
+import { getSupabaseAuthStorageKey, SESSION_ATTEMPT_TIMEOUT_MS, useAppSession } from "@/hooks/use-app-session";
 import type { AppSessionData } from "@/features/quotes/types";
 import {
   resetStartupAuthBootstrapForTests,
@@ -41,6 +41,7 @@ function SessionProbe() {
 
   return (
     <div>
+      <span data-testid="data-user">{session.data?.user?.id ?? "none"}</span>
       <span data-testid="email">{session.user?.email ?? "anonymous"}</span>
       <span data-testid="auth-state">{session.authState}</span>
       <span data-testid="auth-initializing">{session.isAuthInitializing ? "yes" : "no"}</span>
@@ -204,6 +205,52 @@ describe("useAppSession", () => {
     vi.unstubAllEnvs();
   });
 
+  it.each([true, false])("abandons hung retry attempts and fails closed at the deadline (bootstrap session: %s)", async (hasBootstrapSession) => {
+    vi.useFakeTimers();
+    const local = makeLocalSession();
+    storageMock.setItem(getSupabaseAuthStorageKey(), JSON.stringify({ access_token: local.access_token }));
+    getSessionMock.mockResolvedValue({ data: { session: hasBootstrapSession ? local : null }, error: null });
+    const abandoned = deferredPromise<AppSessionData>();
+    fetchAppSessionDataMock.mockResolvedValueOnce({ user: null, memberships: [], isVerifiedAuth: false, authState: "session_error" }).mockReturnValue(abandoned.promise);
+    renderProbeWithQueryClient(new QueryClient({ defaultOptions: { queries: { retry: 3, retryDelay: 1 } } }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      await act(async () => { await vi.advanceTimersByTimeAsync(SESSION_ATTEMPT_TIMEOUT_MS); });
+      expect(fetchAppSessionDataMock).toHaveBeenCalledTimes(attempt + 2);
+      expect(screen.getByTestId("auth-initializing")).toHaveTextContent("yes");
+      expect(screen.getByTestId("email")).toHaveTextContent("anonymous");
+      expect(screen.getByTestId("data-user")).toHaveTextContent("none");
+    }
+    await act(async () => { await vi.advanceTimersByTimeAsync(STARTUP_AUTH_TIMEOUT_MS - 3 * SESSION_ATTEMPT_TIMEOUT_MS + 1); });
+    expect(screen.getByTestId("auth-initializing")).toHaveTextContent("no");
+    expect(screen.getByTestId("auth-state")).toHaveTextContent("session_error");
+    expect(screen.getByRole("button", { name: "Retry session" })).toBeEnabled();
+    await act(async () => { abandoned.resolve(makeRestoredSession(local)); await vi.advanceTimersByTimeAsync(1); });
+    expect(screen.getByTestId("email")).toHaveTextContent("anonymous");
+    fetchAppSessionDataMock.mockResolvedValue(makeRestoredSession(local));
+    fireEvent.click(screen.getByRole("button", { name: "Retry session" }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+    expect(screen.getByTestId("membership-count")).toHaveTextContent("1");
+    expect(screen.getByTestId("email")).toHaveTextContent(local.user.email!);
+  });
+
+  it("fails to sign-in when membership hydration and its retry both fail", async () => {
+    const local = makeLocalSession();
+    getSessionMock.mockResolvedValue({ data: { session: local }, error: null });
+    const pending = deferredPromise<AppSessionData>();
+    const failure: AppSessionData = {
+      ...makeRestoredSession(local), memberships: [], membershipError: "Memberships unavailable",
+    };
+    fetchAppSessionDataMock.mockReturnValueOnce(pending.promise).mockResolvedValue(failure);
+    const { queryClient } = renderProbe();
+    await waitFor(() => expect(queryClient.getQueryData<AppSessionData>(["app-session"])?.user?.id).toBe(local.user.id));
+    await act(async () => pending.resolve(failure));
+    await waitFor(() => expect(screen.getByTestId("auth-state")).toHaveTextContent("session_error"));
+    expect(fetchAppSessionDataMock).toHaveBeenCalledTimes(2);
+    expect(screen.getByTestId("email")).toHaveTextContent("anonymous");
+    expect(screen.getByTestId("data-user")).toHaveTextContent("none");
+  });
+
   it.each(["throw", "session_error"])("keeps a restored session after exhausted background %s retries", async (failure) => {
     const localSession = makeLocalSession();
     storageMock.setItem(getSupabaseAuthStorageKey(), JSON.stringify({ access_token: localSession.access_token }));
@@ -328,7 +375,7 @@ describe("useAppSession", () => {
     });
     await waitFor(() => expect(fetchAppSessionDataMock).toHaveBeenCalledTimes(3));
     await act(async () => oldFetch.resolve(makeRestoredSession(first)));
-    expect(screen.getByTestId("email")).toHaveTextContent(second.user.email);
+    expect(screen.getByTestId("email")).toHaveTextContent("anonymous");
     expect(screen.getByTestId("membership-count")).toHaveTextContent("0");
     expect(screen.getByTestId("auth-initializing")).toHaveTextContent("yes");
     await act(async () => newFetch.resolve(makeRestoredSession(second)));
@@ -391,7 +438,7 @@ describe("useAppSession", () => {
     expect(screen.getByTestId("auth-initializing")).toHaveTextContent("no");
   });
 
-  it("hydrates the user immediately from a signed-in auth event before the session refetch completes", async () => {
+  it("holds the signed-in user behind membership restoration", async () => {
     const deferred = deferredPromise<AppSessionData>();
     fetchAppSessionDataMock
       .mockResolvedValueOnce({
@@ -429,10 +476,10 @@ describe("useAppSession", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByTestId("email")).toHaveTextContent("client@example.com");
+      expect(screen.getByTestId("email")).toHaveTextContent("anonymous");
       expect(screen.getByTestId("auth-state")).toHaveTextContent("authenticated");
     });
-    expect(screen.queryByRole("button", { name: "Log in" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Log in" })).toBeInTheDocument();
 
     deferred.resolve({
       user: {
@@ -449,7 +496,7 @@ describe("useAppSession", () => {
     });
   });
 
-  it("hydrates a local Supabase session before the network app-session fetch resolves", async () => {
+  it("holds the local Supabase user behind membership restoration", async () => {
     const deferred = deferredPromise<AppSessionData>();
     const localSession = {
       access_token: "token-1",
@@ -475,11 +522,11 @@ describe("useAppSession", () => {
     renderProbe();
 
     await waitFor(() => {
-      expect(screen.getByTestId("email")).toHaveTextContent("client@example.com");
+      expect(screen.getByTestId("email")).toHaveTextContent("anonymous");
       expect(screen.getByTestId("auth-state")).toHaveTextContent("authenticated");
       expect(screen.getByTestId("auth-initializing")).toHaveTextContent("yes");
     });
-    expect(screen.queryByRole("button", { name: "Log in" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Log in" })).toBeInTheDocument();
 
     deferred.resolve({
       user: localSession.user as AppSessionData["user"],
@@ -522,7 +569,7 @@ describe("useAppSession", () => {
     await waitFor(() => {
       expect(screen.getAllByTestId("email")).toHaveLength(3);
       for (const email of screen.getAllByTestId("email")) {
-        expect(email).toHaveTextContent("estimator@example.com");
+        expect(email).toHaveTextContent("anonymous");
       }
     });
     expect(fetchAppSessionDataMock).toHaveBeenCalledTimes(1);
@@ -627,7 +674,7 @@ describe("useAppSession", () => {
       authStateChangeCallbacks.forEach((callback) => callback("SIGNED_IN", second));
     });
     await waitFor(() => {
-      expect(screen.getByTestId("email")).toHaveTextContent("second@example.com");
+      expect(screen.getByTestId("email")).toHaveTextContent("anonymous");
       expect(screen.getByTestId("auth-initializing")).toHaveTextContent("yes");
     });
     // A seed for B cannot inherit A's completed projection or memberships.
@@ -641,7 +688,7 @@ describe("useAppSession", () => {
     await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)); });
     expect(screen.getByText("Job for second@example.com")).toBeInTheDocument();
     expect(screen.getByTestId("email")).toHaveTextContent("second@example.com");
-    expect(renders.every((entry) => entry.userId === "user-2" && (!entry.ready || entry.org === "org-2"))).toBe(true);
+    expect(renders.every((entry) => (!entry.ready || (entry.userId === "user-2" && entry.org === "org-2")))).toBe(true);
   });
 
   it("revalidates when bootstrap seeds a different user over a completed cached projection", async () => {
@@ -655,7 +702,7 @@ describe("useAppSession", () => {
     queryClient.setQueryData(["app-session"], { ...makeRestoredSession(first), restoreComplete: true });
     renderProbeWithQueryClient(queryClient);
     await waitFor(() => {
-      expect(screen.getByTestId("email")).toHaveTextContent("second@example.com");
+      expect(screen.getByTestId("email")).toHaveTextContent("anonymous");
       expect(screen.getByTestId("auth-initializing")).toHaveTextContent("yes");
       expect(fetchAppSessionDataMock).toHaveBeenCalledTimes(1);
     });
@@ -707,7 +754,8 @@ describe("useAppSession", () => {
       await act(async () => bootstrap.resolve({ data: { session: localSession }, error: null }));
     } else {
       await act(async () => bootstrap.resolve({ data: { session: localSession }, error: null }));
-      await waitFor(() => expect(screen.getByTestId("email")).toHaveTextContent(localSession.user.email!));
+      await waitFor(() => expect(queryClient.getQueryData<AppSessionData>(["app-session"])?.user?.id).toBe(localSession.user.id));
+      expect(screen.getByTestId("email")).toHaveTextContent("anonymous");
       await act(async () => pending.reject(error));
     }
     await waitFor(() => {
@@ -1090,7 +1138,7 @@ describe("useAppSession", () => {
     expect(queryClient.getQueryData(userOneJobsKey)).toBeUndefined();
     expect(queryClient.getQueryData(userOneQuotesKey)).toBeUndefined();
     expect(screen.getByTestId("email")).toHaveTextContent(
-      "second@example.com",
+      "anonymous",
     );
 
     await waitFor(() => {
@@ -1231,7 +1279,7 @@ describe("useAppSession", () => {
     });
   });
 
-  it("keeps the local session visible during startup session_error retries without restoring the gate", async () => {
+  it("keeps the local session gated during startup session_error retries without restoring the gate", async () => {
     const retryDeferred = deferredPromise<AppSessionData>();
     const localSession = {
       access_token: "token-1",
@@ -1264,7 +1312,7 @@ describe("useAppSession", () => {
 
     await waitFor(() => {
       expect(fetchAppSessionDataMock).toHaveBeenCalledTimes(2);
-      expect(screen.getByTestId("email")).toHaveTextContent("client@example.com");
+      expect(screen.getByTestId("email")).toHaveTextContent("anonymous");
       expect(screen.getByTestId("auth-state")).toHaveTextContent("authenticated");
       expect(screen.getByTestId("auth-initializing")).toHaveTextContent("yes");
     });
@@ -1291,7 +1339,7 @@ describe("useAppSession", () => {
     });
   });
 
-  it("keeps the local session visible during startup membership retries without restoring the gate", async () => {
+  it("keeps the local session gated during startup membership retries without restoring the gate", async () => {
     const retryDeferred = deferredPromise<AppSessionData>();
     const localSession = {
       access_token: "token-1",
@@ -1326,7 +1374,7 @@ describe("useAppSession", () => {
 
     await waitFor(() => {
       expect(fetchAppSessionDataMock).toHaveBeenCalledTimes(2);
-      expect(screen.getByTestId("email")).toHaveTextContent("client@example.com");
+      expect(screen.getByTestId("email")).toHaveTextContent("anonymous");
       expect(screen.getByTestId("auth-initializing")).toHaveTextContent("yes");
     });
 
@@ -1534,7 +1582,7 @@ describe("useAppSession", () => {
     renderProbe();
 
     await waitFor(() => {
-      expect(screen.getByTestId("email")).toHaveTextContent("client@example.com");
+      expect(screen.getByTestId("email")).toHaveTextContent("anonymous");
       expect(screen.getByTestId("membership-count")).toHaveTextContent("1");
       expect(screen.getByTestId("membership-error")).toHaveTextContent("Failed to load memberships");
     });
@@ -1559,7 +1607,7 @@ describe("useAppSession", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByTestId("email")).toHaveTextContent("other@example.com");
+      expect(screen.getByTestId("email")).toHaveTextContent("anonymous");
       expect(screen.getByTestId("auth-state")).toHaveTextContent("authenticated");
       expect(screen.getByTestId("membership-count")).toHaveTextContent("0");
       expect(screen.getByTestId("membership-error")).toHaveTextContent("none");
