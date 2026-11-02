@@ -192,7 +192,7 @@ U2 file sorted before main's newest migration and
 This is a rename only: the bytes and SHA-256 (`572066174ddb…906f`) are
 unchanged, so the rollback proof above, recorded under the old filename, still
 covers this content. The stack order stays U2 (`20261101115900`) < U3
-(`20261031034754`) < U4 (`20261031034800`) < U5 (`20261031034900`).
+(`20261101120000`) < U4 (`20261101120100`) < U5 (renamed in #988).
 
 ## Repair round: SonarCloud new-code findings (2026-10-31)
 

@@ -967,6 +967,7 @@ async function handleExtractTask(supabase: SupabaseClient, task: QueueTaskRecord
       {
         part_id: context.part.id,
         organization_id: context.part.organization_id,
+        source_attempt_id: task.attempt_id ?? null,
         extractor_version: extractorVersion,
         extraction: buildStoredExtractionPayload(
           extraction,

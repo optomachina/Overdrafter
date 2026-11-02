@@ -85,6 +85,7 @@ function makePart(overrides: Partial<PartAggregate> = {}): PartAggregate {
       part_id: "part-1",
       organization_id: "org-1",
       extractor_version: "worker-pdf-v3",
+      source_attempt_id: null,
       extraction: {
         workerBuildVersion: "build-canonical",
         partNumber: "1093-05589",

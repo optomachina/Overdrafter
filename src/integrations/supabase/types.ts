@@ -482,6 +482,7 @@ export type Database = {
           id: string
           organization_id: string
           part_id: string
+          source_attempt_id: string | null
           status: Database["public"]["Enums"]["extraction_status"]
           updated_at: string
           warnings: Json
@@ -495,6 +496,7 @@ export type Database = {
           id?: string
           organization_id: string
           part_id: string
+          source_attempt_id?: string | null
           status?: Database["public"]["Enums"]["extraction_status"]
           updated_at?: string
           warnings?: Json
@@ -508,6 +510,7 @@ export type Database = {
           id?: string
           organization_id?: string
           part_id?: string
+          source_attempt_id?: string | null
           status?: Database["public"]["Enums"]["extraction_status"]
           updated_at?: string
           warnings?: Json
@@ -4008,6 +4011,7 @@ export type Database = {
       }
       work_queue: {
         Row: {
+          attempt_id: string | null
           attempts: number
           available_at: string
           created_at: string
@@ -4026,6 +4030,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          attempt_id?: string | null
           attempts?: number
           available_at?: string
           created_at?: string
@@ -4044,6 +4049,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          attempt_id?: string | null
           attempts?: number
           available_at?: string
           created_at?: string
@@ -4311,6 +4317,7 @@ export type Database = {
       api_claim_next_task: {
         Args: { p_worker_name: string }
         Returns: {
+          attempt_id: string | null
           attempts: number
           available_at: string
           created_at: string

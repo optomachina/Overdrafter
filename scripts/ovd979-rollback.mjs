@@ -45,7 +45,7 @@ function pinCatalogFirst(statement) {
 
 export function aclStatements(sql, name) {
   const statements = sql.split("\n")
-    .filter((line) => /^(revoke|grant)\b/i.test(line) && line.includes(` function ${name}(`));
+    .filter((line) => /^(revoke|grant)\b/i.test(line) && line.toLowerCase().includes(` function ${name}(`));
   // Only single-line statements are recognised; finding none means the rollback would drop the ACLs.
   if (statements.length === 0) throw new Error(`no single-line revoke/grant found for ${name}; refusing to generate a rollback without ACLs`);
   return statements;

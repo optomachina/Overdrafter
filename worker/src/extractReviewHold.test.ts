@@ -88,6 +88,7 @@ type DatabaseOptions = {
 function database(options: DatabaseOptions) {
   const rpcCalls: string[] = [];
   const auditEvents: Record<string, unknown>[] = [];
+  const extractionWrites: Record<string, unknown>[] = [];
   const auditInsert = vi.fn((value: Record<string, unknown>) => auditEvents.push(value));
   const approvals = [{ id: "other-approval", part_id: "other-part" },
     ...(options.partApproved ? [{ id: "this-approval", part_id: part.id }] : [])];
@@ -111,7 +112,11 @@ function database(options: DatabaseOptions) {
     query.select = (columns: string) => { selected ??= columns; return query; };
     for (const name of ["neq", "in", "is", "order", "limit", "update", "delete"]) query[name] = () => query;
     query.eq = (column: string, value: unknown) => { filters[column] = value; return query; };
-    query.upsert = () => { inserted = {}; return query; };
+    query.upsert = (value: Record<string, unknown>) => {
+      inserted = value;
+      if (table === "drawing_extractions") extractionWrites.push(value);
+      return query;
+    };
     query.insert = (value: Record<string, unknown>) => {
       inserted = value;
       if (table === "audit_events") auditInsert(value);
@@ -144,7 +149,7 @@ function database(options: DatabaseOptions) {
     }
     return { data: null, error: null };
   });
-  return { client: { from, rpc } as unknown as SupabaseClient, rpc, rpcCalls, auditEvents, auditInsert };
+  return { client: { from, rpc } as unknown as SupabaseClient, rpc, rpcCalls, auditEvents, auditInsert, extractionWrites };
 }
 
 async function run(options: DatabaseOptions, runTask: QueueTaskRecord = task) {
@@ -419,4 +424,16 @@ describe("OVD-1097: refresh at the real main-loop acknowledgement boundary (F2/F
     expect(markTaskCompleted).toHaveBeenCalledTimes(1);
     expect(db.rpcCalls).not.toContain(refreshName);
   });
+});
+
+describe("OVD-979 U3: extraction claim provenance", () => {
+  it.each(["97900000-0000-4000-8000-000000000001", "97900000-0000-4000-8000-000000000002", null, undefined])(
+    "persists the claimed attempt %s on the real extraction write path", async (attemptId) => {
+      const db = database({ trustedReuse: false, approvedCount: 0 });
+      await processClaimedTask(db.client, { ...task, attempt_id: attemptId }, config, createWorkerRuntimeState());
+      expect(markTaskFailed).not.toHaveBeenCalled();
+      expect(markTaskCompleted).toHaveBeenCalledTimes(1);
+      expect(db.extractionWrites).toMatchObject([{ part_id: task.part_id, source_attempt_id: attemptId ?? null }]);
+    },
+  );
 });
