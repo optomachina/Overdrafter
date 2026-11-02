@@ -3171,6 +3171,64 @@ describe("ClientPart", () => {
     expect(screen.getByLabelText("Notes")).toHaveValue("Unsaved note");
   });
 
+  it("retains Clear threads through Remove refetch and Save (delta OVD-994)", async () => {
+    const initial = createNeedByRequestDetail({ savedThreads: "M6x1", drawingThreads: THREADED_DRAWING });
+    api.fetchPartDetailByJobId.mockResolvedValue(initial);
+    api.clearClientPartRequestedByDate.mockImplementation(async () => {
+      api.fetchPartDetailByJobId.mockResolvedValue({
+        ...initial,
+        job: { ...initial.job, requested_by_date: null },
+        part: { ...initial.part, approvedRequirement: {
+          ...initial.part.approvedRequirement, requested_by_date: null,
+        } },
+      });
+    });
+    const { result } = renderPartControllerHook();
+    await waitFor(() => expect(result.current.effectiveRequestDraft?.threads).toBe("M6x1"));
+    // The editor's Clear threads action emits this exact patch.
+    act(() => result.current.handleDraftChange({ threads: "", clearThreads: true }));
+    act(() => result.current.clearNeedByMutation.mutate());
+    await waitFor(() => expect(result.current.effectiveRequestDraft?.requestedByDate).toBeNull());
+    await waitFor(() => expect(result.current.clearNeedByMutation.isSuccess).toBe(true));
+    act(() => result.current.handleSaveRequest());
+    await waitFor(() => expect(api.updateClientPartRequest).toHaveBeenCalledWith(
+      expect.objectContaining({ threads: "", clearThreads: true }),
+    ));
+  });
+
+  it.each(["save", "rename"] as const)("resyncs normalized values after %s despite an earlier save failure (delta OVD-994)", async (operation) => {
+    const initial = createNeedByRequestDetail();
+    api.fetchPartDetailByJobId.mockResolvedValue(initial);
+    const { result } = renderPartControllerHook();
+    await waitFor(() => expect(result.current.effectiveRequestDraft?.notes).toBe("Deburr all edges"));
+    act(() => result.current.clearNeedByMutation.mutate());
+    await waitFor(() => expect(toastMock.success).toHaveBeenCalledWith("Need by date removed."));
+    const earlier = createDeferredPromise<void>();
+    const later = createDeferredPromise<void>();
+    api.updateClientPartRequest.mockImplementationOnce(() => earlier.promise).mockImplementationOnce(async () => {
+      await later.promise;
+      api.fetchPartDetailByJobId.mockResolvedValue({
+        ...initial,
+        part: { ...initial.part, approvedRequirement: {
+          ...initial.part.approvedRequirement,
+          spec_snapshot: { process: "CNC milling", notes: "Server normalized" },
+        } },
+      });
+    });
+    act(() => result.current.handleSaveRequestPatch({ process: "CNC milling" }));
+    await waitFor(() => expect(api.updateClientPartRequest).toHaveBeenCalledTimes(1));
+    act(() => result.current.handleDraftChange({ notes: "Local unnormalized" }));
+    let rename: Promise<void> | undefined;
+    act(() => {
+      if (operation === "save") result.current.handleSaveRequest();
+      else rename = result.current.handleRenamePart("job-1", "Renamed");
+    });
+    await act(async () => { earlier.reject(new Error("Earlier patch failed")); });
+    await waitFor(() => expect(api.updateClientPartRequest).toHaveBeenCalledTimes(2));
+    await act(async () => { later.resolve(); await rename; });
+    await waitFor(() => expect(result.current.effectiveRequestDraft?.notes).toBe("Server normalized"));
+  });
+
   it.each(["Notes", "Packaging notes"])("preserves unsaved %s through Remove and server refetch (QA OVD-994)", async (label) => {
     const initial = createNeedByRequestDetail();
     const cleared = {

@@ -641,8 +641,8 @@ export function useClientPartController(
       await invalidateClientWorkspaceQueries(queryClient, { jobId: canonicalJobId });
       toast.success("Request details updated.");
     },
-    onError: (error: Error) => {
-      fullSavePendingRef.current = null;
+    onError: (error: Error, input) => {
+      if (fullSavePendingRef.current === input) fullSavePendingRef.current = null;
       toast.error(error.message || "Failed to update request details.");
     },
   });
@@ -763,6 +763,9 @@ export function useClientPartController(
     mutationFn: (input: ClientPartRequestUpdateInput) =>
       serializeRequestMutation(() => updateClientPartRequest(input)),
     onSuccess: async () => {
+      preserveRemovedDateDraftRef.current = false;
+      serverDraftRef.current = null;
+      patchDraftPreservationRef.current = null;
       await invalidateClientWorkspaceQueries(queryClient, { jobId: canonicalJobId });
       toast.success("Part renamed.");
     },
@@ -1216,11 +1219,11 @@ export function useClientPartController(
     setRequestDraft((current) => {
       if (preservedDraft) return preservedDraft;
       if (!preserveRemovedDateDraftRef.current || !current || !previousServer) return fallbackRequestDraft;
-      return Object.fromEntries(Object.entries(fallbackRequestDraft).map(([field, value]) => [
+      return Object.fromEntries([...new Set([...Object.keys(current), ...Object.keys(fallbackRequestDraft)])].map((field) => [
         field,
         JSON.stringify(current[field as keyof ClientPartRequestUpdateInput]) !==
           JSON.stringify(previousServer[field as keyof ClientPartRequestUpdateInput])
-          ? current[field as keyof ClientPartRequestUpdateInput] : value,
+          ? current[field as keyof ClientPartRequestUpdateInput] : fallbackRequestDraft[field as keyof ClientPartRequestUpdateInput],
       ])) as ClientPartRequestUpdateInput;
     });
     if (!preservedDraft) {
