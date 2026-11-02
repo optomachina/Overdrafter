@@ -3314,6 +3314,8 @@ describe("ClientPart", () => {
         expect(alert).toHaveTextContent("Remove them only if the part does not need them, then retry.");
         expect(alert).not.toHaveTextContent("Xometry");
         expect(alert.textContent?.includes("Thread callouts read from the drawing are saved as Threads")).toBe(hasNote);
+        expect(alert.textContent?.includes("You can clear Threads in the request editor if the part does not need them, then retry.")).toBe(hasNote);
+        expect(alert).not.toHaveTextContent("cannot be cleared");
       } finally {
         vi.unstubAllEnvs();
       }
