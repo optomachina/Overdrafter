@@ -612,9 +612,10 @@ const ClientPart = () => {
                     : handleQuoteRequestAction
                 }
                 heading={
-                  automaticQuoteCollectionEnabled
-                    ? "Automatic quote status"
-                    : "Automatic quote access"
+                  !automaticQuoteCollectionEnabled &&
+                  (quoteRequestViewModel.action.kind === "request" || quoteRequestViewModel.action.kind === "retry")
+                    ? "Automatic quote access"
+                    : "Quote status"
                 }
               />
             ) : null}
@@ -761,9 +762,16 @@ const ClientPart = () => {
                       type="button"
                       onClick={() => setIsQuoteRequestFlowOpen(true)}
                       disabled={isQuoteCollectionModeLoading || !automaticQuoteCollectionEnabled}
+                      title={isQuoteCollectionModeLoading ? "Checking automatic quote access." : !automaticQuoteCollectionEnabled ? "Automatic quote collection is not enabled for this organization." : undefined}
+                      aria-describedby={isQuoteCollectionModeLoading || !automaticQuoteCollectionEnabled ? "quote-disabled-reason" : undefined}
                     >
                       Quote
                     </Button>
+                    {isQuoteCollectionModeLoading || !automaticQuoteCollectionEnabled ? (
+                      <span id="quote-disabled-reason" className="sr-only">
+                        {isQuoteCollectionModeLoading ? "Checking automatic quote access." : "Automatic quote collection is not enabled for this organization."}
+                      </span>
+                    ) : null}
                     <Button
                       type="button"
                       variant="outline"

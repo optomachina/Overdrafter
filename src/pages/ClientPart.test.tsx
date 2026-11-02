@@ -1349,6 +1349,21 @@ describe("ClientPart", () => {
     expect(lastQuoteDecisionPanelProps).toMatchObject({ optionCount: 0 });
   });
 
+  it("uses neutral quote status for received quotes without automatic access", async () => {
+    mockQuoteCollectionMode.automaticEnabled = false;
+    api.fetchPartDetailByJobId.mockResolvedValue(createPartDetail({
+      latestQuoteRun: {
+        id: "run-1", quote_request_id: null, job_id: "job-1", organization_id: "org-1",
+        initiated_by: "user-1", status: "published", requested_auto_publish: false,
+        created_at: "2026-03-01T00:00:00Z", updated_at: "2026-03-01T00:00:00Z",
+      },
+    }));
+    renderWithClient("/parts/job-1");
+    expect(await screen.findByText("Quote status")).toBeInTheDocument();
+    expect(screen.queryByText("Automatic quote access")).not.toBeInTheDocument();
+    expect(screen.getByText(/received/i)).toBeInTheDocument();
+  });
+
   it("shows Founding Beta guidance without exposing the manual quote path", async () => {
     mockQuoteCollectionMode.automaticEnabled = false;
     mockQuoteCollectionMode.hasAutomaticEntitlement = false;
@@ -1364,6 +1379,7 @@ describe("ClientPart", () => {
     ).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /request manual quote/i })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Quote" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Quote" })).toHaveAccessibleDescription(/not enabled/);
     expect(api.requestQuote).not.toHaveBeenCalled();
   });
 

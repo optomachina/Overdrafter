@@ -41,6 +41,9 @@ describe("getExportControlNoticeCopy", () => {
     const copy = getExportControlNoticeCopy({ jobId: "j", latestAnswer, exportReviewState: "clear" });
     expect(copy?.action).toBe("Answer export-control question");
     expect(copy?.detail).toContain("covers every file on the part");
+    expect(copy?.detail).toMatch(/^New quotes/);
+    expect(copy?.detail).toContain("Quotes you already received are not affected.");
+    expect(copy?.detail).not.toMatch(/^Quotes for this part are on hold/);
   });
 
   it("explains a review hold without offering a way around it", () => {
