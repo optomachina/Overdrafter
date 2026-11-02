@@ -612,8 +612,10 @@ export function useAppSession() {
   const sessionData = sessionQuery.isError && !isRestoredSession(sessionQuery.data)
     ? EMPTY_APP_SESSION
     : sessionQuery.data;
+  // Consumers need the seed identity immediately; initialization and privilege
+  // gates keep authenticated content and bootstrap waiting for memberships.
   const publicSessionData = sessionData?.user && !sessionData.restoreComplete && !isFixtureSession
-    ? { ...sessionData, user: null, isVerifiedAuth: false, isPlatformAdmin: false }
+    ? { ...sessionData, isVerifiedAuth: false, isPlatformAdmin: false }
     : sessionData;
   const memberships = sessionData?.memberships ?? EMPTY_MEMBERSHIPS;
   const activeMembership: AppMembership | null = memberships[0] ?? null;
@@ -625,7 +627,7 @@ export function useAppSession() {
       startupHadStoredTokenRef.current);
   // The React Query cache is empty after a reload, so also trust the persisted Supabase
   // token read synchronously at startup. This only lets pages draw their shell chrome;
-  // `user` stays null (and data queries stay disabled) until the session is verified.
+  // seeded users remain visible, while initialization and privilege gates block workspace access.
   const hasCachedSession =
     startupHadStoredTokenRef.current ||
     Boolean(sessionQuery.data?.user && sessionQuery.data.authState === "authenticated");

@@ -87,7 +87,7 @@ const ClientHome = () => {
     navigate(`/parts/${jobId}`);
   };
 
-  if (isAuthInitializing && !user) {
+  if (isAuthInitializing && (!user || !isVerifiedAuth)) {
     return <AuthBootstrapScreen message="Restoring your workspace." />;
   }
 

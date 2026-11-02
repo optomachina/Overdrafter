@@ -129,7 +129,7 @@ const ClientQuoteDetail = () => {
     setCustomerReference(resolvedJobId ? readQuoteReference(resolvedJobId) ?? "" : "");
   }, [resolvedJobId]);
 
-  if ((controller.isAuthInitializing || accessibleJobsQuery.isLoading) && !user) {
+  if (controller.isAuthInitializing || (accessibleJobsQuery.isLoading && !user)) {
     return <AuthBootstrapScreen message="Opening your quote." />;
   }
 
