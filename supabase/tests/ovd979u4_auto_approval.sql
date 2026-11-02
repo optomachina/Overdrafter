@@ -85,7 +85,7 @@ select is((select part_number from public.approved_part_requirements where part_
 
 -- Identity matrix: a future timestamp is deliberately insufficient evidence.
 create function pg_temp.u4_attempt_cases() returns setof text language plpgsql as $$
-declare c record; r record; a uuid := gen_random_uuid(); b uuid := gen_random_uuid(); n integer;
+declare c record; r record; o record; a uuid := gen_random_uuid(); b uuid := gen_random_uuid(); n integer;
 begin
   for c in select * from (values
     ('queued', true, true, false, false, 'queued task keeping a matching attempt_id (SQL-path requeue)'),
@@ -105,7 +105,10 @@ begin
       where id = r.task_id;
     perform pg_temp.u4_store(r.part_id, case when c.stored_id then case when c.changed then b else a end end);
     if c.other_part then
-      update public.work_queue set part_id = (select part_id from u4_main) where id = r.task_id;
+      -- A part with no active extract task of its own (U5 allows one per part).
+      select * into o from pg_temp.u4_case();
+      delete from public.work_queue where id = o.task_id;
+      update public.work_queue set part_id = o.part_id where id = r.task_id;
     end if;
     n := public.api_auto_approve_job_requirements(r.job_id);
     return next is((select status::text from public.jobs where id = r.job_id),
@@ -230,8 +233,19 @@ $$;
 select * from pg_temp.u4_default_guards();
 
 -- A stored result does not exempt any additional queued task, even on the same part.
-insert into public.work_queue (organization_id, job_id, part_id, task_type)
-select '97940000-0000-4000-8000-000000000002', job_id, part_id, 'extract_part' from u4_main;
+-- Once U5's index allows one active task per part, the extra task goes on a second part.
+do $$
+declare v_part uuid := (select part_id from u4_main);
+begin
+  if to_regclass('public.work_queue_one_active_extract_per_part') is not null then
+    insert into public.parts (id, job_id, organization_id, name, normalized_key)
+    select gen_random_uuid(), job_id, '97940000-0000-4000-8000-000000000002', 'U4 extra part', 'u4-extra'
+    from u4_main returning id into v_part;
+  end if;
+  insert into public.work_queue (organization_id, job_id, part_id, task_type)
+  select '97940000-0000-4000-8000-000000000002', job_id, v_part, 'extract_part' from u4_main;
+end;
+$$;
 select public.api_auto_approve_job_requirements((select job_id from u4_main));
 select is((select status::text from public.jobs where id = (select job_id from u4_main)), 'extracting', 'matching result cannot exempt a second queued task');
 
