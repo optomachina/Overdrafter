@@ -409,6 +409,26 @@ describe("client review pages", () => {
     expect(screen.queryByText(/ready for manual release coordination/i)).not.toBeInTheDocument();
   });
 
+  it("keeps an invalid billing email out of the ready project handoff", async () => {
+    renderWithClient(
+      <Routes><Route path="/projects/:projectId/review" element={<ClientProjectReview />} /></Routes>,
+      "/projects/project-1/review",
+    );
+    await screen.findByLabelText(/ship-to contact/i);
+    for (const [label, value] of [
+      [/ship-to contact/i, "Buyer"], [/ship-to location/i, "Austin"],
+      [/billing contact name/i, "Buyer"], [/billing contact email/i, "buyer..name@example.com"],
+    ] as const) {
+      fireEvent.change(screen.getByLabelText(label), { target: { value } });
+    }
+    expect(screen.getByLabelText(/billing contact email/i)).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByLabelText(/billing contact email/i)).toHaveAccessibleDescription(/Enter a valid billing contact email/);
+    fireEvent.click(screen.getByRole("button", { name: /review handoff/i }));
+    expect(screen.getByRole("heading", { name: "More procurement detail is still needed" })).toBeInTheDocument();
+    expect(screen.getByText("Missing: a valid billing contact email.")).toBeInTheDocument();
+    expect(screen.queryByText(/ready for manual release coordination/i)).not.toBeInTheDocument();
+  });
+
   it("holds the protected review route during auth initialization instead of redirecting", () => {
     mockUseAppSession.mockReturnValue({
       user: null,

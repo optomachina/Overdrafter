@@ -81,7 +81,7 @@ function normalizeValue(value: string) {
 }
 
 export function isValidBillingContactEmail(value: string): boolean {
-  return /^[^\s@]+@[^\s@.]+(\.[^\s@.]+)+$/.test(value.trim());
+  return /^[^\s@.]+(\.[^\s@.]+)*@[^\s@.]+(\.[^\s@.]+)+$/.test(value.trim());
 }
 
 export function summarizeProcurementHandoff(

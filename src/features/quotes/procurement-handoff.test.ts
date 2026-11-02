@@ -6,6 +6,9 @@ describe("procurement handoff billing email", () => {
     ["not-an-email", false, ["a valid billing contact email"]],
     [" buyer@example.com ", true, []],
     ["", false, ["billing contact email"]],
+    ["buyer..name@example.com", false, ["a valid billing contact email"]],
+    [".buyer@example.com", false, ["a valid billing contact email"]],
+    ["buyer.@example.com", false, ["a valid billing contact email"]],
     ["a@b", false, ["a valid billing contact email"]],
   ] as const)("validates %j before declaring readiness", (billingContactEmail, ready, missingFields) => {
     const summary = summarizeProcurementHandoff({

@@ -1384,6 +1384,25 @@ describe("ClientPart", () => {
     expect(api.requestQuote).not.toHaveBeenCalled();
   });
 
+  it("explains when automatic quote access could not be verified", async () => {
+    mockQuoteCollectionMode.automaticEnabled = false;
+    mockQuoteCollectionMode.state = "unknown";
+    mockQuoteCollectionMode.isLoading = false;
+
+    renderWithClient("/parts/job-1");
+
+    await screen.findByText("Automatic quote access");
+    const message = "Quote is unavailable: automatic quote access could not be verified. Try again shortly.";
+    expect(screen.getByText(message, { selector: "div" })).toBeInTheDocument();
+    const quoteButton = screen.getByRole("button", { name: "Quote" });
+    expect(quoteButton).toBeDisabled();
+    expect(quoteButton).toHaveAttribute("aria-describedby", "quote-disabled-reason");
+    expect(quoteButton).toHaveAccessibleDescription(message);
+    expect(quoteButton).toHaveAttribute("title", message);
+    expect(screen.queryByText(/automatic quote collection is not enabled/i)).not.toBeInTheDocument();
+    expect(api.requestQuote).not.toHaveBeenCalled();
+  });
+
   it("renders PartInfoPanel in the right rail and omits the old workspace badge cluster", async () => {
     await renderClientPartOnTab("Request");
     expect(screen.getByTestId("part-info-panel")).toBeInTheDocument();
