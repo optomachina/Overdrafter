@@ -140,6 +140,8 @@ function createStorageMock() {
   const values = new Map<string, string>();
 
   return {
+    get length() { return values.size; },
+    key: vi.fn((index: number) => [...values.keys()][index] ?? null),
     getItem: vi.fn((key: string) => values.get(key) ?? null),
     setItem: vi.fn((key: string, value: string) => {
       values.set(key, value);
@@ -996,10 +998,15 @@ describe("useAppSession", () => {
       expect(screen.getByRole("button", { name: "Log out" })).toBeInTheDocument();
     });
 
+    storageMock.setItem("overdrafter:quote-reference:job-1", "Customer 1");
+    storageMock.setItem("quote-intelligence-sidebar-collapsed", "true");
+
     fireEvent.click(screen.getByRole("button", { name: "Log out" }));
 
     await waitFor(() => {
       expect(signOutMock).toHaveBeenCalledWith({ scope: "global" });
+      expect(storageMock.getItem("overdrafter:quote-reference:job-1")).toBeNull();
+      expect(storageMock.getItem("quote-intelligence-sidebar-collapsed")).toBe("true");
       expect(screen.getByTestId("auth-state")).toHaveTextContent("anonymous");
       expect(screen.getByRole("button", { name: "Log in" })).toBeInTheDocument();
     });

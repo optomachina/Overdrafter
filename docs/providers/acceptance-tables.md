@@ -1,7 +1,9 @@
 # Provider acceptance tables — permissions matrix links
 
-Each 1.0 provider, plus Protolabs (not in 1.0), links to the permissions matrix
-required by OVD-724. The matrix is the clearance record for paid automated
+Each provider in the matrix links to the permissions matrix required by
+OVD-724: the four 1.0 providers (Xometry, Fictiv, Quickparts and RMFG; Blaine,
+2026-10-20), the 1.1 providers (Weerg, Geomiq, OSH Cut and SendCutSend) and
+Protolabs (not in 1.0). The matrix is the clearance record for paid automated
 quoting. Live readiness, admission, and the OVD-722 kill switch remain separate
 gates.
 
@@ -13,11 +15,11 @@ Canonical matrix: [permissions-matrix.md](permissions-matrix.md) and
 | xometry | OVD-206 / controlled beta | true | owner override 2026-10-21; quote-only on owner accounts (`prohibited`) | `docs/1-0-beta-runbook.md` |
 | fictiv | OVD-395 | true | owner override 2026-10-21; quote-only on owner accounts (`prior-consent`) | [ovd673-fictiv-live-readiness.md](../workflows/ovd673-fictiv-live-readiness.md) |
 | quickparts | OVD-396 | true | owner override 2026-10-21; quote-only on owner accounts (`silent`) | [ovd674-quickparts-live-readiness.md](../workflows/ovd674-quickparts-live-readiness.md) |
-| weerg | OVD-397 | false | owner override 2026-10-22; quote-only on owner accounts (`silent`) | [ovd675-weerg-live-readiness.md](../workflows/ovd675-weerg-live-readiness.md) |
-| geomiq | OVD-398 | true | owner override 2026-10-22; quote-only on owner accounts (`silent`) | `provider-integrations/geomiq/offline-evaluation.md` |
+| weerg | OVD-397 (1.1) | false | owner override 2026-10-22; quote-only on owner accounts (`silent`) | [ovd675-weerg-live-readiness.md](../workflows/ovd675-weerg-live-readiness.md) |
+| geomiq | OVD-398 (1.1) | false | owner override 2026-10-22; quote-only on owner accounts (`silent`) | `provider-integrations/geomiq/offline-evaluation.md` |
 | rmfg | OVD-678 / OVD-580 | true | cleared on published agent/API only | [rmfg-public-capability-recon.md](../rmfg-public-capability-recon.md) |
-| oshcut | process-specific 1.0 | true | owner override 2026-10-22; quote-only on owner accounts (`silent`) | `provider-integrations/oshcut/manifest.v1.json` |
-| sendcutsend | named in OVD-724 | true | owner override 2026-10-22; quote-only on owner accounts (`silent`) | `provider-integrations/sendcutsend/manifest.v1.json` |
+| oshcut | 1.1 (Oct 20 decision) | false | owner override 2026-10-22; quote-only on owner accounts (`silent`) | `provider-integrations/oshcut/manifest.v1.json` |
+| sendcutsend | named in OVD-724 (1.1) | false | owner override 2026-10-22; quote-only on owner accounts (`silent`) | `provider-integrations/sendcutsend/manifest.v1.json` |
 | protolabs | not in 1.0 | false | never cleared | `provider-integrations/protolabs/manifest.v1.json` |
 
 Kill-switch certification for every 1.0 provider is an OVD-722 / OVD-319
@@ -29,7 +31,8 @@ provider's live-readiness or acceptance notes when that issue lands.
 OVD-723 blocks controlled or uncertain uploads at upload time and denies
 dispatch unless the latest declaration is `not_controlled` and no marking block
 is open. The OVD-319 certification walk must run two extra cases per 1.0
-provider and record the result here:
+provider and record the result here (1.1 rows are listed for completeness and
+are not a 1.0 gate):
 
 - **Marked drawing**: upload a drawing whose title block carries an ITAR, ECCN,
   CUI, or distribution-statement marking with a `not_controlled` declaration.
@@ -98,7 +101,8 @@ Permissions: [permissions-matrix.md](permissions-matrix.md#geomiq). Cleared by
 Blaine Wilson's owner override on 2026-10-22: quote-only automated quoting on
 his own provider accounts, ToS risk accepted until a cease-and-desist, no
 orders. ToS stance remains `silent`. No vendor was contacted; agents never
-contact vendors. Runtime gates are unchanged. Offline
+contact vendors. Runtime gates are unchanged. Not in 1.0: 1.1 provider since
+Blaine's 2026-10-20 four-provider decision. Offline
 evaluation notes stay in `provider-integrations/geomiq/offline-evaluation.md`.
 
 ### rmfg
@@ -113,8 +117,8 @@ Permissions: [permissions-matrix.md](permissions-matrix.md#oshcut). Cleared by
 Blaine Wilson's owner override on 2026-10-22: quote-only automated quoting on
 his own provider accounts, ToS risk accepted until a cease-and-desist, no
 orders. ToS stance remains `silent`. No vendor was contacted; agents never
-contact vendors. Runtime gates are unchanged. Process-
-specific 1.0 route. The OVD-677 admission basis
+contact vendors. Runtime gates are unchanged. Not in 1.0: 1.1 provider since
+Blaine's 2026-10-20 four-provider decision. The OVD-677 admission basis
 remains `owner_approved` (OVD-641).
 
 ### sendcutsend
@@ -123,8 +127,9 @@ Permissions: [permissions-matrix.md](permissions-matrix.md#sendcutsend). Cleared
 Blaine Wilson's owner override on 2026-10-22: quote-only automated quoting on
 his own provider accounts, ToS risk accepted until a cease-and-desist, no
 orders. ToS stance remains `silent`. No vendor was contacted; agents never
-contact vendors. Runtime gates are unchanged. Named
-in OVD-724. No outreach draft until Blaine adds it to the ask list.
+contact vendors. Runtime gates are unchanged. Not in 1.0: 1.1 provider since
+Blaine's 2026-10-20 four-provider decision. Named in OVD-724. No outreach
+draft until Blaine adds it to the ask list.
 
 ### protolabs
 
