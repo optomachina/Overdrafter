@@ -2369,3 +2369,123 @@ describe("runEvaluationBatch", () => {
     }
   });
 });
+
+describe("SendCutSend quote-only sheet lane (OVD-1056)", () => {
+  const sheetFlags = [
+    "--sendcutsend-process", "sheet_laser_cutting",
+    "--sendcutsend-material", "6061-T6 aluminum",
+    "--sendcutsend-thickness-in", "0.125",
+  ];
+
+  async function sheetApproval(cadPath: string) {
+    // The approval reader refuses symlinked path components (macOS /var is one).
+    const tempDir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "sendcutsend-sheet-approval-")));
+    tempDirs.push(tempDir);
+    const approvalPath = path.join(tempDir, "approval.json");
+    await fs.writeFile(approvalPath, JSON.stringify({
+      schemaVersion: "provider-portal-approval.v1",
+      providerKey: "sendcutsend",
+      accountMode: "existing_authenticated_account",
+      allowedOrigins: ["https://app.sendcutsend.com", "https://main.realtime.ably.net"],
+      intendedAction: "quote_only",
+      artifactScope: ["cad_upload", "scrubbed_local_evidence"],
+      cadPath,
+      drawingPath: null,
+      requestedQuantities: [1],
+      cadFileSha256: "a".repeat(64),
+      drawingFileSha256: null,
+    }));
+    return { approvalPath, approvalSha256: await sha256File(approvalPath) };
+  }
+
+  function sheetArgs(extra: string[] = []) {
+    return parseSmokeArgs([
+      "--vendor", "sendcutsend", "--cad", "/evaluation/plate.step",
+      "--confirm-non-export-controlled", ...sheetFlags, ...extra,
+    ]);
+  }
+
+  const stagedSheet = () => ({
+    authorization: { nonExportControlled: true, cadFileSha256: "a".repeat(64), drawingFileSha256: null },
+    cadPath: "/private/staged/plate.step",
+    drawingPath: null,
+    cleanup: vi.fn(),
+  });
+
+  it("admits the exact sheet package without a manifest", () => {
+    expect(sheetArgs()).toMatchObject({
+      vendors: ["sendcutsend"],
+      sendCutSendManifestPath: null,
+      sendCutSendSheetPackage: { process: "sheet_laser_cutting", material: "6061-T6 aluminum", thicknessInch: 0.125 },
+    });
+  });
+
+  it.each([
+    ["another thickness", ["--sendcutsend-process", "sheet_laser_cutting", "--sendcutsend-material", "6061-T6 aluminum", "--sendcutsend-thickness-in", "0.25"]],
+    ["another material", ["--sendcutsend-process", "sheet_laser_cutting", "--sendcutsend-material", "5052-H32 aluminum", "--sendcutsend-thickness-in", "0.125"]],
+    ["a partial package", ["--sendcutsend-process", "sheet_laser_cutting"]],
+  ])("refuses %s", (_label, flags) => {
+    expect(() => parseSmokeArgs([
+      "--vendor", "sendcutsend", "--cad", "./plate.step", "--confirm-non-export-controlled", ...flags,
+    ])).toThrow(/exact package metadata/i);
+  });
+
+  it("refuses both lanes at once, sheet flags for another vendor, and quantities outside the evaluated range", () => {
+    expect(() => sheetArgs(["--sendcutsend-manifest", "./reviewed.json"])).toThrow(/not both/i);
+    expect(() => parseSmokeArgs([
+      "--vendor", "xometry", "--cad", "./plate.step", "--confirm-non-export-controlled", ...sheetFlags,
+    ])).toThrow(/only be supplied when --vendor includes sendcutsend/i);
+    expect(() => sheetArgs(["--quantities", "101"])).toThrow(/sheet quantity/i);
+  });
+
+  it("requires the operator approval file and takes no manifest", async () => {
+    const args = sheetArgs();
+    await expect(loadSendCutSendEvaluationManifest(args)).resolves.toBeNull();
+    await expect(loadProviderPortalApproval(args)).rejects.toThrow(/requires --approval-file/i);
+    const { approvalPath, approvalSha256 } = await sheetApproval("/evaluation/plate.step");
+    await expect(loadProviderPortalApproval(sheetArgs(["--approval-file", approvalPath, "--approval-file-sha256", approvalSha256])))
+      .resolves.toMatchObject({ providerKey: "sendcutsend", accountMode: "existing_authenticated_account" });
+  });
+
+  it("guards the sheet quote with the kill switch and hands the adapter the sheet package and approval", async () => {
+    const { approvalPath, approvalSha256 } = await sheetApproval("/evaluation/plate.step");
+    const args = sheetArgs(["--approval-file", approvalPath, "--approval-file-sha256", approvalSha256]);
+    const approval = await loadProviderPortalApproval(args);
+    const quote = vi.fn<VendorAdapter["quote"]>().mockRejectedValue(new VendorAutomationError("stop", "selector_failure", {
+      terminalState: "selector_drift", reason: "sendcutsend_material_path_incomplete", providerMutationPossible: true,
+    }));
+    vi.mocked(guardOperatorQuote).mockClear();
+
+    const row = await runQuote({ workerTempDir: "/private/runtime" } as WorkerConfig, args, "sendcutsend", 1, stagedSheet(),
+      () => ({ sendcutsend: { quote } }), null, approval);
+
+    expect(guardOperatorQuote).toHaveBeenCalledWith("sendcutsend", expect.any(Function), undefined);
+    const input = quote.mock.calls[0][0];
+    expect(input.providerPortalApproval).toEqual(approval);
+    expect(input.requirement).toMatchObject({
+      material: "6061-T6 aluminum",
+      spec_snapshot: { process: "sheet_laser_cutting", geometryFamily: "flat_sheet", sheetThicknessInch: 0.125 },
+    });
+    expect(input.requirement.spec_snapshot).not.toHaveProperty("evaluationManifest");
+    expect(row.evidence.accountMode).toBe("existing_authenticated_account");
+    expect(row.errorPayload).toMatchObject({ terminalState: "selector_drift", reason: "sendcutsend_material_path_incomplete" });
+  });
+
+  it("checks the switch before launch and gives the sheet lane a session-bearing config", async () => {
+    const { approvalPath, approvalSha256 } = await sheetApproval("/evaluation/plate.step");
+    const args = sheetArgs(["--approval-file", approvalPath, "--approval-file-sha256", approvalSha256]);
+    vi.mocked(assertOperatorProvidersEnabled).mockClear();
+    const makeVendorConfig = vi.fn(() => ({} as WorkerConfig));
+    const quote = vi.fn<VendorAdapter["quote"]>().mockRejectedValue(new Error("stop"));
+
+    await runEvaluationBatch(args, {
+      stageFiles: async () => stagedSheet(),
+      makeVendorConfig,
+      prepareConfig: async (config) => config,
+      buildRegistry: () => ({ sendcutsend: { quote } }),
+    });
+
+    expect(assertOperatorProvidersEnabled).toHaveBeenCalledWith(["sendcutsend"], undefined);
+    expect(makeVendorConfig).toHaveBeenCalledWith("sendcutsend", expect.any(String), true);
+  });
+});

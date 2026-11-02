@@ -84,6 +84,15 @@ describe("vendorAuth argument parsing", () => {
     expect(notice).toHaveBeenCalledWith(expect.stringMatching(/Skipping oshcut:.*disabled/));
   });
 
+  it("accepts SendCutSend for its own session bootstrap but keeps it out of all", () => {
+    expect(parseAuthArgs(["sendcutsend", "./state/scs.json"])).toMatchObject({
+      vendors: ["sendcutsend"],
+      explicitOutputPath: expect.stringMatching(/state\/scs\.json$/),
+    });
+    vi.spyOn(console, "info").mockImplementation(() => undefined);
+    expect(parseAuthArgs(["all"]).vendors).not.toContain("sendcutsend");
+  });
+
   it("parses a comma-separated hidden vendor subset", () => {
     expect(parseAuthArgs(["oshcut,quickparts,weerg"]).vendors).toEqual(["quickparts", "weerg"]);
   });
