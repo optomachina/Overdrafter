@@ -59,7 +59,7 @@ Prepare reversible work first and ask only at the protected boundary. Goals, iss
 ### Approval timing and low-risk auto-merge (Blaine, 2026-10-14)
 
 - One approval card per ready item; no batching.
-- `ovd-merge-gate` enforces success/failure from trusted default-branch code; missing, failed, malformed, partial or stale evidence blocks. Needs #972. Blaine approves enablement and manually requires `ovd-merge-gate`. Branch protection stays manual.
+- `ovd-merge-gate` enforces success/failure from trusted default-branch code; missing, failed, malformed, partial or stale evidence blocks. Blaine approves enablement and manually requires `ovd-merge-gate`. Branch protection stays manual.
 - Merging requires exact `true` in repo/org Actions variable `DOOR_AUTOMERGE`, read only via `vars.DOOR_AUTOMERGE`. Any other value disables merging; PR files/comments/labels cannot enable it. Switch-off never makes failed gates pass.
 - Every gate must pass at the current head SHA: hosted `ci`, `provider-go-live`, `secret-scan`, Opus, Sonnet, Jev's commit-status marker and QA. Opus and QA are required at every tier; a Jev marker from the PR author or merger never counts. Only `overdrafter-verifier[bot]` review/QA comments count; ignore user verdicts. Opus/Sonnet need distinct identities. Trusted `jev-pr-screen` markers supply Jev; missing, `no_verdict`, uncertain or risky decisions block. Tier increases replace no gate.
 - Reviews must be independent of builders, without actionable findings or unresolved threads. Existing edited/deleted/conflicting verdict-history blocks remain. Equal `diff_id` never transfers positive evidence to another SHA. Squash merge uses `gh pr merge --squash --match-head-commit <sha>`, never `--admin` or deferred `--auto`.
