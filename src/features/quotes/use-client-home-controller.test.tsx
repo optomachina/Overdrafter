@@ -433,6 +433,17 @@ describe("useClientHomeController membership recovery", () => {
     unmount();
   });
 
+  it("blocks bootstrap solely on unresolved memberships after auth initialization", async () => {
+    fetchAppSessionDataMock.mockResolvedValue({ ...createSessionData({}), membershipsResolved: false });
+    const { result, unmount } = renderHook(() => useClientHomeController(), { wrapper: createWrapper() });
+    emitSignedInAuthEvent();
+    await waitFor(() => expect(result.current.isVerifiedAuth).toBe(true));
+    await waitFor(() => expect(result.current.isAuthInitializing).toBe(false));
+    expect(result.current.workspaceReadiness.status).toBe("loading");
+    expect(createSelfServiceOrganizationMock).not.toHaveBeenCalled();
+    unmount();
+  });
+
   it("does not bootstrap when the session is not yet stable", async () => {
     fetchAppSessionDataMock.mockResolvedValue(
       createSessionData({
