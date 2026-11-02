@@ -66,6 +66,12 @@
       "file": "docs/migration-drafts/ovd-723-contract.sql",
       "supersedesSha256": "5ef5ae02d57bc04469886624201d7ddc4893228dd73d2d475b1f8e6a6edfd577",
       "reason": "OVD-723 contract draft (window 2): written against the body deployed today. Recorded as the baseline when this check was added; if a newer migration changes this function before the draft is promoted, this entry stops matching and the draft must be rebased onto it."
+    },
+    {
+      "signature": "private.api_list_client_part_metadata(uuid[])",
+      "file": "docs/migration-drafts/ovd-978.sql",
+      "supersedesSha256": "221e540cadc088879829be7813ac381c986c602450e5a5c385149d7b06761cde",
+      "reason": "OVD-978 already carries the identical historical projectPartProperties projection restored by OVD-1011, including defaults, overrides and timestamps. Its broader extraction-shape repair may supersede this body without dropping the reset defaults; its rollback must be rebased onto OVD-1011 before promotion."
     }
   ]
 }

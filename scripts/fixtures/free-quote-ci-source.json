@@ -1,7 +1,7 @@
 {
   "schema": "free-quote-ci-source.v1",
   "scope": "fresh-full-head; baseline126 comparison; not production/live112 upgrade qualification",
-  "migrationCount": 170,
+  "migrationCount": 171,
   "baselineCount": 126,
   "migrations": [
     "supabase/migrations/20251106035356_483321a4-d45c-47bd-bdae-71625fcdec1a.sql",
@@ -173,7 +173,8 @@
     "supabase/migrations/20261101120000_ovd979u3_extraction_attempt_identity.sql",
     "supabase/migrations/20261101120100_ovd979u4_attempt_bound_auto_approval.sql",
     "supabase/migrations/20261101120200_ovd979u5_drawing_extraction_dedupe.sql",
-    "supabase/migrations/20261101130000_ovd987_controlled_beta_user_quantity.sql"
+    "supabase/migrations/20261101130000_ovd987_controlled_beta_user_quantity.sql",
+    "supabase/migrations/20261101130300_ovd1011_client_part_metadata_defaults.sql"
   ],
   "contractMigrationCount": 133,
   "reviewedAppendedMigrations": [
@@ -361,6 +362,11 @@
       "path": "supabase/migrations/20261101130000_ovd987_controlled_beta_user_quantity.sql",
       "issue": "OVD-987",
       "sha256": "e674bc081e5fe53a0513a00030781ccfd8c1032e4d0f4318769bb5c408540362"
+    },
+    {
+      "path": "supabase/migrations/20261101130300_ovd1011_client_part_metadata_defaults.sql",
+      "issue": "OVD-1011",
+      "sha256": "fb9acb7f07576dd626f4f4f6827ceae6f621c25a5cc0a9a4690ff05cf0c9b85c"
     }
   ],
   "baselineSuites": [
@@ -793,6 +799,7 @@
     "supabase/migrations/20261101120000_ovd979u3_extraction_attempt_identity.sql": "7f767f268129cf32872f87491e3f56f1e409ebde0b59ab8e35abaaf6f472a16d",
     "supabase/migrations/20261101120100_ovd979u4_attempt_bound_auto_approval.sql": "3c46872db181f81badc96e2565c21398541b9fbac492a34a97ac54adba764652",
     "supabase/migrations/20261101120200_ovd979u5_drawing_extraction_dedupe.sql": "2c28901ddfa9ff89253cd4fd056a2b7d85ad20116cb7e35fed25e58d28a2d643",
-    "supabase/migrations/20261101130000_ovd987_controlled_beta_user_quantity.sql": "e674bc081e5fe53a0513a00030781ccfd8c1032e4d0f4318769bb5c408540362"
+    "supabase/migrations/20261101130000_ovd987_controlled_beta_user_quantity.sql": "e674bc081e5fe53a0513a00030781ccfd8c1032e4d0f4318769bb5c408540362",
+    "supabase/migrations/20261101130300_ovd1011_client_part_metadata_defaults.sql": "fb9acb7f07576dd626f4f4f6827ceae6f621c25a5cc0a9a4690ff05cf0c9b85c"
   }
 }
