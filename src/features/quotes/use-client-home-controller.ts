@@ -225,6 +225,7 @@ export function useClientHomeController({ loadPublishedWorkspace = false }: { lo
       (bootstrapAccountMutation.status === "error" && isExistingMembershipBootstrapError(rawBootstrapErrorMessage)));
 
   const canBootstrapSelfServiceOrganization =
+    appSession.hasResolvedMemberships &&
     Boolean(user) &&
     !isPlatformAdmin &&
     authState === "authenticated" &&
@@ -243,6 +244,7 @@ export function useClientHomeController({ loadPublishedWorkspace = false }: { lo
     isVerifiedAuth,
     activeMembership,
     membershipCount: memberships.length,
+    hasResolvedMemberships: appSession.hasResolvedMemberships,
     bootstrapStatus: bootstrapAccountMutation.status,
     bootstrapErrorMessage,
     membershipResolutionStatus,
