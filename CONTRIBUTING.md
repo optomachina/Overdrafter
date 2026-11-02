@@ -78,6 +78,11 @@ tooling) needs git 2.39 or newer, and local and CI must use the same git
 version and the same `.gitattributes`. See
 `docs/review-tooling-git-requirements.md`.
 
+Optional pre-push hook: `git config core.hooksPath scripts/git-hooks` turns on
+`scripts/git-hooks/pre-push`, which runs a whitespace check, ESLint and the
+affected `tsc` projects on the files a push changes. It is a quick local
+warning; `npm run preflight` and CI still run the full checks.
+
 ## Package manager
 
 - Use `npm` for both the repo root and the `worker/` package.

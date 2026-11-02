@@ -1,0 +1,104 @@
+#!/usr/bin/env bash
+# Opt-in git pre-push hook: format, lint and typecheck only what the push changes.
+# Install once per clone:   git config core.hooksPath scripts/git-hooks
+# Skip one push:            git push --no-verify
+# It is a fast local early warning, not a gate: CI still runs the full lint,
+# typecheck and tests (scripts/preflight.sh), and `npm run preflight` stays the
+# check to run before opening or updating a PR (AGENTS.md).
+#
+# Changed files are the diff from the remote ref being updated, or from the
+# merge base with origin/main for a new branch. Stages:
+#   format     git diff --check: whitespace errors and leftover conflict markers
+#              in the pushed lines (the repo has no formatter dependency).
+#   lint       eslint on the changed JS/TS files only.
+#   typecheck  tsc for each project with a changed file, incrementally (build
+#              info under node_modules/.cache), so a repeat push re-checks only
+#              what changed; worker files run the worker's own typecheck.
+set -uo pipefail
+
+cd "$(git rev-parse --show-toplevel)" || exit 1
+
+zero=0000000000000000000000000000000000000000
+ranges=()
+while read -r local_ref local_sha remote_ref remote_sha; do
+  [[ -n "${local_sha:-}" && "$local_sha" != "$zero" ]] || continue # branch deletion
+  if [[ "$remote_sha" != "$zero" ]] && git cat-file -e "$remote_sha^{commit}" 2>/dev/null; then
+    base="$remote_sha"
+  elif ! base="$(git merge-base origin/main "$local_sha" 2>/dev/null)"; then
+    echo "pre-push: no remote ref or origin/main merge base for $local_ref; run git fetch origin main" >&2
+    exit 1
+  fi
+  ranges+=("$base..$local_sha")
+done
+((${#ranges[@]})) || exit 0
+
+mapfile -t changed < <(
+  for range in "${ranges[@]}"; do git diff --name-only --diff-filter=ACMR --no-renames "$range"; done | sort -u
+)
+((${#changed[@]})) || { echo "pre-push: no changed files"; exit 0; }
+
+status=0
+stage() { # stage <name> <command...>
+  local name="$1"
+  shift
+  echo "pre-push: $name start"
+  if "$@"; then echo "pre-push: $name PASS"; else echo "pre-push: $name FAIL"; status=1; fi
+}
+
+format_check() {
+  local range ok=0
+  for range in "${ranges[@]}"; do git diff --check "$range" -- || ok=1; done
+  return "$ok"
+}
+stage format format_check
+
+lint_files=()
+for file in "${changed[@]}"; do
+  [[ "$file" =~ \.(js|jsx|mjs|cjs|ts|tsx|mts|cts)$ ]] && lint_files+=("$file")
+done
+if ((${#lint_files[@]})); then
+  stage lint node_modules/.bin/eslint --no-warn-ignored -- "${lint_files[@]}"
+else
+  echo "pre-push: lint SKIPPED (no JS/TS files changed)"
+fi
+
+# Project for each changed file, from each tsconfig's include list: app is src/
+# and the billing catalog, server is api/, server/ and shared/, node is the vite
+# configs and a few scripts/*.ts (any scripts/*.ts runs it, which over-checks).
+# A tsconfig or root package change can affect every project, so it runs them all.
+declare -A projects=()
+for file in "${changed[@]}"; do
+  case "$file" in
+    worker/*.ts | worker/*.tsx | worker/tsconfig*.json | worker/package*.json) projects[worker]=1 ;;
+    src/*.ts | src/*.tsx | supabase/functions/_shared/billingCatalog*) projects[tsconfig.app.json]=1 ;;
+    api/*.ts | server/*.ts | shared/*.ts) projects[tsconfig.server.json]=1 ;;
+    vite*.ts | scripts/*.ts) projects[tsconfig.node.json]=1 ;;
+    tsconfig*.json | package.json | package-lock.json)
+      projects[tsconfig.app.json]=1 projects[tsconfig.node.json]=1 projects[tsconfig.server.json]=1 ;;
+  esac
+done
+typecheck() {
+  local project ok=0
+  mkdir -p node_modules/.cache/pre-push
+  for project in tsconfig.app.json tsconfig.node.json tsconfig.server.json; do
+    [[ -n "${projects[$project]:-}" ]] || continue
+    echo "pre-push: tsc -p $project"
+    node_modules/.bin/tsc --noEmit -p "$project" --incremental \
+      --tsBuildInfoFile "node_modules/.cache/pre-push/${project%.json}.tsbuildinfo" || ok=1
+  done
+  if [[ -n "${projects[worker]:-}" ]]; then
+    echo "pre-push: worker typecheck"
+    npm --prefix worker run --silent typecheck || ok=1
+  fi
+  return "$ok"
+}
+if ((${#projects[@]})); then
+  stage typecheck typecheck
+else
+  echo "pre-push: typecheck SKIPPED (no TypeScript project changed)"
+fi
+
+if ((status)); then
+  echo "pre-push: FAIL; fix the above or push with --no-verify to skip this local check" >&2
+fi
+exit "$status"

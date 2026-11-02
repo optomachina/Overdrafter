@@ -538,6 +538,7 @@ const ClientPart = () => {
         onResetAllFields={handleResetAllFields}
         fieldDefaults={partFieldDefaults}
         singleQuantity={singleQuantity}
+        jobTags={partDetail.job.tags}
         statusContent={
           <>
             {revisionOptions.length > 1 ? (

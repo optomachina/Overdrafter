@@ -2,23 +2,57 @@ name: Set up root Node.js dependencies
 description: >-
   Install Node.js 20 with the npm download cache keyed on package-lock.json, then
   run npm ci for the root package without dependency lifecycle scripts, as
-  browser-test already does. Shared by the lint, typecheck, test, unit and build jobs in
-  ci.yml. The worker jobs keep their own steps because they use
-  worker/package-lock.json.
+  browser-test already does. Shared by the lint, typecheck, test, unit, build and
+  browser-test jobs in ci.yml. The worker jobs keep their own steps because they
+  use worker/package-lock.json.
+
+  node_modules itself is cached too, keyed on the exact lockfile, Node version,
+  runner image and install command, so a hit is the tree npm ci would build. Only
+  pushes to main save it: main's caches are readable from every PR, while a PR
+  branch's cache is visible to that branch alone, so saving there would only
+  spend the repository's cache quota. A PR that changes the lockfile misses and
+  runs npm ci as before.
 
 runs:
   using: composite
   steps:
     - name: Setup Node.js
+      id: setup-node
       uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
       with:
         node-version: 20
         cache: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'npm' || '' }}
         cache-dependency-path: package-lock.json
 
+    - name: Restore root node_modules
+      id: node-modules
+      uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      with:
+        path: node_modules
+        key: root-node-modules-v1-${{ runner.os }}-${{ runner.arch }}-${{ env.ImageOS }}-node-${{ steps.setup-node.outputs.node-version }}-ignore-scripts-${{ hashFiles('package-lock.json') }}
+
     # The root package defines no install hooks. The dependency install scripts
     # (esbuild, @swc/core, fsevents) only fetch or check platform binaries that the
     # optional platform packages already provide on Linux x64.
     - name: Install root dependencies
+      if: ${{ steps.node-modules.outputs.cache-hit != 'true' }}
       shell: bash
       run: npm ci --ignore-scripts
+
+    # Same check npm ci would fail: every package the lockfile names is on disk
+    # at its locked version. A partial or stale restore falls back to npm ci.
+    - name: Verify restored root node_modules
+      if: ${{ steps.node-modules.outputs.cache-hit == 'true' }}
+      shell: bash
+      run: |
+        if ! npm ls --all > /dev/null 2>&1; then
+          echo "::warning::Restored node_modules does not match package-lock.json; reinstalling."
+          npm ci --ignore-scripts
+        fi
+
+    - name: Save root node_modules
+      if: ${{ steps.node-modules.outputs.cache-hit != 'true' && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+      uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      with:
+        path: node_modules
+        key: ${{ steps.node-modules.outputs.cache-primary-key }}

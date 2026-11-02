@@ -1125,8 +1125,10 @@ describe("provider go-live docs and workflows", () => {
 
   it("runs the gate in its own small workflow", () => {
     const gate = read(".github", "workflows", "pr-body-gate.yml");
-    expect(gate).toMatch(/types:\s*\n\s+- opened\n\s+- reopened\n\s+- synchronize\n\s+- edited/);
-    expect(gate).toMatch(/concurrency:\s*\n\s+group: pr-body-gate-/);
+    // OVD-1145: no `edited` trigger; runs are grouped by head sha.
+    expect(gate).toMatch(/types:\s*\n\s+- opened\n\s+- reopened\n\s+- synchronize\n/);
+    expect(gate).not.toMatch(/^\s+- edited$/m);
+    expect(gate).toMatch(/concurrency:\s*\n\s+group: \$\{\{ github\.workflow \}\}-\$\{\{ github\.event\.pull_request\.head\.sha \|\| github\.sha \}\}/);
     expect(gate).toMatch(/permissions:\s*\n\s+contents: read\n\s+pull-requests: read/);
     expect(gate).toMatch(/fetch-depth: 2/);
     expect(gate).toMatch(/git diff --name-status --no-renames HEAD\^1 HEAD/);

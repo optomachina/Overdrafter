@@ -169,6 +169,24 @@ check run name, not `Workflow / job`: `ci` (job `ci` in `ci.yml`),
 `provider-go-live` (job `provider-go-live` in `pr-body-gate.yml`) and
 `secret-scan` (job `secret-scan` in `secret-scan.yml`).
 
+### Concurrency and the nightly re-run (OVD-1145)
+
+Every required-check workflow (`ci.yml`, `pr-body-gate.yml`, `secret-scan.yml`,
+plus `verify.yml`) uses the concurrency group
+`${{ github.workflow }}-${{ github.event.pull_request.head.sha || github.sha }}`
+with `cancel-in-progress: true`. Only runs for the same head sha (the queue
+commit on `merge_group`, the pushed commit on `push`) cancel each other, so a
+PR event that does not move the head cannot leave a required check cancelled
+at an older run. `pr-body-gate.yml` no longer triggers on `edited`; an edited
+body is re-checked on the next push, reopen or draft -> ready.
+
+`.github/workflows/required-checks-rerun.yml` runs nightly (and on
+`workflow_dispatch`). For each open, non-draft PR into the default branch it
+re-runs, over REST, the workflow run behind a required check that is cancelled,
+missing under a cancelled run, or failed only because a job was cancelled. It
+writes only to its job summary. Its required-check list is pinned to
+`REQUIRED_CHECKS` in `scripts/merge-queue-workflows.test.mjs`.
+
 ### Rule for new required checks
 
 Any workflow that becomes a required check later, including the automerge

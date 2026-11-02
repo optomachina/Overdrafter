@@ -235,6 +235,7 @@ describe("client workspace state", () => {
           part_id: "part-1",
           organization_id: "org-1",
           extractor_version: "test",
+          source_attempt_id: null,
           extraction: {},
           evidence: [],
           warnings: ["Verify finish callout"],
