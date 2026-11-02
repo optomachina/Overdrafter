@@ -2,7 +2,8 @@ import { geometryIssuesInRegion, type PageVectorGeometry } from "./pdfVectorGeom
 import type { ExtractedFieldSignal } from "./pdfDrawing.js";
 import { currentRevisionReads, isPlaceholderOrLabelValue, type CellRead } from "./titleBlockCells.js";
 
-const CELL_FIELDS = new Set(["partNumber", "revision", "material", "finish"]);
+// The fields read from the cell their label owns (titleBlockCells.ts); OVD-1009 adds the description (the TITLE cell).
+const CELL_FIELDS = new Set(["partNumber", "revision", "material", "finish", "description"]);
 const comparable = (value: string | null) => value?.replace(/\s+/g, " ").trim().toUpperCase() ?? null;
 
 type ApprovalInput = {

@@ -1432,7 +1432,7 @@ function selectTitleBlockLines(
 }
 
 /**
- * OVD-985 and OVD-989: candidates for the four label-owned fields come from the cell each label owns
+ * OVD-985, OVD-989 and OVD-1009: candidates for the five label-owned fields come from the cell each label owns
  * (titleBlockCells.ts), never from "the next line" or "the whole next line". A label whose cell gave no
  * clean value yields no candidate, so the field is flagged for review rather than filled from a
  * neighbouring cell.
@@ -1774,9 +1774,10 @@ function applyFieldPenalties(
   }
 
   // OVD-985: a title-block label is never a value. "Q.A." (the approvals row label) used to pass as a
-  // revision and a part number at 0.78 because it fits [A-Z0-9.-]{1,8}; no score keeps it now.
+  // revision and a part number at 0.78 because it fits [A-Z0-9.-]{1,8}; no score keeps it now. OVD-1009: nor is
+  // "NOTES:" a description, from any candidate source.
   if (
-    (field === "partNumber" || field === "revision" || field === "material" || field === "finish") &&
+    (field === "partNumber" || field === "revision" || field === "material" || field === "finish" || field === "description") &&
     isLabelLikeToken(value)
   ) {
     score = Math.min(score, 0) - 100;
@@ -1809,10 +1810,10 @@ function pickBestCandidate(
 
   const ranked = [...deduped.values()].sort((left, right) => right.score - left.score);
   const top = ranked[0] ?? null;
-  // Cell fields have a separate agreement proof. Description/process retain main's cross-page
-  // score-delta check even when both sheets print the same value.
+  // Cell fields have a separate agreement proof (finalizeExtractionApproval), the description among them since
+  // OVD-1009. Process retains main's cross-page score-delta check even when both sheets print the same value.
   const second =
-    (field === "description" || field === "process" ? ranked[1] : ranked.find(
+    (field === "process" ? ranked[1] : ranked.find(
       (candidate, index) =>
         index > 0 && candidate.value.trim().toUpperCase() !== (top?.value ?? "").trim().toUpperCase(),
     )) ?? null;
@@ -2529,14 +2530,6 @@ export function inferDrawingSignalsFromPdf(input: {
   const warnings: string[] = [];
   const debugCandidates: ExtractedDrawingSignals["debugCandidates"] = {};
 
-  const descriptionCandidate = pickBestCandidate(
-    "description",
-    [
-      ...buildAnchoredCandidates(findLabelAnchors(lines, DESCRIPTION_LABELS, bounds), titleBlockLines, lineAnchors, "description"),
-      ...collectFallbackDescriptionCandidates(lines, bounds),
-    ],
-    fallbackTitle,
-  );
   // OVD-985, OVD-989: the part number, revision, material and finish are the values of the cells their
   // labels own. When a label is present but its cell gives no clean value, nothing is filled from
   // neighbouring text (no fallback for revision, material or finish): the field stays empty and flagged.
@@ -2571,6 +2564,22 @@ export function inferDrawingSignalsFromPdf(input: {
     ...readTitleBlockPages(lines.filter((line) => !pagesWithCells.has(line.page))).reads,
   ]);
   const hasCellLabel = (field: CellField) => candidateReads.some((read) => read.field === field);
+  // OVD-1009: the description is the value of the TITLE (or DESCRIPTION) cell, read like the other four. On a sheet
+  // that prints the label nothing else is a candidate: not "the next line", which the old anchors dropped whenever the
+  // title held a label word ("SAMPLE PART"), and not any other line of the block, which then supplied "NOTES:". A cell
+  // that gives no clean value leaves the field empty and flagged. The anchors and the line candidates remain for a sheet
+  // without the label; a label token is refused from every source (applyFieldPenalties).
+  const hasDescriptionCell = hasCellLabel("description");
+  const descriptionCandidate = pickBestCandidate(
+    "description",
+    hasDescriptionCell
+      ? buildCellCandidates(candidateReads, "description")
+      : [
+          ...buildAnchoredCandidates(findLabelAnchors(lines, DESCRIPTION_LABELS, bounds), titleBlockLines, lineAnchors, "description"),
+          ...collectFallbackDescriptionCandidates(lines, bounds),
+        ],
+    hasDescriptionCell ? null : fallbackTitle,
+  );
   const partNumberCandidate = pickBestCandidate(
     "partNumber",
     [...buildCellCandidates(candidateReads, "partNumber"), ...collectFallbackPartNumberCandidates(lines, bounds)],

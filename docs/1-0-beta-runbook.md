@@ -93,13 +93,14 @@ plus all seven" bar, and the October 11 five-provider plan.
   own sheet-metal parts in 1.0, or whether RMFG is proved only on the
   sheet-metal validation part.
 - `TODO(Blaine)` B3: on October 22 Blaine directed that every adapter ship,
-  and open PR #913 records quote-only owner clearance for Weerg, Geomiq, OSH
-  Cut and SendCutSend. The provider permissions matrix and the registry
-  `oneDotZero` list still mark Geomiq, OSH Cut and SendCutSend as 1.0. Confirm
-  that the directive means merged adapters and local live evaluations in the
-  1.1 project and does not widen the four-provider launch set. `OVD-1004` then
-  narrows those flags under an exact-head review. This change does not touch
-  them.
+  and merged PR #913 records quote-only owner clearance for Weerg, Geomiq, OSH
+  Cut and SendCutSend. `OVD-1004` narrowed the provider permissions matrix
+  `in_1_0` flags and the registry `oneDotZero` list to the four-provider launch
+  set (Xometry, Fictiv, Quickparts and RMFG); the owner clearances stay
+  recorded and the 1.1 providers' `enabled_for_paid_automation` is derived
+  false. Confirm that the directive means merged adapters and local live
+  evaluations in the 1.1 project and does not widen the four-provider launch
+  set.
 
 ### Session rules
 

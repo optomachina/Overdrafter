@@ -836,11 +836,14 @@ describe("pdfDrawing", () => {
     expect(result.quoteFinish).toBe("Black Anodize, Type II");
     expect(result.partNumber.reviewNeeded).toBe(true);
     expect(result.revision.reviewNeeded).toBe(true);
-    expect(result.description.reviewNeeded).toBe(false);
+    // OVD-1009: the description is the TITLE cell's value and, like the other four cells, layout text alone does not
+    // prove it.
+    expect(result.description.reviewNeeded).toBe(true);
+    expect(result.description.reasons).toContain("label_match");
     expect(result.finish.reviewNeeded).toBe(true);
     expect(result.reviewFields).toContain("partNumber");
     expect(result.reviewFields).toContain("revision");
-    expect(result.reviewFields).not.toContain("description");
+    expect(result.reviewFields).toContain("description");
     expect(result.reviewFields).toContain("finish");
     expect(result.reviewFields).not.toContain("process");
   });
@@ -960,7 +963,37 @@ describe("pdfDrawing", () => {
     expect(result.threads).toEqual([]);
     expect(result.quoteDescription).toBe("BONDED, CARBON FIBER END ATTACHMENT");
     expect(result.quoteFinish).toBe("Black Anodize, Type II");
-    expect(result.reviewFields).toEqual(["partNumber", "revision", "material", "finish"]);
+    // OVD-1009: the rescue's title is a suggestion too; only the TITLE cell, proven, approves a description.
+    expect(result.description).toMatchObject({ reviewNeeded: true });
+    expect(result.description.reasons).toContain("ocr_title_block");
+    expect(result.reviewFields).toEqual(["description", "partNumber", "revision", "material", "finish"]);
+  });
+
+  // OVD-1009: on the owner's template the description came out as "NOTES:" (the old anchors dropped the title because
+  // it held the label word PART, and the fallback took another line of the block). A label is never the description,
+  // whether the sheet has a TITLE cell (empty here) or no title label at all.
+  it("never reports a label such as NOTES: as the description", () => {
+    const withTitleCell = inferDrawingSignalsFromPdf({ titleBlockApprovalEnabled: true,
+      baseName: "upload",
+      pdfText: pdfTextOf([
+        "                    TITLE:",
+        "                    NOTES:",
+        "                    1. SAMPLE NOTE.",
+        "          MATERIAL  SIZE  DWG. NO.          REV",
+        "          AL 6061-T6   B  ABC-001           B",
+      ].join("\n")),
+    });
+    expect(withTitleCell.description).toMatchObject({ value: null, reviewNeeded: true });
+    expect(withTitleCell.reviewFields).toContain("description");
+    expect(withTitleCell.debugCandidates.description.map((candidate) => candidate.value)).not.toContain("NOTES:");
+
+    const withoutTitleLabel = inferDrawingSignalsFromPdf({ titleBlockApprovalEnabled: true,
+      baseName: "upload",
+      pdfText: pdfTextOf(["NOTES:", "1. SAMPLE NOTE.", "MATERIAL  AL 6061-T6", "FINISH  AS MACHINED", "DWG. NO.  ABC-001"].join("\n")),
+    });
+    expect(withoutTitleLabel.description.value).not.toBe("NOTES:");
+    expect(withoutTitleLabel.description.reviewNeeded).toBe(true);
+    expect(withoutTitleLabel.debugCandidates.description.find((candidate) => candidate.value === "NOTES:")?.reasons).toContain("rejected_label_token");
   });
 
   // Codex review of #884, round 5: the OCR rescue filled a MATERIAL the cell reader had flagged with the sample's
