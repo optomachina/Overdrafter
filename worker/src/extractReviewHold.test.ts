@@ -73,6 +73,7 @@ const config = { workerMode: "simulate", workerName: "worker", workerLiveAdapter
   workerBuildVersion: "test-build", drawingExtractionModel: "test-model", titleBlockApprovalEnabled: false,
 } as unknown as WorkerConfig;
 
+type QueueRow = { status: string; attempt_id: string | null } | null;
 type DatabaseOptions = {
   trustedReuse: boolean;
   approvedCount: unknown;
@@ -83,7 +84,13 @@ type DatabaseOptions = {
   artifactsReady?: boolean;
   auditInsertError?: { message: string };
   refreshFailure?: "response" | "throw";
+  // The claimed task's current work_queue row (default: still this running, legacy-null attempt).
+  queueRow?: QueueRow;
+  // A database before U4: the attempt-fenced RPCs answer PGRST202.
+  preU4?: boolean;
 };
+
+const missingRpc = { data: null, error: { code: "PGRST202", message: "Could not find the function" } };
 
 function database(options: DatabaseOptions) {
   const rpcCalls: string[] = [];
@@ -92,6 +99,10 @@ function database(options: DatabaseOptions) {
   const auditInsert = vi.fn((value: Record<string, unknown>) => auditEvents.push(value));
   const approvals = [{ id: "other-approval", part_id: "other-part" },
     ...(options.partApproved ? [{ id: "this-approval", part_id: part.id }] : [])];
+  const queueRow = options.queueRow === undefined ? { status: "running", attempt_id: null } : options.queueRow;
+  // Mirrors the SQL fence: the write lands only while the task is this running attempt.
+  const isRunningAttempt = (attemptId: unknown) =>
+    queueRow !== null && queueRow.status === "running" && queueRow.attempt_id === (attemptId ?? null);
   const from = (table: string) => {
     let inserted: Record<string, unknown> | null = null;
     const filters: Record<string, unknown> = {};
@@ -105,7 +116,7 @@ function database(options: DatabaseOptions) {
         return { data: approvals.find((row) => row.part_id === filters.part_id) ?? null,
           error: isPartApprovalRead ? options.approvalReadError ?? null : null };
       }
-      const data = table === "parts" ? part : table === "job_files" ? [drawing] : null;
+      const data = table === "parts" ? part : table === "job_files" ? [drawing] : table === "work_queue" ? queueRow : null;
       return { data, error: null };
     };
     const query: Record<string, unknown> = {};
@@ -135,8 +146,21 @@ function database(options: DatabaseOptions) {
         ? { result: "existing_version", partVersionId: "version", sourcePartId: "source-part" }
         : { result: "new_version" }, error: null };
     }
+    if (name === "api_reuse_trusted_part_version_artifacts_for_attempt") {
+      if (options.preU4) return missingRpc;
+      if (!isRunningAttempt(args?.p_expected_attempt_id)) {
+        return { data: { result: "attempt_superseded", artifactsReady: false, attemptSuperseded: true }, error: null };
+      }
+      return { data: { artifactsReady: options.artifactsReady ?? !options.artifactsPending }, error: null };
+    }
     if (name === "api_reuse_trusted_part_version_artifacts") {
       return { data: { artifactsReady: options.artifactsReady ?? !options.artifactsPending }, error: null };
+    }
+    if (name === "api_save_drawing_extraction_for_attempt") {
+      if (options.preU4) return missingRpc;
+      if (!isRunningAttempt(args?.p_attempt_id)) return { data: false, error: null };
+      extractionWrites.push({ source_attempt_id: args?.p_attempt_id, ...(args?.p_extraction as Record<string, unknown>) });
+      return { data: true, error: null };
     }
     if (name === "api_auto_approve_job_requirements") {
       if (options.approvalError) throw options.approvalError;
@@ -201,7 +225,7 @@ describe("extract_part review hold without this part's approval", () => {
   it.each([0, 1])("trusted-reuse path: audits the hold then completes when RPC returns %i", async (approvedCount) => {
     const db = await run({ trustedReuse: true, approvedCount });
 
-    expect(db.rpcCalls).toContain("api_reuse_trusted_part_version_artifacts");
+    expect(db.rpcCalls).toContain("api_reuse_trusted_part_version_artifacts_for_attempt");
     expect(db.rpcCalls).toContain("api_auto_approve_job_requirements");
     expect(runHybridExtraction).not.toHaveBeenCalled();
     expect(markTaskFailed).not.toHaveBeenCalled();
@@ -427,13 +451,71 @@ describe("OVD-1097: refresh at the real main-loop acknowledgement boundary (F2/F
 });
 
 describe("OVD-979 U3: extraction claim provenance", () => {
-  it.each(["97900000-0000-4000-8000-000000000001", "97900000-0000-4000-8000-000000000002", null, undefined])(
-    "persists the claimed attempt %s on the real extraction write path", async (attemptId) => {
-      const db = database({ trustedReuse: false, approvedCount: 0 });
+  it.each([false, true].flatMap((preU4) =>
+    ["97900000-0000-4000-8000-000000000001", "97900000-0000-4000-8000-000000000002", null, undefined]
+      .map((attemptId) => [attemptId, preU4] as const)))(
+    "persists the claimed attempt %s on the real extraction write path (pre-U4 database: %s)", async (attemptId, preU4) => {
+      const db = database({ trustedReuse: false, approvedCount: 0, preU4, queueRow: { status: "running", attempt_id: attemptId ?? null } });
       await processClaimedTask(db.client, { ...task, attempt_id: attemptId }, config, createWorkerRuntimeState());
       expect(markTaskFailed).not.toHaveBeenCalled();
       expect(markTaskCompleted).toHaveBeenCalledTimes(1);
-      expect(db.extractionWrites).toMatchObject([{ part_id: task.part_id, source_attempt_id: attemptId ?? null }]);
+      expect(db.extractionWrites).toMatchObject([{ source_attempt_id: attemptId ?? null, extractor_version: expect.any(String) }]);
+      expect(db.rpc).toHaveBeenCalledWith("api_save_drawing_extraction_for_attempt",
+        expect.objectContaining({ p_task_id: task.id, p_attempt_id: attemptId ?? null }));
+      if (preU4) expect(db.extractionWrites).toMatchObject([{ part_id: task.part_id, organization_id: part.organization_id }]);
     },
   );
+});
+
+describe("OVD-979 U4: a reaped attempt cannot overwrite its successor", () => {
+  const reaped = "97900000-0000-4000-8000-000000000001";
+  const successor = "97900000-0000-4000-8000-000000000002";
+  const supersededRows: [string, QueueRow][] = [
+    ["reclaimed under a successor attempt", { status: "running", attempt_id: successor }],
+    ["requeued and not yet reclaimed", { status: "queued", attempt_id: reaped }],
+    ["settled by another actor", { status: "completed", attempt_id: successor }],
+    ["no longer present", null],
+  ];
+  const expectDropped = (db: ReturnType<typeof database>) => {
+    expect(db.extractionWrites).toEqual([]);
+    expect(db.rpcCalls).not.toContain("api_auto_approve_job_requirements");
+    expect(markTaskCompleted).not.toHaveBeenCalled();
+    expect(markTaskFailed).not.toHaveBeenCalled();
+    expect(markTaskQueuedForRetry).not.toHaveBeenCalled();
+  };
+
+  it.each(supersededRows.flatMap(([label, row]) => [false, true].map((preU4) => [label, row, preU4] as const)))(
+    "drops a late extraction write when the task was %s (pre-U4 database: %s)", async (_case, queueRow, preU4) => {
+      vi.spyOn(console, "warn").mockImplementation(() => undefined);
+      const db = database({ trustedReuse: false, approvedCount: 1, queueRow, preU4 });
+      await processClaimedTask(db.client, { ...task, attempt_id: reaped }, config, createWorkerRuntimeState());
+      expectDropped(db);
+    });
+
+  it.each(supersededRows)("refuses a trusted reuse when the task was %s", async (_case, queueRow) => {
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const db = database({ trustedReuse: true, approvedCount: 1, queueRow });
+    await processClaimedTask(db.client, { ...task, attempt_id: reaped }, config, createWorkerRuntimeState());
+    expectDropped(db);
+    expect(db.rpc).toHaveBeenCalledWith("api_reuse_trusted_part_version_artifacts_for_attempt",
+      expect.objectContaining({ p_target_part_id: task.part_id, p_expected_attempt_id: reaped }));
+    expect(db.rpcCalls).not.toContain("api_reuse_trusted_part_version_artifacts");
+  });
+
+  it.each([false, true])("still writes and auto-approves while the task is this running attempt (pre-U4 database: %s)", async (preU4) => {
+    const db = database({ trustedReuse: false, approvedCount: 1, preU4, queueRow: { status: "running", attempt_id: reaped } });
+    await processClaimedTask(db.client, { ...task, attempt_id: reaped }, config, createWorkerRuntimeState());
+    expect(db.extractionWrites).toMatchObject([{ source_attempt_id: reaped }]);
+    expect(db.rpcCalls).toContain("api_auto_approve_job_requirements");
+    expect(markTaskCompleted).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([false, true])("reuses and auto-approves while the task is this running attempt (pre-U4 database: %s)", async (preU4) => {
+    const db = database({ trustedReuse: true, approvedCount: 1, preU4, queueRow: { status: "running", attempt_id: reaped } });
+    await processClaimedTask(db.client, { ...task, attempt_id: reaped }, config, createWorkerRuntimeState());
+    expect(db.rpcCalls.includes("api_reuse_trusted_part_version_artifacts")).toBe(preU4);
+    expect(db.rpcCalls).toContain("api_auto_approve_job_requirements");
+    expect(markTaskCompleted).toHaveBeenCalledWith(expect.anything(), expect.anything(),
+      expect.objectContaining({ reusedCanonicalPartVersion: true }));
+  });
 });

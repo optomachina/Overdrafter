@@ -41,6 +41,8 @@ export const AUDITED_FUNCTIONS = [
   "api_request_debug_extraction",
   "api_reconcile_job_parts",
   "api_reuse_trusted_part_version_artifacts",
+  "api_reuse_trusted_part_version_artifacts_for_attempt",
+  "api_save_drawing_extraction_for_attempt",
   "reset_job_after_manual_quote_cancellation",
   "api_admin_complete_manual_quote_request",
   "api_claim_next_task",
