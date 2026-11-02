@@ -32,7 +32,7 @@ for (const event of replacements) {
   test(`${signature}: guards pin the newest migration body (${prior.file})`, () => {
     const pin = `('${signature}', '${prosrcMd5(prior.body)}')`;
     assert.ok(forward.includes(pin));
-    assert.equal(rollback.split(pin).length - 1, 2, 'restored replay and post-restore assertion');
+    assert.equal(JSON.parse(/v_baseline constant jsonb := '([^']+)'::jsonb/.exec(rollback)[1])[signature], prosrcMd5(prior.body));
     assert.ok(rollback.includes(`('${signature}', '${prosrcMd5(event.body)}')`));
   });
   if (core) {
@@ -68,4 +68,12 @@ test('family 723 selects only the contract after retired expand drafts are exclu
     .map((file) => ({ path: `${pending}/${file}`, text: read(`${pending}/${file}`) }));
   const plan = resolveDraftFamilies({ touched: [`${dir}/ovd-723-contract.sql`], drafts, tests });
   assert.deepEqual(plan.families.find((family) => family.id === '723').drafts, [`${dir}/ovd-723-contract.sql`]);
+});
+
+ test('rollback shares one complete baseline between replay and post-restore guards', () => {
+  const baseline = JSON.parse(/v_baseline constant jsonb := '([^']+)'::jsonb/.exec(rollback)[1]);
+  assert.equal(Object.keys(baseline).length, 7);
+  assert.equal((rollback.match(/pg_catalog\.jsonb_each_text\(v_baseline\)/g) ?? []).length, 2);
+  assert.match(rollback, /select key as signature, value as body_md5 from pg_catalog\.jsonb_each_text\(v_baseline\)/);
+  assert.match(rollback, /if v_md5 is distinct from v_expected.body_md5 then/);
 });

@@ -15,19 +15,21 @@ set local lock_timeout = '5s';
 -- One block makes the inverse atomic; replay requires pinned bodies and no cores.
 do $rollback$
 declare
+  -- Shared by replay and post-restore checks; no persistent helper objects.
+  v_baseline constant jsonb := '{
+  "private.job_file_prepare_delegate(uuid,text,public.job_file_kind,text,bigint,text)": "8c5fae6e53835f537916e8097021456c",
+  "private.job_file_finalize_delegate(uuid,text,text,text,public.job_file_kind,text,bigint,text)": "d1e7d64c3a20a6a05c55cbe4c316fc0e",
+  "public.api_prepare_job_file_upload(uuid,text,public.job_file_kind,text,bigint,text)": "686d958f0545bee88af127afa5a88860",
+  "public.api_finalize_job_file_upload(uuid,text,text,text,public.job_file_kind,text,bigint,text)": "fcbee1db0a164cf78f2dd356dcb85c55",
+  "public.api_authorize_xometry_beta_worker_dispatch(uuid,uuid,jsonb,text,timestamptz)": "0fef772880a4122f72475a9905b7ed19",
+  "public.api_authorize_provider_worker_dispatch(uuid,uuid,jsonb,text,timestamptz)": "254e6ce84f67dae43d9664adf4b85673",
+  "public.api_request_manual_quote(uuid,boolean)": "8e5f10dabbf9c8c6420e2c14e9b01e79"
+}'::jsonb;
   v_expected record;
   v_md5 text;
 begin
   if not exists (
-    select 1 from (values
-      ('private.job_file_prepare_delegate(uuid,text,public.job_file_kind,text,bigint,text)', '8c5fae6e53835f537916e8097021456c'),
-      ('private.job_file_finalize_delegate(uuid,text,text,text,public.job_file_kind,text,bigint,text)', 'd1e7d64c3a20a6a05c55cbe4c316fc0e'),
-      ('public.api_prepare_job_file_upload(uuid,text,public.job_file_kind,text,bigint,text)', '686d958f0545bee88af127afa5a88860'),
-      ('public.api_finalize_job_file_upload(uuid,text,text,text,public.job_file_kind,text,bigint,text)', 'fcbee1db0a164cf78f2dd356dcb85c55'),
-      ('public.api_authorize_xometry_beta_worker_dispatch(uuid,uuid,jsonb,text,timestamptz)', '0fef772880a4122f72475a9905b7ed19'),
-      ('public.api_authorize_provider_worker_dispatch(uuid,uuid,jsonb,text,timestamptz)', '254e6ce84f67dae43d9664adf4b85673'),
-      ('public.api_request_manual_quote(uuid,boolean)', '8e5f10dabbf9c8c6420e2c14e9b01e79')
-    ) as expected(signature, body_md5)
+    select 1 from pg_catalog.jsonb_each_text(v_baseline) as expected(signature, body_md5)
     left join pg_catalog.pg_proc p on p.oid = pg_catalog.to_regprocedure(expected.signature)
     where pg_catalog.md5(p.prosrc) is distinct from expected.body_md5
   )
@@ -189,15 +191,7 @@ end;
 $$;
 
   for v_expected in
-    select * from (values
-      ('private.job_file_prepare_delegate(uuid,text,public.job_file_kind,text,bigint,text)', '8c5fae6e53835f537916e8097021456c'),
-      ('private.job_file_finalize_delegate(uuid,text,text,text,public.job_file_kind,text,bigint,text)', 'd1e7d64c3a20a6a05c55cbe4c316fc0e'),
-      ('public.api_prepare_job_file_upload(uuid,text,public.job_file_kind,text,bigint,text)', '686d958f0545bee88af127afa5a88860'),
-      ('public.api_finalize_job_file_upload(uuid,text,text,text,public.job_file_kind,text,bigint,text)', 'fcbee1db0a164cf78f2dd356dcb85c55'),
-      ('public.api_authorize_xometry_beta_worker_dispatch(uuid,uuid,jsonb,text,timestamptz)', '0fef772880a4122f72475a9905b7ed19'),
-      ('public.api_authorize_provider_worker_dispatch(uuid,uuid,jsonb,text,timestamptz)', '254e6ce84f67dae43d9664adf4b85673'),
-      ('public.api_request_manual_quote(uuid,boolean)', '8e5f10dabbf9c8c6420e2c14e9b01e79')
-    ) as expected(signature, body_md5)
+    select key as signature, value as body_md5 from pg_catalog.jsonb_each_text(v_baseline)
   loop
     select pg_catalog.md5(p.prosrc) into v_md5 from pg_catalog.pg_proc p
       where p.oid = pg_catalog.to_regprocedure(v_expected.signature);
