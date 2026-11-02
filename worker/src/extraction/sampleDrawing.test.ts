@@ -135,9 +135,12 @@ describe.skipIf(!hasPoppler)("sample drawing 1093-05589-02, deterministic PDF-te
     expect(modelCalls).toHaveLength(0);
   });
 
+  // OVD-1009: the description is the TITLE cell's value, both of its lines (the second is three text heights under the
+  // first in the word boxes, eight layout lines under it in the text), not the first line alone.
   it("extracts the title as the description", () => {
-    expect(extraction.description).toMatch(/^ROUND, CARBON FIBER END ATTACHMENTS/);
-    expect(extraction.quoteDescription).toMatch(/CARBON FIBER END ATTACHMENTS/);
+    expect(extraction.description).toBe("ROUND, CARBON FIBER END ATTACHMENTS BONDED");
+    expect(extraction.extractedDescriptionRaw.reasons).toContain("label_match");
+    expect(extraction.quoteDescription).toBe("BONDED, CARBON FIBER END ATTACHMENT");
   });
 
   it("extracts the material printed in the title block", () => {
@@ -246,7 +249,7 @@ describe.skipIf(!hasPoppler)("sample drawing 1093-05589-02, deterministic PDF-te
     expect(result.revision).toBe(TRUTH.revision);
     expect(result.material.raw).toBe(TRUTH.material);
     expect(result.finish.raw).toBe(extraction.finish.raw);
-    expect(result.reviewFields).toEqual(["partNumber", "revision", "material", "finish"]);
+    expect(result.reviewFields).toEqual(expectedReviewFields);
     expect(result.tightestTolerance.raw).toBe(extraction.tightestTolerance.raw);
     expect(result.tightestTolerance.valueInch).toBeNull();
   });
@@ -260,7 +263,7 @@ describe.skipIf(!hasPoppler)("sample drawing 1093-05589-02, deterministic PDF-te
     expect(result.revision).toBe(TRUTH.revision);
     expect(result.material.raw).toBe(TRUTH.material);
     expect(result.finish.raw).toBe(TRUTH.finish);
-    expect(result.reviewFields).toEqual(["partNumber", "revision", "material", "finish"]);
+    expect(result.reviewFields).toEqual(expectedReviewFields);
     expect(result.status).toBe("needs_review");
   });
 
