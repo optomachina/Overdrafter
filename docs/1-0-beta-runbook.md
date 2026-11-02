@@ -262,7 +262,8 @@ with all of the following properties:
 - declared inch or millimetre model units; unitless geometry is unsupported
 - CNC milling, not turning or another manufacturing process
 - aluminum 6061-T6
-- quantity `1`
+- one quantity, any positive integer, default `1`, when the
+  `controlled_beta_user_quantity` switch is on; otherwise `1`
 - as-machined finish
 - standard dimensional tolerance of `+/- 0.005 in` or looser
 - no threads, inserts, special inspection, certification, material-provision,
@@ -290,6 +291,34 @@ verified process, material, file-format/size, drawing, quantity, geography, and
 compliance limits. A provider receives only the exact source or conversion-
 derivative bytes named by the customer's current confirmation and permit; the
 original remains preserved. Conversion never silently broadens eligibility.
+
+### Quantity in controlled-beta requests
+
+Migration `20261101130000_ovd987_controlled_beta_user_quantity` is applied in
+production and the `controlled_beta_user_quantity` switch is **OFF**. Turning
+it on is a separate decision (`OVD-1000`); the scoped grant (`OVD-1007`) is a
+separate path, not a capability supplied by this migration.
+
+For the Xometry controlled-beta path, the switch admits exactly one normalized
+positive integer quantity when on; there is no product cap beyond the database
+integer range. The default is `1`. When off, only `[1]` is admitted
+(`xometry_beta_quantity_one_required`); when on, several quantities or none
+after normalization are denied with `xometry_beta_single_quantity_required`.
+A new quantity is a new quote request, with its own scope fingerprint and
+customer confirmation, not a price-break quantity or a change to a live quote.
+The approved validation package and every `OVD-206` baseline run stay at
+quantity `1`; a different quantity changes the scope and restarts the series.
+
+This switch does not widen any other provider's versioned admitted envelope.
+Every provider still needs independent admission and certification for its
+exact quantity and process-specific scope; the four-provider release gate is
+unchanged. All other disclosure, export-control, entitlement, rollout, kill
+switch and exact-scope checks remain in force.
+
+Use the operator procedure in
+[Controlled beta user quantity](workflows/commercial-rollout-controls.md#controlled-beta-user-quantity).
+Turning it off refuses lanes above quantity `1` that have not been authorized
+with `dispatch_quantity_not_admitted`; lanes already authorized still launch.
 
 ### Geometry boundary
 

@@ -75,6 +75,29 @@ Notes on quantity: `requirement.quantity` alone does not change the lane
 scope. The lane quantity comes from `quote_quantities` (step 5), and the RPC
 sets `quantity` to its first element (step 3). They agree after a client edit.
 
+## Xometry controlled-beta quantity admission (OVD-987)
+
+Migration `20261101130000_ovd987_controlled_beta_user_quantity` is applied in
+production and the `controlled_beta_user_quantity` switch is **OFF**.
+Enablement is a separate decision (`OVD-1000`); the scoped grant (`OVD-1007`)
+is a separate path, not part of this migration.
+
+The resolver requires normalized `[1]` when off
+(`xometry_beta_quantity_one_required`), or exactly one positive integer when on
+(`xometry_beta_single_quantity_required` for several or none after
+normalization). Quantity already belongs to the lane snapshot and fingerprint;
+a different quantity requires a new request and confirmation. The request
+checks the created lane against the scope's quantity. Worker authorization
+binds the lane to its snapshot, result quantity and task `requestedQuantity`
+when present (`dispatch_lane_identity_mismatch` on disagreement).
+
+Turning the switch off refuses lanes above `1` that have not been authorized
+with `dispatch_quantity_not_admitted`; lanes already authorized still launch.
+The settlement functions do not read this switch, so existing holds at N
+still settle. See the [operator procedure](workflows/commercial-rollout-controls.md#controlled-beta-user-quantity)
+and [provider-envelope limits](1-0-beta-runbook.md#quantity-in-controlled-beta-requests).
+This is a source trace, not a new hosted verification.
+
 ## Need-by date
 
 A corrected need-by date is written to `approved_part_requirements.requested_by_date`
