@@ -57,7 +57,7 @@ Tables outside L0–L5 that these functions lock on `main` (`job_files`,
 `quote_requests`, `quote_runs`, `vendor_quote_results`, `vendor_quote_offers`,
 `vendor_quote_artifacts`) are listed per function in `KNOWN_UNORDERED_LOCKS`.
 Any other table outside the order is an error, and the list must match
-exactly. Whether any of them joins the order is a Lead/Architect decision.
+exactly. Whether any of them joins the order is a decision for the Claude thread.
 
 Two things differ from the plan written against #874:
 
