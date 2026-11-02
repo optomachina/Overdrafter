@@ -38,6 +38,9 @@
 set local lock_timeout = '3s';
 
 do $guard$
+declare
+  v_expected record;
+  v_md5 text;
 begin
   if pg_catalog.to_regprocedure('public.api_check_export_control_dispatch(uuid, text)') is null
     or pg_catalog.to_regprocedure(
@@ -45,29 +48,61 @@ begin
     ) is null then
     raise exception 'OVD-723 contract refused: apply the OVD-723 expand migration first';
   end if;
+  if exists (select 1 from pg_catalog.pg_proc p
+    join pg_catalog.pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'private' and p.proname in (
+      'job_file_prepare_core', 'job_file_finalize_core', 'provider_worker_dispatch_core', 'xometry_beta_worker_dispatch_core', 'manual_quote_request_core', 'export_control_manual_quote_denial'
+    )) then
+    raise exception 'OVD-723 contract refused: contract objects already exist';
+  end if;
+  for v_expected in
+    select * from (values
+      ('private.job_file_prepare_delegate(uuid,text,public.job_file_kind,text,bigint,text)', '8c5fae6e53835f537916e8097021456c'),
+      ('private.job_file_finalize_delegate(uuid,text,text,text,public.job_file_kind,text,bigint,text)', 'd1e7d64c3a20a6a05c55cbe4c316fc0e'),
+      ('public.api_prepare_job_file_upload(uuid,text,public.job_file_kind,text,bigint,text)', '686d958f0545bee88af127afa5a88860'),
+      ('public.api_finalize_job_file_upload(uuid,text,text,text,public.job_file_kind,text,bigint,text)', 'fcbee1db0a164cf78f2dd356dcb85c55'),
+      ('public.api_authorize_xometry_beta_worker_dispatch(uuid,uuid,jsonb,text,timestamptz)', '5d7e026241a0346a6624063e86a088f7'),
+      ('public.api_authorize_provider_worker_dispatch(uuid,uuid,jsonb,text,timestamptz)', '254e6ce84f67dae43d9664adf4b85673'),
+      ('public.api_request_manual_quote(uuid,boolean)', '8e5f10dabbf9c8c6420e2c14e9b01e79')
+    ) as expected(signature, body_md5)
+  loop
+    select pg_catalog.md5(p.prosrc) into v_md5 from pg_catalog.pg_proc p
+      where p.oid = pg_catalog.to_regprocedure(v_expected.signature);
+    if v_md5 is distinct from v_expected.body_md5 then
+      raise exception 'OVD-723 contract refused: unexpected body for %', v_expected.signature;
+    end if;
+  end loop;
 end;
 $guard$;
 
--- C.1 The legacy bodies move unchanged to private cores (no grants).
-alter function public.api_prepare_job_file_upload(
-  uuid, text, public.job_file_kind, text, bigint, text
-) set schema private;
-alter function private.api_prepare_job_file_upload(
-  uuid, text, public.job_file_kind, text, bigint, text
-) rename to job_file_prepare_core;
+-- OVD-1035: pin the current post-window bodies before copying them unchanged.
+-- OVD-767 admin guards are untouched; the Xometry core includes OVD-987.
+-- C.1 The legacy bodies are copied unchanged to private cores (no grants).
+-- Copy the current definition; keep the public OID, ACL order and metadata intact.
+do $copy$
+begin
+  execute pg_catalog.replace(
+    pg_catalog.pg_get_functiondef(pg_catalog.to_regprocedure('public.api_prepare_job_file_upload(uuid,text,public.job_file_kind,text,bigint,text)')),
+    'FUNCTION public.api_prepare_job_file_upload(', 'FUNCTION private.job_file_prepare_core('
+  );
+end;
+$copy$;
 revoke all on function private.job_file_prepare_core(
   uuid, text, public.job_file_kind, text, bigint, text
-) from public, anon, authenticated;
+) from public, anon, authenticated, service_role;
 
-alter function public.api_finalize_job_file_upload(
-  uuid, text, text, text, public.job_file_kind, text, bigint, text
-) set schema private;
-alter function private.api_finalize_job_file_upload(
-  uuid, text, text, text, public.job_file_kind, text, bigint, text
-) rename to job_file_finalize_core;
+-- Copy the current definition; keep the public OID, ACL order and metadata intact.
+do $copy$
+begin
+  execute pg_catalog.replace(
+    pg_catalog.pg_get_functiondef(pg_catalog.to_regprocedure('public.api_finalize_job_file_upload(uuid,text,text,text,public.job_file_kind,text,bigint,text)')),
+    'FUNCTION public.api_finalize_job_file_upload(', 'FUNCTION private.job_file_finalize_core('
+  );
+end;
+$copy$;
 revoke all on function private.job_file_finalize_core(
   uuid, text, text, text, public.job_file_kind, text, bigint, text
-) from public, anon, authenticated;
+) from public, anon, authenticated, service_role;
 
 -- C.2 The declaring overloads now reach the cores.
 create or replace function private.job_file_prepare_delegate(
@@ -168,7 +203,7 @@ grant execute on function public.api_finalize_job_file_upload(
   uuid, text, text, text, public.job_file_kind, text, bigint, text
 ) to authenticated;
 
--- C.4 Dispatch preflights. The existing bodies move unchanged to private
+-- C.4 Dispatch preflights. The existing bodies are copied unchanged to private
 -- cores; the public names become wrappers. Each wrapper runs the core first,
 -- inside a subtransaction. A core denial is returned unchanged, so every
 -- existing denial keeps its code and precedence. When the core authorizes,
@@ -178,22 +213,28 @@ grant execute on function public.api_finalize_job_file_upload(
 -- (for example a consumed permit) and returns the export denial instead. Any
 -- other error propagates, as before. The wrappers keep the original
 -- search_path = pg_catalog and qualify every reference.
-alter function public.api_authorize_xometry_beta_worker_dispatch(
-  uuid, uuid, jsonb, text, timestamptz
-) set schema private;
-alter function private.api_authorize_xometry_beta_worker_dispatch(
-  uuid, uuid, jsonb, text, timestamptz
-) rename to xometry_beta_worker_dispatch_core;
+-- Copy the current definition; keep the public OID, ACL order and metadata intact.
+do $copy$
+begin
+  execute pg_catalog.replace(
+    pg_catalog.pg_get_functiondef(pg_catalog.to_regprocedure('public.api_authorize_xometry_beta_worker_dispatch(uuid,uuid,jsonb,text,timestamptz)')),
+    'FUNCTION public.api_authorize_xometry_beta_worker_dispatch(', 'FUNCTION private.xometry_beta_worker_dispatch_core('
+  );
+end;
+$copy$;
 revoke all on function private.xometry_beta_worker_dispatch_core(
   uuid, uuid, jsonb, text, timestamptz
 ) from public, anon, authenticated, service_role;
 
-alter function public.api_authorize_provider_worker_dispatch(
-  uuid, uuid, jsonb, text, timestamptz
-) set schema private;
-alter function private.api_authorize_provider_worker_dispatch(
-  uuid, uuid, jsonb, text, timestamptz
-) rename to provider_worker_dispatch_core;
+-- Copy the current definition; keep the public OID, ACL order and metadata intact.
+do $copy$
+begin
+  execute pg_catalog.replace(
+    pg_catalog.pg_get_functiondef(pg_catalog.to_regprocedure('public.api_authorize_provider_worker_dispatch(uuid,uuid,jsonb,text,timestamptz)')),
+    'FUNCTION public.api_authorize_provider_worker_dispatch(', 'FUNCTION private.provider_worker_dispatch_core('
+  );
+end;
+$copy$;
 revoke all on function private.provider_worker_dispatch_core(
   uuid, uuid, jsonb, text, timestamptz
 ) from public, anon, authenticated, service_role;
@@ -297,7 +338,7 @@ drop policy "job_files_storage_insert" on storage.objects;
 
 -- C.6 Manual quote requests. In window 1 a client can still ask for a manual
 -- quote of a held part (the request lands in the admin manual inbox, where a
--- person could send the files to a supplier by hand). The existing body moves
+-- person could send the files to a supplier by hand). The existing body is copied
 -- unchanged to a private core; the public name becomes a wrapper that applies
 -- the export gate first: the job's latest declaration must be not_controlled
 -- with no open or confirmed marking block, and every part of the job must
@@ -306,8 +347,15 @@ drop policy "job_files_storage_insert" on storage.objects;
 -- The gate takes the shared per-job export lock (held until commit), so a
 -- declaration or block cannot interleave. A job the caller cannot see or
 -- edit goes straight to the core, so its existing errors keep precedence.
-alter function public.api_request_manual_quote(uuid, boolean) set schema private;
-alter function private.api_request_manual_quote(uuid, boolean) rename to manual_quote_request_core;
+-- Copy the current definition; keep the public OID, ACL order and metadata intact.
+do $copy$
+begin
+  execute pg_catalog.replace(
+    pg_catalog.pg_get_functiondef(pg_catalog.to_regprocedure('public.api_request_manual_quote(uuid,boolean)')),
+    'FUNCTION public.api_request_manual_quote(', 'FUNCTION private.manual_quote_request_core('
+  );
+end;
+$copy$;
 revoke all on function private.manual_quote_request_core(uuid, boolean)
   from public, anon, authenticated, service_role;
 
