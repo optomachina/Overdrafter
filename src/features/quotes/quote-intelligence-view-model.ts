@@ -131,7 +131,7 @@ export type GlobalSearchResult =
   | { kind: "project"; id: string; title: string; context: string; href: string; explanations: MatchExplanation[] }
   | { kind: "quote"; id: string; title: string; context: string; href: string; explanations: MatchExplanation[] };
 
-const ENGINEERING_NUMBER_PATTERN = String.raw`(?<![\w./])(\d+[ -]+\d+\/\d+|\d+\/\d+|\d+(?:\.\d+)?|\.\d+)`;
+const ENGINEERING_NUMBER_PATTERN = String.raw`(?<![\w./])(?<!\d-)(\d+[ -]+\d+\/\d+|\d+\/\d+|\d+(?:\.\d+)?|\.\d+)`;
 
 function normalizeSearchText(value: string): string {
   return value

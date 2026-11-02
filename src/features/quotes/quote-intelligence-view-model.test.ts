@@ -64,6 +64,12 @@ describe("parseEngineeringQuery", () => {
     ]);
   });
 
+  it.each(['1/4-20 1/2"', '6-32 1/2"', "#10-32 1/2 in"])("keeps a thread callout's pitch out of the length in %s", (query) => {
+    expect(parseEngineeringQuery(query).chips).toEqual([
+      expect.objectContaining({ kind: "measurement", value: 0.5, label: "1/2 in", unit: "in" }),
+    ]);
+  });
+
   it("refuses numbers glued to letters", () => {
     expect(parseEngineeringQuery("rev12mm").chips).toEqual([]);
   });
