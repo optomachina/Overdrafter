@@ -1,8 +1,13 @@
 name: PR body gate
 
-# Separate from ci.yml on purpose: the `edited` trigger fires on every title or
-# body edit (review bots edit bodies), and it must not rerun the full CI suite
-# or cancel its runs. This workflow is small and has its own concurrency group.
+# Separate from ci.yml on purpose: it reads the PR body and must not rerun the
+# full CI suite. OVD-1145 dropped the `edited` trigger: title and body edits
+# (review bots edit bodies) cancelled the required provider-go-live run and
+# left it cancelled at the head. A body change is now re-checked on the next
+# push (synchronize), reopen or draft -> ready. A re-run of an old run reads
+# the body from that run's event, not the current body, so push to re-check an
+# edited body. The concurrency group is the head sha, so only runs for the same
+# head cancel each other.
 #
 # The Provider go-live section is required only when the diff enables a
 # provider for customers (see scripts/provider-enablement-detect.mjs). Every
@@ -22,7 +27,6 @@ on:
       - opened
       - reopened
       - synchronize
-      - edited
       # Draft -> ready re-runs this gate so a workflow_run completes and the
       # QA handoff workflow (qa-handoff.yml) re-evaluates the PR (OVD-865).
       - ready_for_review
@@ -31,7 +35,7 @@ on:
       - checks_requested
 
 concurrency:
-  group: pr-body-gate-${{ github.event.pull_request.number || github.sha }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.head.sha || github.sha }}
   cancel-in-progress: true
 
 permissions:

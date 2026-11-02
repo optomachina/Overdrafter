@@ -167,6 +167,7 @@ function makeWorkQueue(overrides: Partial<WorkQueueRecord> = {}): WorkQueueRecor
       requestedQuantity: 10,
     },
     attempts: 1,
+    attempt_id: null,
     available_at: "2026-03-07T17:00:00.000Z",
     locked_at: null,
     locked_by: null,

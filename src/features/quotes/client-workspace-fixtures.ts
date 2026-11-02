@@ -733,6 +733,7 @@ function createPartAggregate(input: {
         part_id: input.id,
         organization_id: FIXTURE_ORGANIZATION_ID,
         extractor_version: "fixture-v1",
+        source_attempt_id: null,
         extraction: {
           partNumber: input.partNumber,
           revision: input.revision,

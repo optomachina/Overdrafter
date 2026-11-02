@@ -31,6 +31,7 @@ import {
   safeSendCutSendEvaluationError,
   type SendCutSendEvaluationManifest,
 } from "../adapters/sendcutsend.js";
+import { SENDCUTSEND_SHEET_ENVELOPE } from "../adapters/sendcutsendPortal.js";
 import { loadConfig } from "../config.js";
 import {
   liveHarnessArtifactOptions,
@@ -89,6 +90,7 @@ type SmokeArgs = {
   oshcutPackage?: OshcutPackageMetadata | null;
   rmfgStock?: RmfgStockMetadata | null;
   sendCutSendManifestPath?: string | null;
+  sendCutSendSheetPackage?: SendCutSendSheetPackage | null;
   approvalFilePath?: string | null;
   approvalFileSha256?: string | null;
 };
@@ -108,6 +110,15 @@ const OSHCUT_PACKAGE_METADATA = {
 } as const;
 
 type OshcutPackageMetadata = typeof OSHCUT_PACKAGE_METADATA;
+
+/** OVD-1056: the only package the SendCutSend quote-only sheet lane admits. */
+const SENDCUTSEND_SHEET_PACKAGE = Object.freeze({
+  process: SENDCUTSEND_SHEET_ENVELOPE.process,
+  material: SENDCUTSEND_SHEET_ENVELOPE.material,
+  thicknessInch: SENDCUTSEND_SHEET_ENVELOPE.thicknessInch,
+});
+
+type SendCutSendSheetPackage = typeof SENDCUTSEND_SHEET_PACKAGE;
 
 type SmokeRow = {
   executionContext: "live_evaluation";
@@ -180,12 +191,12 @@ function usage() {
     "Usage: npm --prefix worker run eval:live-provider -- --vendor <vendor|all|vendor1,vendor2> --cad <path> [--drawing <path>] [--quantities 1,5] [--sendcutsend-manifest <reviewed.json>] [--approval-file <reviewed.json> --approval-file-sha256 <sha256>] --confirm-non-export-controlled",
     "Fabworks additionally requires explicit exact matrix metadata, for example: --fabworks-process sheet_metal_bending --fabworks-material \"6061-T6 aluminum\" --fabworks-geometry bent_sheet_3d",
     "OSH Cut additionally requires: --oshcut-process laser_cutting --oshcut-material aluminum_6061_t6 --oshcut-geometry flat_sheet",
-    "SendCutSend additionally requires a complete reviewed digest-bound manifest and performs local envelope evaluation only.",
+    "SendCutSend additionally requires either a complete reviewed digest-bound manifest (local envelope evaluation only) or, for the quote-only sheet lane, the approval file plus: --sendcutsend-process sheet_laser_cutting --sendcutsend-material \"6061-T6 aluminum\" --sendcutsend-thickness-in 0.125",
     "RMFG runs only when named and requires the stated stock, for example: --rmfg-grade 6061-T6 --rmfg-thickness-in 0.125",
     "",
     `Live evaluation vendors: ${[...LIVE_EVALUATION_VENDORS, ...NAMED_ONLY_EVALUATION_VENDORS].join(", ")}`,
     "",
-    "Provider-interacting evaluation vendors require an authenticated session. SendCutSend performs local admission only. This command does not use production routing, provider admission, customer disclosure, or dispatch permits.",
+    "Provider-interacting evaluation vendors require an authenticated session. SendCutSend's manifest lane performs local admission only. This command does not use production routing, provider admission, customer disclosure, or dispatch permits.",
   ].join("\n");
 }
 
@@ -434,6 +445,55 @@ function assertOshcutBatch(args: SmokeArgs): void {
   }
 }
 
+function parseSendCutSendSheetPackage(
+  argv: string[],
+  vendors: LiveAutomationVendorName[],
+): SendCutSendSheetPackage | null {
+  const process = readFlag(argv, "--sendcutsend-process")?.trim() ?? null;
+  const material = readFlag(argv, "--sendcutsend-material")?.trim() ?? null;
+  const thickness = readFlag(argv, "--sendcutsend-thickness-in")?.trim() ?? null;
+  if (process === null && material === null && thickness === null) {
+    return null;
+  }
+  if (!vendors.includes("sendcutsend")) {
+    throw new Error("SendCutSend sheet package metadata may only be supplied when --vendor includes sendcutsend.");
+  }
+  if (
+    process !== SENDCUTSEND_SHEET_PACKAGE.process
+    || material !== SENDCUTSEND_SHEET_PACKAGE.material
+    || thickness !== String(SENDCUTSEND_SHEET_PACKAGE.thicknessInch)
+  ) {
+    throw new Error(
+      "SendCutSend sheet evaluation requires explicit exact package metadata: " +
+      "--sendcutsend-process sheet_laser_cutting " +
+      "--sendcutsend-material \"6061-T6 aluminum\" " +
+      "--sendcutsend-thickness-in 0.125.",
+    );
+  }
+  return SENDCUTSEND_SHEET_PACKAGE;
+}
+
+function isExactSendCutSendSheetPackage(
+  sheetPackage: SendCutSendSheetPackage | null | undefined,
+): sheetPackage is SendCutSendSheetPackage {
+  return sheetPackage?.process === SENDCUTSEND_SHEET_PACKAGE.process
+    && sheetPackage.material === SENDCUTSEND_SHEET_PACKAGE.material
+    && sheetPackage.thicknessInch === SENDCUTSEND_SHEET_PACKAGE.thicknessInch;
+}
+
+function isSendCutSendSheetLane(args: Pick<SmokeArgs, "vendors" | "sendCutSendSheetPackage">): boolean {
+  return args.vendors.includes("sendcutsend") && isExactSendCutSendSheetPackage(args.sendCutSendSheetPackage);
+}
+
+function assertSendCutSendSheetQuantity(quantity: number): void {
+  const { minimum, maximum } = SENDCUTSEND_SHEET_ENVELOPE.quantity;
+  if (!Number.isSafeInteger(quantity) || quantity < minimum || quantity > maximum) {
+    throw new Error(
+      `SendCutSend adapter invocation denied: sheet quantity must be a whole number from ${minimum} through ${maximum}.`,
+    );
+  }
+}
+
 function sameQuantities(left: readonly number[], right: readonly number[]): boolean {
   const leftSet = new Set(left);
   const rightSet = new Set(right);
@@ -462,7 +522,7 @@ function assertSendCutSendManifestInvocation(
 export async function loadSendCutSendEvaluationManifest(
   args: SmokeArgs,
 ): Promise<SendCutSendEvaluationManifest | null> {
-  if (!args.vendors.includes("sendcutsend")) {
+  if (!args.vendors.includes("sendcutsend") || isSendCutSendSheetLane(args)) {
     return null;
   }
   if (!args.confirmedNonExportControlled) {
@@ -507,7 +567,7 @@ function assertStagedSendCutSendBinding(
   manifest: SendCutSendEvaluationManifest | null,
   stagedFiles: StagedEvaluationFiles,
 ): void {
-  if (!args.vendors.includes("sendcutsend")) {
+  if (!args.vendors.includes("sendcutsend") || isSendCutSendSheetLane(args)) {
     return;
   }
   if (!manifest) {
@@ -554,6 +614,7 @@ function assertSendCutSendCliAdmission(input: {
   rawQuantities: string | null;
   quantities: readonly number[];
   manifestPath: string | null;
+  sheetPackage: SendCutSendSheetPackage | null;
 }): void {
   if (!input.vendors.includes("sendcutsend")) {
     if (input.manifestPath) {
@@ -568,6 +629,13 @@ function assertSendCutSendCliAdmission(input: {
   }
   if (new Set(input.quantities).size !== input.quantities.length) {
     throw new Error("SendCutSend quantities must be unique before evaluation.");
+  }
+  if (input.sheetPackage) {
+    if (input.manifestPath) {
+      throw new Error("SendCutSend accepts either --sendcutsend-manifest or the sheet package metadata, not both.");
+    }
+    input.quantities.forEach(assertSendCutSendSheetQuantity);
+    return;
   }
   if (!input.manifestPath) {
     throw new Error(`SendCutSend requires --sendcutsend-manifest.\n\n${usage()}`);
@@ -606,11 +674,13 @@ export function parseSmokeArgs(argv: string[], env: NodeJS.ProcessEnv = process.
   if (vendors.includes("oshcut") && hasInvalidQuantityToken(rawQuantities)) {
     throw new Error("OSH Cut quantities must be complete positive integer tokens.");
   }
+  const sendCutSendSheetPackage = parseSendCutSendSheetPackage(argv, vendors);
   assertSendCutSendCliAdmission({
     vendors,
     rawQuantities,
     quantities,
     manifestPath: sendCutSendManifestPath,
+    sheetPackage: sendCutSendSheetPackage,
   });
 
   const skippedOshcut = requestedVendors?.includes("oshcut") && !vendors.includes("oshcut");
@@ -637,6 +707,7 @@ export function parseSmokeArgs(argv: string[], env: NodeJS.ProcessEnv = process.
     sendCutSendManifestPath: sendCutSendManifestPath
       ? path.resolve(sendCutSendManifestPath)
       : null,
+    sendCutSendSheetPackage,
     approvalFilePath: approvalFilePath ? path.resolve(approvalFilePath) : null,
     approvalFileSha256,
   };
@@ -646,7 +717,8 @@ export function parseSmokeArgs(argv: string[], env: NodeJS.ProcessEnv = process.
 export async function loadProviderPortalApproval(
   args: SmokeArgs,
 ): Promise<ProviderPortalApprovalDescriptor | null> {
-  const portalVendors = args.vendors.filter((vendor) => getExtendedVendorWorkflow(vendor));
+  const portalVendors = args.vendors.filter((vendor) =>
+    getExtendedVendorWorkflow(vendor) || (vendor === "sendcutsend" && isSendCutSendSheetLane(args)));
   if (!args.approvalFilePath || !args.approvalFileSha256) {
     if (portalVendors.length > 0) {
       throw new Error(
@@ -675,6 +747,7 @@ export async function loadProviderPortalApproval(
 function makeConfig(
   vendor: LiveAutomationVendorName,
   evaluationRuntimeDir: string,
+  providerSession = vendor !== "sendcutsend",
 ): WorkerConfig {
   const genericKeys = [
     "WORKER_POLL_INTERVAL_MS",
@@ -687,7 +760,8 @@ function makeConfig(
     "PORT",
     "WORKER_BUILD_VERSION",
   ] as const;
-  const configEnv: NodeJS.ProcessEnv = vendor === "sendcutsend"
+  // SendCutSend's manifest lane never reaches the provider, so it gets no session configuration.
+  const configEnv: NodeJS.ProcessEnv = !providerSession
     ? Object.fromEntries(genericKeys.flatMap((key) => {
       const value = process.env[key];
       return value === undefined ? [] : [[key, value]];
@@ -737,42 +811,23 @@ function scopeRuntimeCredentialPreparation(
   };
 }
 
-/**
- * Builds a live-evaluation input from exact provider metadata and a canonical
- * SendCutSend manifest when that local evaluation lane is selected.
- */
-function makeInput(input: {
+type VendorRequirementSpec = {
+  material: string;
+  finish: string;
+  specSnapshot: Record<string, unknown> | undefined;
+};
+
+/** Material, finish and spec snapshot for the selected vendor's local evaluation lane. */
+function vendorRequirementSpec(input: {
   vendor: VendorName;
-  quantity: number;
   cadPath: string;
-  drawingPath: string | null;
-  stagedCadPath: string;
-  stagedDrawingPath: string | null;
-  authorization: LiveEvaluationAuthorization;
   fabworksPackage: FabworksPackageMetadata | null;
   oshcutPackage: OshcutPackageMetadata | null;
   rmfgStock: RmfgStockMetadata | null;
   sendCutSendManifest: SendCutSendEvaluationManifest | null;
-  providerPortalApproval: ProviderPortalApprovalDescriptor | null;
-  requestedQuantities: number[];
-}): VendorQuoteAdapterInput {
-  const {
-    vendor,
-    quantity,
-    cadPath,
-    drawingPath,
-    stagedCadPath,
-    stagedDrawingPath,
-    authorization,
-    fabworksPackage,
-    oshcutPackage,
-    rmfgStock,
-    sendCutSendManifest,
-    providerPortalApproval,
-    requestedQuantities,
-  } = input;
-  const stamp = Date.now();
-  const idPrefix = `${vendor}-smoke-q${quantity}`;
+  sendCutSendSheetPackage?: SendCutSendSheetPackage | null;
+}): VendorRequirementSpec {
+  const { vendor, cadPath, fabworksPackage, oshcutPackage, rmfgStock, sendCutSendManifest, sendCutSendSheetPackage } = input;
   let material = "6061 aluminum";
   let finish = "as machined";
   let specSnapshot: Record<string, unknown> | undefined;
@@ -795,6 +850,14 @@ function makeInput(input: {
       process: oshcutPackage.process,
       geometryFamily: oshcutPackage.geometryFamily,
     };
+  } else if (vendor === "sendcutsend" && isExactSendCutSendSheetPackage(sendCutSendSheetPackage)) {
+    material = sendCutSendSheetPackage.material;
+    finish = "Mill finish";
+    specSnapshot = {
+      process: sendCutSendSheetPackage.process,
+      geometryFamily: SENDCUTSEND_SHEET_ENVELOPE.geometryFamily,
+      sheetThicknessInch: sendCutSendSheetPackage.thicknessInch,
+    };
   } else if (vendor === "rmfg") {
     if (!rmfgStock) {
       throw new Error("RMFG adapter invocation denied: the stated sheet stock is missing.");
@@ -813,6 +876,44 @@ function makeInput(input: {
       evaluationManifest: sendCutSendManifest,
     };
   }
+  return { material, finish, specSnapshot };
+}
+
+/**
+ * Builds a live-evaluation input from exact provider metadata and a canonical
+ * SendCutSend manifest when that local evaluation lane is selected.
+ */
+function makeInput(input: {
+  vendor: VendorName;
+  quantity: number;
+  cadPath: string;
+  drawingPath: string | null;
+  stagedCadPath: string;
+  stagedDrawingPath: string | null;
+  authorization: LiveEvaluationAuthorization;
+  fabworksPackage: FabworksPackageMetadata | null;
+  oshcutPackage: OshcutPackageMetadata | null;
+  rmfgStock: RmfgStockMetadata | null;
+  sendCutSendManifest: SendCutSendEvaluationManifest | null;
+  sendCutSendSheetPackage?: SendCutSendSheetPackage | null;
+  providerPortalApproval: ProviderPortalApprovalDescriptor | null;
+  requestedQuantities: number[];
+}): VendorQuoteAdapterInput {
+  const {
+    vendor,
+    quantity,
+    cadPath,
+    drawingPath,
+    stagedCadPath,
+    stagedDrawingPath,
+    authorization,
+    sendCutSendManifest,
+    providerPortalApproval,
+    requestedQuantities,
+  } = input;
+  const stamp = Date.now();
+  const idPrefix = `${vendor}-smoke-q${quantity}`;
+  const { material, finish, specSnapshot } = vendorRequirementSpec(input);
 
   const filePayload = buildLiveEvaluationQuoteFilePayload({
     cadPath,
@@ -1450,9 +1551,15 @@ function nativeCurrencyRow(input: {
  * Runs one quantity from captured bytes after provider-specific admission is
  * revalidated before registry construction or any adapter/provider call.
  */
-/** SendCutSend evaluates a reviewed manifest offline, so it never reaches the provider or the switch. */
-function isLiveProviderVendor(vendor: VendorName): boolean {
-  return vendor !== "sendcutsend";
+/**
+ * SendCutSend's manifest lane evaluates offline, so it never reaches the
+ * provider or the switch; its sheet lane (OVD-1056) reaches the provider.
+ */
+function isLiveProviderVendor(
+  vendor: VendorName,
+  args: Pick<SmokeArgs, "vendors" | "sendCutSendSheetPackage">,
+): boolean {
+  return vendor !== "sendcutsend" || isSendCutSendSheetLane(args);
 }
 
 /**
@@ -1474,7 +1581,12 @@ async function assertQuoteAdmission(
     assertExactOshcutPackageMetadata(args.oshcutPackage);
     assertOshcutQuantity(quantity);
   }
-  if (vendor === "sendcutsend") {
+  if (vendor === "sendcutsend" && isSendCutSendSheetLane(args)) {
+    if (sendCutSendManifest) {
+      throw new Error("SendCutSend adapter invocation denied: the sheet lane takes no manifest.");
+    }
+    assertSendCutSendSheetQuantity(quantity);
+  } else if (vendor === "sendcutsend") {
     const exactManifest = parseSendCutSendEvaluationManifest(sendCutSendManifest);
     if (!args.vendors.includes("sendcutsend") || !exactManifest) {
       throw new Error("SendCutSend adapter invocation denied: reviewed manifest is unavailable.");
@@ -1527,7 +1639,7 @@ export async function runQuote(
     stagedFiles,
     [config.workerTempDir],
   );
-  const accountMode = vendor === "sendcutsend"
+  const accountMode = vendor === "sendcutsend" && !isSendCutSendSheetLane(args)
     ? "local_reviewed_manifest"
     : providerPortalApproval?.accountMode ?? "isolated_authenticated_session";
 
@@ -1563,6 +1675,7 @@ export async function runQuote(
         oshcutPackage: args.oshcutPackage ?? null,
         rmfgStock: args.rmfgStock ?? null,
         sendCutSendManifest,
+        sendCutSendSheetPackage: args.sendCutSendSheetPackage ?? null,
         providerPortalApproval,
         requestedQuantities: args.quantities,
       });
@@ -1571,7 +1684,7 @@ export async function runQuote(
     const evaluate = (input: VendorQuoteAdapterInput) => adapter.evaluateLocally
       ? adapter.evaluateLocally(input)
       : adapter.quote(input);
-    const reachesProvider = isLiveProviderVendor(vendor)
+    const reachesProvider = isLiveProviderVendor(vendor, args)
       && (!adapter.evaluateLocally || adapter.evaluateLocallyReachesProvider !== false);
     const result = reachesProvider
       ? await guardOperatorQuote(vendor, evaluate, killSwitchReader)(adapterInput)
@@ -1696,7 +1809,7 @@ export async function runEvaluationBatch(
   assertFabworksPackageMetadata(args);
   assertOshcutBatch(args);
   await assertOperatorProvidersEnabled(
-    args.vendors.filter((vendor) => isLiveProviderVendor(vendor) && !OFFLINE_EVALUATION_PORTAL_VENDORS.has(vendor)),
+    args.vendors.filter((vendor) => isLiveProviderVendor(vendor, args) && !OFFLINE_EVALUATION_PORTAL_VENDORS.has(vendor)),
     dependencies.killSwitchReader,
   );
   const sendCutSendManifest = await loadSendCutSendEvaluationManifest(args);
@@ -1738,13 +1851,16 @@ export async function runEvaluationBatch(
     }
     for (const vendor of args.vendors) {
       const workflow = getExtendedVendorWorkflow(vendor);
+      const providerSession = isLiveProviderVendor(vendor, args);
       const scopedConfig = scopeRuntimeCredentialPreparation(
-        makeVendorConfig(vendor, credentialRuntimeDir),
+        vendor === "sendcutsend"
+          ? makeVendorConfig(vendor, credentialRuntimeDir, providerSession)
+          : makeVendorConfig(vendor, credentialRuntimeDir),
         vendor,
       );
-      const preparedConfig = vendor === "sendcutsend"
-        ? scopedConfig
-        : await prepareConfig(scopedConfig);
+      const preparedConfig = providerSession
+        ? await prepareConfig(scopedConfig)
+        : scopedConfig;
       const config = {
         ...preparedConfig,
         workerTempDir: evidenceRuntimeDir,

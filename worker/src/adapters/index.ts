@@ -15,7 +15,7 @@ import { XometryAdapter } from "./xometry.js";
 import {
   buildQuickpartsProductionPortalDefinition,
 } from "./quickpartsPortal.js";
-import { buildGeomiqPortalDefinition } from "./geomiqPortal.js";
+import { buildGeomiqProductionPortalDefinition } from "./geomiqProductionPortal.js";
 import { buildWeergProductionPortalDefinition, createWeergPortalDefinition } from "./weergPortal.js";
 import { PortalQuoteWorkflowAdapter } from "./portalWorkflow.js";
 import type { ProviderPortalDefinition } from "./providerPortalKernel.js";
@@ -30,10 +30,13 @@ import {
   evaluateCandidateEvaluationPreflight,
 } from "./candidateEvaluationPreflight.js";
 
-/** Portal vendors whose live evaluation runs the local preflight kernel and never reaches the provider. */
+/**
+ * Portal vendors whose live evaluation runs the local preflight kernel and never
+ * reaches the provider. Geomiq (OVD-1058) left the set: its evaluation reaches
+ * the portal, so the harness gates and guards it with the operator kill switch.
+ */
 export const OFFLINE_EVALUATION_PORTAL_VENDORS: ReadonlySet<VendorName> = new Set<VendorName>([
   "weerg",
-  "geomiq",
   "ponoko",
   "protolabsnetwork",
   "rapiddirect",
@@ -140,7 +143,7 @@ function buildRegistry(
     ? {
       quickparts: buildQuickpartsProductionPortalDefinition(),
       weerg: createWeergPortalDefinition(),
-      geomiq: buildGeomiqPortalDefinition(),
+      geomiq: buildGeomiqProductionPortalDefinition(),
     }
     : {
       quickparts: buildQuickpartsProductionPortalDefinition(),

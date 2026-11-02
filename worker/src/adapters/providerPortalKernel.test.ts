@@ -19,6 +19,8 @@ import { ProviderDispatchAuthorizationError } from "../providerDispatchPreflight
 import { ProviderKillSwitchError } from "../providerKillSwitch";
 import {
   captureScrubbedProviderEvidence,
+  checkSendCutSendCurrentUser,
+  PROVIDER_PORTAL_SESSION_CHECK_TIMEOUT_MS,
   buildExpectedProviderPortalApproval,
   classifyPortalBoundaryOutcome,
   classifyProviderPortalSnapshot,
@@ -33,6 +35,8 @@ import {
   type ProviderPortalOfferCandidate,
   type RunProviderPortalKernelDependencies,
 } from "./providerPortalKernel";
+
+import { buildSendCutSendSheetPortalDefinition, SENDCUTSEND_SHEET_LOCATORS } from "./sendcutsendPortal";
 
 const tempDirs: string[] = [];
 
@@ -1595,6 +1599,126 @@ describe("provider portal finite states and offers", () => {
   });
 });
 
+describe("provider portal session capability (OVD-1056)", () => {
+  afterEach(() => vi.useRealTimers());
+
+  async function startCheck(
+    evaluate: (fn: () => Promise<unknown>) => Promise<unknown>,
+    beforeUpload?: ProviderPortalDefinition["hooks"]["beforeUpload"],
+    overrides: Partial<ProviderPortalDefinition> = {},
+  ) {
+    const fake = fakeBrowser();
+    let evaluationStarted!: () => void;
+    const started = new Promise<void>((resolve) => { evaluationStarted = resolve; });
+    const evaluator = vi.fn((fn: () => Promise<unknown>) => {
+      evaluationStarted();
+      return evaluate(fn);
+    });
+    Object.assign(fake.page, { evaluate: evaluator });
+    const results: unknown[] = [];
+    const checked = definition({
+      provider: "sendcutsend",
+      routes: {
+        publicUrl: "https://app.sendcutsend.com/",
+        loginUrl: "https://app.sendcutsend.com/",
+        uploadUrl: "https://app.sendcutsend.com/",
+      },
+      allowedHosts: ["app.sendcutsend.com"],
+      hooks: {
+        ...definition().hooks,
+        beforeUpload: beforeUpload ?? (async (_reader, session) => { results.push(await session.confirmSignedIn()); }),
+      },
+      ...overrides,
+    });
+    const approved = await input();
+    approved.providerPortalApproval = buildExpectedProviderPortalApproval(checked, approved)!;
+    const settings = config();
+    settings.vendorStorageStateJson = { [checked.provider]: JSON.stringify({ cookies: [], origins: [] }) };
+    const done = runProviderPortalKernel(checked, settings, approved, {
+      launchBrowser: async () => fake.browser,
+      captureEvidence: async () => [],
+    }).catch((error: unknown) => error);
+    return { results, evaluate: evaluator, fake, done, started };
+  }
+
+  it("runs only the kernel's fixed evaluator and returns only the yes/no and a short detail", async () => {
+    const { results, evaluate, done } = await startCheck(async () => ({ signedIn: true, detail: "status 200", body: { email: "x" } }));
+    await done;
+    // The kernel checks before classification and again immediately before upload.
+    expect(evaluate.mock.calls).toEqual([[checkSendCutSendCurrentUser], [checkSendCutSendCurrentUser]]);
+    expect(results[0]).toEqual({ signedIn: true, detail: "status 200" });
+  });
+
+  it.each([
+    ["a truthy non-boolean", async () => ({ signedIn: "yes", detail: "status 200" }), { signedIn: false, detail: "status 200" }],
+    ["a malformed result", async () => null, { signedIn: false, detail: "malformed session check" }],
+    ["a thrown check", async () => { throw new Error("evaluate failed"); }, { signedIn: false, detail: "page check failed" }],
+  ])("reports not signed in for %s", async (_label, evaluate, expected) => {
+    const { results, done } = await startCheck(evaluate);
+    await done;
+    expect(results[0]).toEqual(expected);
+  });
+
+  it.each(["checkout click", "same-origin POST"])("rejects an adapter callback attempting a %s before evaluation or upload", async (operation) => {
+    const click = vi.fn();
+    const fetch = vi.fn();
+    const injected = async () => {
+      if (operation === "checkout click") click();
+      else await fetch("/orders", { method: "POST" });
+      return { signedIn: true, detail: "injected" };
+    };
+    const { done, evaluate, fake } = await startCheck((fn) => fn(), async (_reader, session) => {
+      // @ts-expect-error Adapters cannot supply page code, including legacy callbacks.
+      await session.confirmSignedIn(injected);
+    });
+    await expect(done).resolves.toMatchObject({
+      payload: { reason: "session_check_arguments_forbidden", providerMutationPossible: false },
+    });
+    expect(evaluate).not.toHaveBeenCalled();
+    expect(click).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
+    expect(fake.setInputFiles).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["an unsupported provider", { provider: "quickparts" }],
+    ["another allowed host", {
+      routes: { publicUrl: "https://main.realtime.ably.net/", loginUrl: "https://main.realtime.ably.net/", uploadUrl: "https://main.realtime.ably.net/" },
+      allowedHosts: ["main.realtime.ably.net"],
+    }],
+  ] as const)("does not evaluate a session probe for %s", async (_label, overrides) => {
+    const { results, evaluate, done } = await startCheck(async () => ({ signedIn: true }), undefined, overrides);
+    await done;
+    expect(results).toEqual(Array(2).fill({ signedIn: false, detail: "unsupported session check" }));
+    expect(evaluate).not.toHaveBeenCalled();
+  });
+
+  it("bounds a never-resolving evaluator and the SendCutSend guard prevents upload at the deadline", async () => {
+    const guard = buildSendCutSendSheetPortalDefinition({ sessionSettleMs: 0 }).hooks.beforeUpload!;
+    vi.useFakeTimers();
+    const { done, started, fake } = await startCheck(() => new Promise(() => undefined), (reader, session) => guard({
+      ...reader,
+      count: async (selector) => selector === SENDCUTSEND_SHEET_LOCATORS.navbar || selector === SENDCUTSEND_SHEET_LOCATORS.uploadInput ? 1 : 0,
+    }, session));
+    let settled = false;
+    void done.then(() => { settled = true; });
+    await started;
+    await vi.advanceTimersByTimeAsync(PROVIDER_PORTAL_SESSION_CHECK_TIMEOUT_MS - 1);
+    expect(settled).toBe(false);
+    expect(fake.setInputFiles).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(settled).toBe(true);
+    await expect(done).resolves.toMatchObject({
+      payload: { terminalState: "login_required", reason: "sendcutsend_session_unconfirmed", providerMutationPossible: false },
+      message: expect.stringContaining("timed out"),
+    });
+    expect(fake.setInputFiles).not.toHaveBeenCalled();
+    expect(fake.context.close).toHaveBeenCalledOnce();
+    expect(fake.browser.close).toHaveBeenCalledOnce();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+});
+
 describe("provider kill switch checkpoints inside the portal kernel (OVD-722)", () => {
   it("refuses before navigation when the switch is engaged: the page is never loaded", async () => {
     const fake = fakeBrowser();
@@ -1671,6 +1795,32 @@ describe("provider kill switch checkpoints inside the portal kernel (OVD-722)", 
     expect(state.reads).toEqual(["before_navigation", "before_upload", "before_upload"]);
     expect(fake.setInputFiles).not.toHaveBeenCalled();
     expect(fake.fill).not.toHaveBeenCalled();
+    expect(phase.started).toBe(false);
+  });
+
+  it("engaged while the pre-upload guard waits: the switch is re-read after the guard and the CAD upload never starts", async () => {
+    const fake = fakeBrowser();
+    const phase = createProviderMutationPhase();
+    const { state, approved } = await switchableInput();
+    let guardCalls = 0;
+    const guarded = definition({
+      hooks: {
+        ...definition().hooks,
+        // The second call is the one right before upload; the admin flips the switch while it waits.
+        beforeUpload: async () => {
+          guardCalls += 1;
+          if (guardCalls === 2) state.engaged = true;
+        },
+      },
+    });
+    const error = await runInProviderMutationPhase(phase, () => runProviderPortalKernel(guarded, config(), approved, {
+      launchBrowser: async () => fake.browser,
+      captureEvidence: async () => [],
+    })).catch((e: unknown) => e);
+    expect(guardCalls).toBe(2);
+    expect(error).toMatchObject({ name: "ProviderKillSwitchError", reasonCode: "provider_kill_switch_engaged", checkpoint: "before_upload" });
+    expect(state.reads).toEqual(["before_navigation", "before_upload", "before_upload"]);
+    expect(fake.setInputFiles).not.toHaveBeenCalled();
     expect(phase.started).toBe(false);
   });
 
@@ -2697,5 +2847,30 @@ describe("provider portal post-capture cleanup", () => {
     });
     await expect(runProviderPortalKernel(unsafe, config(), await input(), { launchBrowser: vi.fn() }))
       .rejects.toThrow(/prohibited cleanup selector/);
+  });
+});
+
+describe("provider portal pre-upload classification (OVD-1056)", () => {
+  it("classifies the page as the beforeUpload hook left it, not the pre-hook snapshot", async () => {
+    // The fake page reads its body text lazily, so the hook can change what the page shows.
+    const options = { bodyText: "LOGIN" };
+    const fake = fakeBrowser(options);
+    const classify = vi.fn((snapshot: Parameters<typeof classifyProviderPortalSnapshot>[0]) =>
+      classifyProviderPortalSnapshot(snapshot));
+    const settled = definition({
+      hooks: {
+        ...definition().hooks,
+        // A session guard that waits for the header to hydrate: the login link disappears.
+        beforeUpload: async () => { options.bodyText = "quote portal"; },
+        classifyPortalState: classify,
+      },
+    });
+    const result = await runProviderPortalKernel(settled, config(), await input(), {
+      launchBrowser: async () => fake.browser,
+      captureEvidence: async () => [],
+    });
+    expect(classify.mock.calls[0]?.[0]?.bodyText).toBe("quote portal");
+    expect(classify.mock.calls.map(([snapshot]) => snapshot.bodyText)).not.toContain("LOGIN");
+    expect(result.state).toBe("offers_extracted");
   });
 });

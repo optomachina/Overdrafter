@@ -15,13 +15,19 @@ action under `AGENTS.md`. Promotion follows the three stages in
 | --- | --- | --- |
 | Envelope fixture | `test-fixtures/provider-dispatch-envelope/geomiq-v1.json` | Synthetic `geomiq-quote-envelope.v1`; one CAD file, no drawing. |
 | Authorization binding | `worker/src/adapters/geomiqDispatchAuthorization.ts` | `GEOMIQ_DISPATCH_ENVELOPE` bound to the shared `providerDispatchAuthorizationDenial`. Not in `REVIEWED_PROVIDER_DISPATCH_ENVELOPES`. |
-| Production portal stub | `worker/src/adapters/geomiqProductionPortal.ts` | `buildGeomiqProductionPortalDefinition()`; eligibility is `unavailable` before any session read; no offers. Not registered. |
+| Production portal definition | `worker/src/adapters/geomiqProductionPortal.ts` | OVD-1058: `geomiq-production-adapter.v1`, bound from the public buyer app (`/quotes`, CNC, "Aluminium 6061 T6", GBP display). Registered only in the local live-evaluation registry; production dispatch is still `unavailable` before any session read. |
 | Fixture helper | `worker/test-support/geomiqDispatchFixture.ts` | Uses `providerDispatchFixture`. |
 | Default-deny tests | `worker/src/adapters/geomiqProductionPortal.test.ts` | Uses `productionPortalDefaultDeny`. |
-| Browser fixture stub | `worker/src/adapters/geomiqProductionPortal.browser.test.ts` | Uses `localPortalBrowserFixture`; skipped until review. |
+| Browser fixture | `worker/src/adapters/geomiqProductionPortal.browser.test.ts` | OVD-1058: active against a synthetic Geomiq-shaped page; every request is answered locally. |
 | Session-secret entry | `worker/.env.example` | Comment block only; no value. |
 
-Allowed hosts (from the manifest, unreviewed): `app.geomiq.com`, `geomiq.com`.
+Allowed hosts (OVD-1058, from the public buyer app): `app.geomiq.com`, `geomiq.com`, `api.geomiq.com` (Sanctum API and Pusher socket), `gserve.geomiq.com` (thumbnail upload). The signed direct-upload host is added only after a live run names it.
+
+Geomiq displays every price in GBP. Local evaluation records it as non-comparable native evidence (`LocalEvidenceCurrency` includes `GBP`); it is never converted or relabelled as USD.
+
+The definition declares no cleanup hook: Geomiq confirms "Delete part" in a modal outside the part row, and the kernel's cleanup only clicks inside an owned row. Each local evaluation that uploads leaves one draft part in the account, which the operator removes by hand and records in the run ledger.
+
+An untempered "6061" requirement maps to Geomiq's "Aluminium 6061 T6" because the designated validation drawing calls for 6061-T6; Geomiq's untempered "Aluminium 6061" option is never chosen, and any other alloy, temper or finish is `unsupported` before session access.
 CAD extensions (from the manifest envelope): `step`, `stp`.
 
 ## Remaining manual steps before admission
@@ -94,7 +100,7 @@ A cease and desist uses the OVD-722 kill switch as step one
 | Registry entry | `liveAdapter: false`, `sessionSecrets: []`, `egress: "none"` (no deploy listing) |
 | `LIVE_AUTOMATION_VENDORS` | Already includes `geomiq`; no edit needed |
 | Reviewed envelope | `geomiq-quote-envelope.v1` is a fixture only; review SQL is under `provider-integrations/geomiq/admit/*.sql.review` and nothing is in `supabase/migrations/` |
-| Locators and routes | Placeholders; the browser test stays in `describe.skip` |
+| Locators and routes | OVD-1058 bindings from the public buyer app; confirmed only against the synthetic browser fixture until a live run |
 | Export control | Blocked on #677 (above) |
 | Permission basis | Not cleared (above) |
 | Account and session | None; Blaine provides accounts by Oct 23 |

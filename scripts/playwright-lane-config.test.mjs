@@ -305,9 +305,21 @@ describe("Playwright execution lane configuration", () => {
     expect(nextJobStart).toBeGreaterThan(jobStart);
     const browserJob = lines.slice(jobStart, nextJobStart).join("\n");
 
+    // Root dependencies come from the shared action: npm ci without lifecycle
+    // scripts, or a node_modules cache that only main saves from that same install.
     expect(browserJob).toContain(
-      "- name: Install root dependencies\n        run: npm ci --ignore-scripts\n",
+      "- name: Setup Node.js and install root dependencies\n        uses: ./.github/actions/setup-root-dependencies\n",
     );
+    const setupAction = readFileSync(new URL("../.github/actions/setup-root-dependencies/action.yml", import.meta.url), "utf8");
+    expect(setupAction).toContain("- name: Install root dependencies\n      if: ${{ steps.node-modules.outputs.cache-hit != 'true' }}\n      shell: bash\n      run: npm ci --ignore-scripts\n");
+    // Every install command (the cache miss and the stale-restore fallback) skips scripts.
+    expect(setupAction.match(/^\s+(?:run: )?npm (?:ci|install|i)\b.*$/gm)?.map(line => line.trim())).toEqual([
+      "run: npm ci --ignore-scripts",
+      "npm ci --ignore-scripts",
+    ]);
+    expect(setupAction).toContain("-ignore-scripts-${{ hashFiles('package-lock.json') }}");
+    expect(setupAction).not.toContain("npx ");
+    expect(setupAction).not.toContain("npm exec ");
     expect(browserJob).toContain(
       "- name: Install Chromium\n        run: node ./node_modules/playwright/cli.js install --with-deps chromium\n",
     );

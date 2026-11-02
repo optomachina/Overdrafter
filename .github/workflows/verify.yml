@@ -55,8 +55,10 @@ on:
       - synchronize
   merge_group:
 
+# OVD-1145: keyed on the head sha, so only runs for the same commit cancel each
+# other.
 concurrency:
-  group: verify-${{ github.event.pull_request.number || github.ref }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.head.sha || github.sha }}
   cancel-in-progress: true
 
 permissions:

@@ -9,7 +9,7 @@ import type { VendorQuoteAdapterInput, WorkerConfig } from "../types.js";
 import { parseSmokeArgs, runQuote } from "../tools/vendorWorkflowSmoke.js";
 import { buildAdapterRegistry, buildLiveEvaluationAdapterRegistry } from "./index.js";
 import { buildQuickpartsProductionPortalDefinition } from "./quickpartsPortal.js";
-import { buildGeomiqPortalDefinition } from "./geomiqPortal.js";
+import { buildGeomiqProductionPortalDefinition } from "./geomiqProductionPortal.js";
 import { createWeergPortalDefinition } from "./weergPortal.js";
 import { buildExpectedProviderPortalApproval } from "./providerPortalKernel.js";
 import { PROVIDER_KILL_SWITCH_STATE_SCHEMA } from "../providerSettings.js";
@@ -25,7 +25,6 @@ afterEach(async () => {
 // Quickparts evaluates through its production definition and reaches the provider (OVD-1059).
 const offlineDefinitions = [
   createWeergPortalDefinition(),
-  buildGeomiqPortalDefinition(),
 ];
 const definitions = [buildQuickpartsProductionPortalDefinition(), ...offlineDefinitions];
 
@@ -154,6 +153,6 @@ describe("local provider registry integration", () => {
   });
 
   it("rejects a definition bound to a different provider", () => {
-    expect(() => new PortalQuoteWorkflowAdapter("quickparts", isolatedConfig(), getExtendedVendorWorkflow("quickparts")!, buildGeomiqPortalDefinition())).toThrow("must match");
+    expect(() => new PortalQuoteWorkflowAdapter("quickparts", isolatedConfig(), getExtendedVendorWorkflow("quickparts")!, buildGeomiqProductionPortalDefinition())).toThrow("must match");
   });
 });
