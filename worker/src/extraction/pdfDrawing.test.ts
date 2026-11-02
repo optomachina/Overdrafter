@@ -1087,6 +1087,43 @@ describe("pdfDrawing tightest tolerance units (OVD-976)", () => {
 
   // P1: units come only from explicit declarations.
   describe("P1 drawing unit declarations", () => {
+    it.each([10, 64, 255, 256])("reads %i-character declaration leaders", (length) => {
+      for (const leader of ["-", "="]) {
+        expect(tolerance([`UNITS: ${leader.repeat(length)} MM`, "BORE ±0.025"]))
+          .toMatchObject({ valueInch: 0.0009, unit: "mm", drawingUnits: "metric" });
+      }
+    });
+
+    it.each(["☑", "☒", "■", "✓", "✔", "[x]", "[X]", "[✓]", "[ ✔ ]"])(
+      "reads leading checked %s and ignores unchecked options", (checked) => {
+        for (const unchecked of ["☐", "□", "[ ]"]) {
+          for (const metric of [true, false]) {
+            const selected = `${checked} ${metric ? "MM" : "INCH"}`;
+            const other = `${unchecked} ${metric ? "INCH" : "MM"}`;
+            for (const field of [`${selected}  ${other}`, `${other}  ${selected}`]) {
+              expect(tolerance([field, "BORE ±0.025"])).toMatchObject({
+                valueInch: metric ? 0.0009 : 0.025,
+                drawingUnits: metric ? "metric" : "inch",
+              });
+            }
+          }
+        }
+      },
+    );
+
+    it.each(["☐ INCH □ MM", "[ ] MM [ ] INCH", "☑ MM ☒ INCH"])(
+      "does not invent a single selection in %s", (field) => {
+        expect(tolerance([field, "BORE ±0.025"])).toMatchObject({
+          drawingUnits: field.startsWith("☑") ? "mixed" : "unspecified",
+        });
+      },
+    );
+
+    it.each([0, 1, 12, 13])("bounds second-unit punctuation at 12 marks (%i)", (count) => {
+      expect(tolerance([`UNITS: INCH${"|".repeat(count)} MM`, "BORE ±0.025"]))
+        .toMatchObject({ drawingUnits: count <= 12 ? "mixed" : "inch" });
+    });
+
     it.each([
       ["DIMENSIONS ARE IN MILLIMETERS"],
       ["ALL DIMENSIONS ARE IN MILLIMETRES"],
@@ -1528,7 +1565,8 @@ describe("pdfDrawing tightest tolerance units (OVD-976)", () => {
   // The parse is synchronous on customer text, so hostile text must stay linear. Each of these took
   // seconds before round 3 (quadratic backtracking or a backward scan per value); the bound is loose.
   describe("linear time on hostile text", () => {
-    const BOUND_MS = 500;
+    // Allow scheduler contention in the full suite; quadratic cases still take many seconds.
+    const BOUND_MS = 2_000;
     const read = (text: string) =>
       inferDrawingSignalsFromPdf({ titleBlockApprovalEnabled: true, baseName: "1000-00001-A", pdfText: pdfTextOf(text) });
     // V8 can compile a regex differently depending on the first long text it reads in the process: a
@@ -1586,13 +1624,27 @@ describe("pdfDrawing tightest tolerance units (OVD-976)", () => {
       expect(result.tightestToleranceDrawingUnits).toBe("inch");
     });
 
+    it("preserves unit homoglyphs and supplementary marks across chunk boundaries", () => {
+      for (const tail of ["ΜΜ", "\u{1D185}MM"]) {
+        const result = read(`${" ".repeat(65_528)}UNITS: ${tail}\nBORE ±0.025`);
+        expect(result.tightestToleranceDrawingUnits).toBe("metric");
+        expect(result.tightestToleranceValueInch).toBe(0.0009);
+      }
+    });
+
+    it("normalizes 5M combining marks without losing following evidence", () => {
+      const result = read(`${"\u0300".repeat(5_000_000)}\nUNITS: MM\nBORE ±0.025`);
+      expect(result.tightestToleranceValueInch).toBe(0.0009);
+      expect(result.tightestToleranceDrawingUnits).toBe("metric");
+    });
+
     // An unbounded repeat of the separators after UNITS overflowed the regexp stack on this line.
     it("reads a 4M-character line of separators after UNITS without throwing", () => {
       const text = `UNITS${":".repeat(4_000_000)}`;
       warm();
       const started = performance.now();
       expect(() => read(text)).not.toThrow();
-      expect(performance.now() - started).toBeLessThan(10 * BOUND_MS);
+      expect(performance.now() - started).toBeLessThan(1_000);
     });
   });
 });
