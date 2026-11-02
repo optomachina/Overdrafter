@@ -197,7 +197,7 @@ describe("internal quantity validation", () => {
     expect(() => result.current.getRequirementsForSave()).toThrow("Enter whole numbers");
     act(() => result.current.setQuoteQuantityInputs({ "part-a": "10/25" }));
     expect(result.current.requirementsBlocked).toBe(false);
-    expect(result.current.getRequirementsForSave()[0].quoteQuantities).toEqual([10, 25]);
+    act(() => { expect(result.current.getRequirementsForSave()[0].quoteQuantities).toEqual([10, 25]); });
   });
 
   it.each(["", "12.5", "-1", "0", "abc", "1,000"])("retains invalid Quantity %j without changing the draft", (text) => {
@@ -209,6 +209,67 @@ describe("internal quantity validation", () => {
     expect(result.current.requirementsBlocked).toBe(true);
     expect(() => result.current.getRequirementsForSave()).toThrow("Enter a whole number");
     act(() => result.current.setDraftQuantity("part-a", draft, "50"));
-    expect(result.current.getRequirementsForSave()[0].quantity).toBe(50);
+    act(() => { expect(result.current.getRequirementsForSave()[0].quantity).toBe(50); });
   });
+  it.each([
+    { old: 10, quantities: [10, 25, 100], text: "50", expected: [50, 25, 100] },
+    { old: 10, quantities: [10, 25, 50], text: "5", expected: [5, 25, 50] },
+    { old: 25, quantities: [10, 25, 50], text: "5", expected: [5, 10, 50] },
+    { old: 7, quantities: [10, 25, 50], text: "5", expected: [5, 10, 25, 50] },
+  ])("commits $old to $text on save without intermediate quantities", ({ old, quantities, text, expected }) => {
+    const requestedJob = {
+      ...job,
+      job: { ...job.job, requested_quote_quantities: quantities },
+      parts: [{ ...job.parts[0], quantity: old }],
+    };
+    const { result } = renderHook(() => useInternalJobDetailViewModel({ job: requestedJob, latestQuoteRun: null }));
+    const draft = result.current.drafts["part-a"];
+    for (const input of ["", text[0], text]) {
+      act(() => result.current.setDraftQuantity("part-a", result.current.drafts["part-a"], input));
+      expect(result.current.drafts["part-a"]).toEqual(draft);
+      expect(result.current.quoteQuantityInputs["part-a"]).toBe(quantities.join("/"));
+    }
+    act(() => {
+      const saved = result.current.getRequirementsForSave()[0];
+      expect(saved.quantity).toBe(Number(text));
+      expect(saved.quoteQuantities).toEqual(expected);
+    });
+  });
+
+  it.each(["50", "12.5"])("blocks hidden pending Quantity %s instead of submitting a stale draft", (text) => {
+    const { result } = renderHook(() => useInternalJobDetailViewModel({ job, latestQuoteRun: null }));
+    act(() => result.current.setDraftQuantity("part-a", result.current.drafts["part-a"], text));
+    act(() => result.current.updateDraft("part-a", (draft) => ({
+      ...draft, requestedServiceKinds: ["cad_modeling"], primaryServiceKind: "cad_modeling",
+    })));
+    expect(result.current.requirementsBlocked).toBe(true);
+    expect(() => result.current.getRequirementsForSave()).toThrow("Restore quote services");
+  });
+
+  it.each(["10/50", "10/12.5"])("blocks hidden pending Quote quantities %s", (text) => {
+    const { result } = renderHook(() => useInternalJobDetailViewModel({ job, latestQuoteRun: null }));
+    act(() => result.current.setQuoteQuantityInputs({ "part-a": text }));
+    act(() => result.current.updateDraft("part-a", (draft) => ({
+      ...draft, requestedServiceKinds: ["cad_modeling"], primaryServiceKind: "cad_modeling",
+    })));
+    expect(result.current.requirementsBlocked).toBe(true);
+    expect(() => result.current.getRequirementsForSave()).toThrow("Restore quote services");
+  });
+
+  it("keeps a clean save and refetch clean when quote fields are then hidden", () => {
+    const { result, rerender } = renderHook(({ currentJob }) => useInternalJobDetailViewModel({
+      job: currentJob, latestQuoteRun: null,
+    }), { initialProps: { currentJob: job } });
+    act(() => result.current.setDraftQuantity("part-a", result.current.drafts["part-a"], "50"));
+    act(() => { result.current.getRequirementsForSave(); });
+    rerender({ currentJob: { ...job, parts: [{ ...job.parts[0], quantity: 50 }] } });
+    act(() => result.current.updateDraft("part-a", (draft) => ({
+      ...draft, requestedServiceKinds: ["cad_modeling"], primaryServiceKind: "cad_modeling",
+    })));
+    expect(result.current.requirementsBlocked).toBe(false);
+    act(() => {
+      expect(result.current.getRequirementsForSave()[0]).toMatchObject({ quantity: 50, quoteQuantities: [50] });
+    });
+  });
+
 });
