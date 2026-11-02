@@ -1,50 +1,22 @@
 #!/usr/bin/env node
 /**
- * OVD-845 / OVD-959 (PR-G1): `ovd-merge-gate`, the single merge gate check.
+ * Enforced merge gate, evaluated only by trusted default-branch code.
+ * evaluate() composes the existing durable verdict-history rules with exact
+ * head CI, separate Opus/Sonnet review, Jev and QA evidence and held categories.
+ * Only the verifier App's comments count. Positive evidence never transfers
+ * across SHAs; blocking history still follows an equal diff_id.
  *
- * `evaluate()` is pure. For one head SHA it decides whether the PR has
- * (a) a trusted verifier PASS (or PASS_NOTES without a `high:` note) bound to
- *     the head with readiness.checks green,
- * (b) at least one trusted reviewer PASS bound to the head,
- * (c) no outstanding FAIL and no disagreement over the union of every verdict
- *     bound to the head SHA or the head diff_id (a FAIL stands unless a later
- *     same-role verdict at the same SHA supersedes it for `reason: infra` and
- *     cites a new, verified ci-run/verify-run; a FAIL with findings or a high
- *     note is a product FAIL and needs a new head),
- * (d) verdicts from trusted logins only (TRUSTED_VERIFIERS, a constant here,
- *     never an env or repo variable), with a known model_family (ruling 4),
- * (e) no edited, malformed or unterminated trusted verdict for the head until
- *     a fresh one is posted (untrusted and malformed-by-others blocks are
- *     ignored); a removed (deleted, or edited away) trusted verdict is carried
- *     forward only when it blocks (a FAIL, or a pass with a high note or
- *     finding), and then it still stands in the union exactly as if it had
- *     not been removed; a deleted PASS/PASS_NOTES simply disappears and never
- *     counts as a pass; a removed block that cannot be read fails closed until
- *     a fresh verdict is posted. Removals come from the append-only history
- *     (see "Verdict history" below), keyed on the PR and bound by SHA or
- *     diff_id, so a new head with the same diff_id inherits them,
- * (f) Blaine's `overdrafter.approval/v1` record for any sensitive class, from
- *     the default-branch copy of the sensitive-class detector; a detector
- *     status other than ok, or a missing, partial or stale result, is
- *     classifier_error,
- * (g) independence, enforced only when IDENTITY is "app" (stage B). Ruling 1:
- *     a counted verdict whose verifier id equals a builder in the PR body's
- *     Built-by line (parsed by scripts/agent-graph/built-by.mjs, per
- *     docs/agent-pr-tags.md) is verifier_not_independent; a missing or
- *     unparseable Built-by line is builder_unattributed. Both are warnings in
- *     stage A (until K3) and blocking reasons in stage B,
- * (h) PASS evidence that resolves (ruling 6): a PASS or PASS_NOTES counts
- *     only when one of its https ci-run/verify-run links is a GitHub Actions
- *     run of this repository that reported a check run on the verdict's SHA
- *     (the revision the verdict is bound to the head by); otherwise
- *     evidence_unverified.
+ * write records success/failure, rereads the head, and can squash-merge only
+ * when vars.DOOR_AUTOMERGE supplied exact true, mergeEligibility passes and
+ * no second stop (vars.OVD_AUTOMERGE_DISABLED, the automerge:hold label) applies.
+ * GitHub's --match-head-commit closes the push race. No branch protection,
+ * labels, repository variables, provider or production operations are changed.
  *
  * Fail closed: every missing, unparseable, error, unknown or partial input is
- * a reason, never a pass. The advisory `jev-screen` status is never read.
+ * a reason, never a pass. The `jev-screen` marker is a required gate, never
+ * independent evidence.
  *
- * MODE is "report": a would-be failure is written as `neutral` with the title
- * `REPORT: would block: <codes>`. In enforce mode the conclusion is only ever
- * `success` or `failure`.
+ * MODE is "enforce": the conclusion is only ever `success` or `failure`.
  *
  * CLI (run from a default-branch checkout; reads GITHUB_TOKEN or GH_TOKEN):
  *   node scripts/ovd-merge-gate.mjs evaluate --pr N --sha S [--json] [--repo o/r] [--no-fetch]
@@ -54,11 +26,13 @@
  *       live comments to the PR's verdict history
  *   node scripts/ovd-merge-gate.mjs write --pr N [--repo o/r]
  *       evaluates the live head, re-reads the head, writes the check run,
- *       then edits the PR's one sticky status comment in place (OVD-1144)
+ *       then (only with DOOR_AUTOMERGE exactly true) attempts the guarded squash
+ *       merge, then edits the PR's one sticky status comment in place (OVD-1144)
  *   node scripts/ovd-merge-gate.mjs merge-group --sha S [--repo o/r]
  *       writes success on the merge group commit (the queue no-op)
  *
  * See docs/verdict-format.md ("OVD-845 merge gate").
+ * Dependency: #972 owns writer cancellation/ENOTEMPTY repairs; retain them.
  */
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -69,21 +43,21 @@ import process from "node:process";
 import { loadRouting, parseBuiltBy } from "./agent-graph/built-by.mjs";
 import { isEntryPoint } from "./lib/entry-point.mjs";
 import { pathCandidates } from "./lib/sensitive-paths.mjs";
+import { ALLOWED_AUTHORS, MARKER_CONTEXT, SCREENER_ID, parseMarkerDescription } from "./lib/jev-screen-marker.mjs";
+import { JEV_MODEL } from "./jev-client.mjs";
 import { APPROVAL_FENCE_INFO, approvalForHead, parseApprovalComments } from "./approval-record.mjs";
 import { assertSha, computeDiffId, resolveBinary } from "./emit-verdict.mjs";
-import { detect, fetchPullRequest, gateLooseningForPull, loadConfig } from "./sensitive-class-detect.mjs";
+import { detect, fetchPullRequest, gateLooseningForPull, heldContent, inSequence, loadConfig } from "./sensitive-class-detect.mjs";
 import { FENCE_INFO, extractVerdictBlocks, hasHighNote, parseVerdictComments } from "./verdict-schema.mjs";
 
 export const CHECK_NAME = "ovd-merge-gate";
-export const MODE = "report";
-export const IDENTITY = "shared-account";
-// Kill switch: only a separate Blaine-carded PR may flip this. Reporting only.
-export const DOOR_AUTOMERGE = false;
+export const MODE = "enforce";
+export const IDENTITY = "app";
 export const CROSS_FAMILY = Object.freeze({ claude: ["codex", "grok"], codex: ["claude"], grok: ["claude"] });
 const DOOR_REQUIRED_CHECKS = ["ci", "provider-go-live", "secret-scan"];
-/** Stage A trust list. A constant in the default-branch script: optomachina can edit repo variables. */
-export const TRUSTED_VERIFIERS = Object.freeze(["optomachina"]);
-/** Stage B (IDENTITY "app", PR-G5): only the private App's bot counts. */
+/** Fixed default-branch trust. User verdicts cannot authorize a merge. */
+export const TRUSTED_VERIFIERS = Object.freeze(["overdrafter-verifier[bot]"]);
+/** Only the private verifier App's bot counts. */
 export const APP_TRUSTED_VERIFIERS = Object.freeze(["overdrafter-verifier[bot]"]);
 /** The merging identity; in stage B its verdicts are ignored (verifier_is_merger). */
 export const MERGER_LOGINS = Object.freeze(["optomachina"]);
@@ -210,7 +184,7 @@ function readBlock(comment, text, block, headSha) {
   if (!entry) return { rejected: [] };
   const errors = familyErrors(entry.verdict);
   if (errors.length) return { rejected: [{ ...base, reason: "schema_error", errors, text }] };
-  return { entry: { ...base, created_at: comment.created_at, verdict: { ...entry.verdict, verifier: { ...entry.verdict.verifier, model_family: normalizeModelFamily(entry.verdict.verifier.model_family) } } }, rejected: [] };
+  return { entry: { ...base, header: parseArchitectHeader(comment.body), review_model: entry.verdict.verifier.model_family, created_at: comment.created_at, verdict: { ...entry.verdict, verifier: { ...entry.verdict.verifier, model_family: normalizeModelFamily(entry.verdict.verifier.model_family) } } }, rejected: [] };
 }
 
 /**
@@ -313,11 +287,14 @@ const mayBeForHead = (sha, diffId, head) => typeof sha !== "string" || sha === h
 
 function blockTarget(text, head) {
   const parsed = parseJson(text);
-  if (!parsed || typeof parsed !== "object") return { forHead: true, role: null };
-  return { forHead: mayBeForHead(parsed.sha, parsed.diff_id, head), role: typeof parsed.role === "string" ? parsed.role : null };
+  if (!parsed || typeof parsed !== "object") return { forHead: true, role: null, verifierId: null };
+  const verifierId = typeof parsed.verifier?.id === "string" ? parsed.verifier.id : null;
+  return { forHead: mayBeForHead(parsed.sha, parsed.diff_id, head), role: typeof parsed.role === "string" ? parsed.role : null, verifierId };
 }
 
-const hasFresher = (entries, item, role) => entries.some((entry) => (role === null || entry.verdict.role === role) && postedAfter(entry, item));
+/** A later verdict of the role clears it; when the verifier is readable, only that verifier's own (an Opus block is not cleared by Sonnet). */
+const hasFresher = (entries, item, role, verifierId = null) => entries.some((entry) => (role === null || entry.verdict.role === role)
+  && (verifierId === null || entry.verdict.verifier?.id === verifierId) && postedAfter(entry, item));
 
 function rejectedReason(item) {
   if (item.reason === "edited_comment") return { code: "edited_verdict", detail: `trusted verdict comment ${item.comment_id} was edited; post a fresh verdict` };
@@ -330,8 +307,8 @@ function rejectedReason(item) {
 function staleTrustedEdits({ rejected, unreadableDeletions, entries, trusted, head }) {
   const reasons = [];
   for (const item of rejected.filter((entry) => inList(trusted, lower(entry.author)))) {
-    const { forHead, role } = blockTarget(item.text, head);
-    const reason = forHead && !hasFresher(entries, item, role) ? rejectedReason(item) : null;
+    const { forHead, role, verifierId } = blockTarget(item.text, head);
+    const reason = forHead && !hasFresher(entries, item, role, verifierId) ? rejectedReason(item) : null;
     if (reason) reasons.push(reason);
   }
   for (const item of unreadableDeletions.filter((entry) => inList(trusted, lower(entry.author)))) {
@@ -399,7 +376,24 @@ export function historyEntriesFromComment(comment) {
     return snapshot && !isBlocking(snapshot) ? [] : [historyEntry(base, snapshot)];
   });
   if (openFences(comment.body) > blocks.length) entries.push(historyEntry(base, null));
+  const header = architectBlocker(comment.body);
+  if (header) entries.push(historyEntry(base, header));
   return entries;
+}
+
+/**
+ * A blocking Architect header as a FAIL snapshot bound to its full SHA, so
+ * deleting a header-only CHANGES_REQUIRED or a malformed header does not
+ * clear it (council 6538642610). Null for passing headers and headers that
+ * name no full SHA (those block only while posted).
+ */
+function architectBlocker(body) {
+  const header = parseArchitectHeader(body);
+  if (!header) return null;
+  const sha = header.error ? header.shas.find((value) => HEX40.test(value)) : header.sha;
+  if (!sha || (!header.error && header.verdict !== "CHANGES_REQUIRED")) return null;
+  const note = header.error ? "high: malformed Architect review header" : `high: Architect ${header.model} review CHANGES_REQUIRED`;
+  return { role: "reviewer", verdict: "FAIL", sha, notes: [note] };
 }
 
 /** The deleted verdict blocks to carry forward from an issue_comment deleted event (blocking or unreadable only). */
@@ -491,7 +485,7 @@ export function builderAttribution(body) {
   const parsed = parseBuiltBy({ body: lines.join("\n"), routing });
   const ids = [...new Set(parsed.builders.map((builder) => builder.bot).filter((bot) => typeof bot === "string" && bot !== "unknown"))];
   const unparsed = parsed.findings.some((finding) => finding.startsWith("Unparseable") || finding.startsWith("Parser error"))
-    || parsed.builders.some((builder) => builder.bot === "unknown");
+    || parsed.builders.some((builder) => builder.bot === "unknown" || builder.family === "unknown");
   return { ids, problem: ids.length && !unparsed ? null : "the PR body's Built-by line cannot be parsed (docs/agent-pr-tags.md)" };
 }
 
@@ -692,7 +686,7 @@ function emptySummary({ headSha, headDiffId }, mode, identity) {
     approval_comment_id: null,
     automerge: "needs_blaine",
     sensitive_classes: [],
-    door_report: { door: "one-way", ok: false, automerge_enabled: DOOR_AUTOMERGE, reasons: [{ code: "classifier_error", detail: "head input has not been validated" }] },
+    door_report: { door: "one-way", ok: false, automerge_enabled: false, reasons: [{ code: "classifier_error", detail: "head input has not been validated" }] },
     reasons: [],
     warnings: [],
     ignored: [],
@@ -722,7 +716,7 @@ function emptySummary({ headSha, headDiffId }, mode, identity) {
  * @param {"report"|"enforce"} input.mode
  * @param {"shared-account"|"app"} input.identity
  */
-export function evaluate(given = {}) {
+export function evaluateVerdicts(given = {}) {
   const input = given !== null && typeof given === "object" ? given : {};
   const mode = MODES.has(input.mode) ? input.mode : "enforce";
   const identity = IDENTITIES.has(input.identity) ? input.identity : "app";
@@ -763,9 +757,309 @@ export function evaluate(given = {}) {
   summary.reasons = dedupeReasons(reasons);
   summary.gate = summary.reasons.length === 0 ? "pass" : "fail";
   try { summary.door_report = revertableOk(input, { summary, candidates }); } catch {
-    summary.door_report = { door: "one-way", ok: false, automerge_enabled: DOOR_AUTOMERGE, reasons: [{ code: "classifier_error", detail: "door evaluation failed closed" }] };
+    summary.door_report = { door: "one-way", ok: false, automerge_enabled: false, reasons: [{ code: "classifier_error", detail: "door evaluation failed closed" }] };
   }
   return summary;
+}
+
+/**
+ * The jev-pr-screen writer uses context jev-screen, not its script name. A
+ * marker counts only from a trusted writer that is independent of the PR:
+ * never its author, a commit author or committer, or a merger identity
+ * (QA review 6554675199). Today the only trusted writer is the builder and
+ * merger account, so no marker counts and the gate blocks until the Jev
+ * writer moves to a non-builder identity.
+ */
+export function jevGate(snapshot, sha, { writers = ALLOWED_AUTHORS, excluded = [] } = {}) {
+  if (!HEX40.test(sha ?? "") || snapshot?.sha !== sha || !Array.isArray(snapshot?.statuses)) return { ok: false, tier: null };
+  const dependent = new Set([...MERGER_LOGINS, ...list(excluded)].map(lower).filter(Boolean));
+  const statuses = snapshot.statuses.filter((status) => status?.context === MARKER_CONTEXT
+    && list(writers).includes(status.creator?.login) && !dependent.has(lower(status.creator?.login)));
+  const markers = statuses.map((status) => status.state === "success"
+    && typeof status.url === "string" && status.url.endsWith(`/statuses/${sha}`)
+    ? parseMarkerDescription(status.description) : null);
+  // A rejected/risky marker cannot be hidden by an older or weaker success.
+  if (!markers.length || markers.some((marker) => marker?.model !== JEV_MODEL || marker.screener !== SCREENER_ID
+      || marker.jevTier === "risky" || marker.confidence < 0.5)) return { ok: false, tier: null };
+  const tiers = ["low", "normal", "risky"];
+  return { ok: true, tier: tiers[Math.max(...markers.map((marker) => tiers.indexOf(marker.tier)))] };
+}
+
+/** Detector classes that hold the PR, whatever the reviews say. */
+const CLASS_HOLDS = Object.freeze([
+  ["gate_machinery", "gate_machinery"],
+  ["unclassified", "unclassified"],
+  ["migrations", "prod_db_migration"],
+  ["provider_dispatch", "vendor_spend"],
+  ["payments", "vendor_spend"],
+]);
+/** Conservative path holds over the NFKC-lowercased path, on top of the detector's classes. */
+const PATH_HOLDS = Object.freeze([
+  [/(?:^|\/)(?:migrations?|migration-drafts)(?:\/|$)/, "prod_db_migration"],
+  [/\.(?:sql|pgsql|psql)$/, "prod_db_migration"],
+  [/(?:apply|migrat).*prod/, "prod_db_migration"],
+  [/prod.*(?:apply|migrat)/, "prod_db_migration"],
+  [/vendor|supplier|provider|spend|billing|payment|checkout|purchase|invoice/, "vendor_spend"],
+  [/branch[-_]?protection|ruleset|codeowners/, "branch_protection"],
+  [/sonar/, "sonar_safe_mark"],
+]);
+
+function classificationHolds(files, classification) {
+  const held = [...list(classification?.held_categories)];
+  const classes = list(classification?.classes);
+  for (const [name, hold] of CLASS_HOLDS) if (classes.includes(name)) held.push(hold);
+  if (classification?.gate_loosening?.detected) held.push("gate_loosening");
+  // An empty, unreadable or incomplete file list (pagination, truncation) can hide a held path.
+  if (!Array.isArray(files) || files.length === 0 || classification?.status !== "ok") held.push("file_list_incomplete");
+  return held;
+}
+
+function fileHolds(file) {
+  const held = heldContent(typeof file?.patch === "string" ? file.patch : "");
+  if (file?.status === "removed") held.push("deletion");
+  for (const name of changedPaths(file).flatMap(pathCandidates)) {
+    const path = name.normalize("NFKC").toLowerCase();
+    for (const [pattern, hold] of PATH_HOLDS) if (pattern.test(path)) held.push(hold);
+  }
+  return held;
+}
+
+/** Held work never qualifies for this lane, even with approval comments. */
+export function heldCategories(files, classification) {
+  return [...new Set([...classificationHolds(files, classification), ...list(files).flatMap(fileHolds)])];
+}
+
+const reviewModel = (entry) => {
+  if (["opus", "sonnet"].includes(entry.review_model)) return entry.review_model;
+  // The emitter normalizes model_family to claude. Explicit role ids retain
+  // the distinction; a generic Claude reviewer never proves both gates.
+  const id = entry.verdict.verifier?.id;
+  return ["opus-reviewer", "sonnet-reviewer"].includes(id) && entry.verdict.verifier.model_family === "claude" ? id.split("-")[0] : null;
+};
+
+const fromVerifierBot = (entry) => inList(APP_TRUSTED_VERIFIERS, lower(entry.author));
+
+/** Trusted verdicts with findings at the head (or an equal diff_id) need disposition at a new head. */
+function findingReasons(entries, input) {
+  return entries
+    .filter((entry) => fromVerifierBot(entry) && (entry.verdict.sha === input.headSha || entry.verdict.diff_id === input.headDiffId))
+    .filter((entry) => list(entry.verdict.findings).length)
+    .map((entry) => ({ code: "actionable_findings", detail: `trusted comment ${entry.comment_id} has findings that require disposition at a new head` }));
+}
+
+/** A clean, verified, thread-free trusted PASS at exactly this SHA. */
+const exactPass = (entry, input) => fromVerifierBot(entry)
+  && entry.verdict.sha === input.headSha && PASSING.has(entry.verdict.verdict)
+  && (entry.verdict.role !== "reviewer" || architectHeaderMatches(entry))
+  && !isHigh(entry.verdict) && list(entry.verdict.findings).length === 0
+  && entry.verdict.readiness?.open_threads === 0
+  && entry.verdict.readiness?.conflicts === 0
+  && evidenceVerified(entry.verdict, input.verifiedEvidence);
+
+/** Separate Opus (when required), Sonnet and QA gates. Retains the all-tier QA floor: no tier waives QA. */
+const reviewerId = (entry) => lower(entry.verdict.verifier?.id);
+
+function reviewGateReasons(exact, opusRequired) {
+  const reasons = [];
+  const passes = (model) => exact.filter((entry) => entry.verdict.role === "reviewer" && reviewModel(entry) === model);
+  for (const model of opusRequired ? ["opus", "sonnet"] : ["sonnet"]) {
+    if (!passes(model).length) reasons.push({ code: `${model}_not_pass`, detail: `no independent ${model} review PASS at this exact SHA` });
+  }
+  // Opus and Sonnet need distinct identities: one verifier id cannot satisfy both gates.
+  const sonnetIds = passes("sonnet").map(reviewerId);
+  if (opusRequired && passes("opus").length && sonnetIds.length && !passes("opus").some((entry) => sonnetIds.some((id) => id !== reviewerId(entry)))) {
+    reasons.push({ code: "reviewers_not_distinct", detail: "the Opus and Sonnet passes share one verifier id" });
+  }
+  if (!exact.some((entry) => entry.verdict.role === "verifier" && entry.verdict.readiness?.checks === "green")) reasons.push({ code: "qa_not_pass", detail: "no QA PASS with green checks at this exact SHA (required at every tier)" });
+  return reasons;
+}
+
+/** The Built-by line's builder model families (openai reviews as codex); empty when unparsed. */
+function builderFamilies(prBody) {
+  if (!routing || typeof prBody !== "string") return [];
+  const parsed = parseBuiltBy({ body: builderLines(prBody).join("\n"), routing });
+  return [...new Set(list(parsed?.builders).map((builder) => (builder.family === "openai" ? "codex" : builder.family)))];
+}
+
+/**
+ * The builder's model family never reviews its own work. The gate cannot see
+ * fresh-session evidence, so a same-family reviewer PASS blocks (fail closed).
+ */
+function sameFamilyReasons(exact, input) {
+  const families = builderFamilies(input.prBody);
+  return exact
+    .filter((entry) => entry.verdict.role === "reviewer" && families.includes(entry.verdict.verifier?.model_family))
+    .filter((entry) => !freshClaudeOpus(entry, families, buildTrail(input)))
+    .map((entry) => ({ code: "reviewer_same_family", detail: `reviewer comment ${entry.comment_id} is from the builder's model family ${entry.verdict.verifier.model_family}` }));
+}
+
+/*
+ * Architect ruling on hardening checklist item 6 (PR #993 comment 6538018662).
+ * A reviewer verdict counts only when its comment, posted by the verifier App
+ * and never edited, starts with:
+ *   Architect review (<model>) @ <40-hex head SHA>
+ *   VERDICT: PASS | PASS_NOTES | CHANGES_REQUIRED
+ *   [Context: fresh-session; no-build-context]   (required for same-family review)
+ *   [Reviewer-Run: <session or run id>]          (required with the Context line)
+ * The JSON verdict block below it is unchanged.
+ */
+const ARCHITECT_PREFIX = "Architect review";
+const ARCHITECT_HEADER = /^Architect review \((opus|sonnet|codex|jev)\) @ ([0-9a-f]{40})$/;
+const ARCHITECT_VERDICT = /^VERDICT: (PASS|PASS_NOTES|CHANGES_REQUIRED)$/;
+const ARCHITECT_CONTEXT = "Context: fresh-session; no-build-context";
+const REVIEWER_RUN = /^Reviewer-Run: ([\w.:-]{6,128})$/;
+const HEADER_FAMILY = Object.freeze({ opus: "claude", sonnet: "claude", codex: "codex", jev: "jev" });
+const HEADER_VERDICT = Object.freeze({ PASS: "PASS", PASS_NOTES: "PASS_NOTES", FAIL: "CHANGES_REQUIRED" });
+
+/**
+ * The Architect header at the very top of a comment body. Null when the body
+ * does not start with "Architect review" (not a verdict); { error } when it
+ * does but any line fails the exact format (fail closed).
+ */
+export function parseArchitectHeader(body) {
+  if (typeof body !== "string" || !body.startsWith(ARCHITECT_PREFIX)) return null;
+  const lines = body.split("\n").map((line) => line.replace(/\r$/, ""));
+  const head = ARCHITECT_HEADER.exec(lines[0]);
+  const verdict = ARCHITECT_VERDICT.exec(lines[1] ?? "");
+  // The hex runs a malformed line 1 names, so its block binds to a head (never to every later head).
+  const shas = (lines[0].match(/[0-9a-f]{7,40}/gi) ?? []).map((value) => value.toLowerCase());
+  if (!head || !verdict) return { error: "the Architect header or VERDICT line does not match the exact format", shas };
+  const fresh = lines[2] === ARCHITECT_CONTEXT;
+  const run = REVIEWER_RUN.exec(lines[fresh ? 3 : 2] ?? "");
+  if (fresh && !run) return { error: "a Context line needs a Reviewer-Run line after it", shas };
+  return { model: head[1], sha: head[2], verdict: verdict[1], fresh, runId: run?.[1] ?? null };
+}
+
+/** The reviewer entry's own comment header agrees with its JSON verdict, model and SHA. */
+function architectHeaderMatches(entry) {
+  const header = entry.header;
+  if (!header || header.error || header.sha !== entry.verdict.sha) return false;
+  if (HEADER_VERDICT[entry.verdict.verdict] !== header.verdict) return false;
+  if (HEADER_FAMILY[header.model] !== entry.verdict.verifier?.model_family) return false;
+  return HEADER_FAMILY[header.model] !== "claude" || reviewModel(entry) === header.model;
+}
+
+/** Every id the build left behind: the PR body (Built-by, session links) and commit messages. Lowercased. */
+const buildTrail = (input) => [input.prBody, ...list(input.commits).map((commit) => commit?.commit?.message)]
+  .filter((text) => typeof text === "string").join("\n").toLowerCase();
+
+/**
+ * Same-family review is accepted only for a Claude-built PR reviewed by a
+ * fresh-session Opus whose run id appears nowhere in the build trail.
+ */
+function freshClaudeOpus(entry, families, trail) {
+  const header = entry.header;
+  return families.includes("claude") && entry.verdict.verifier?.model_family === "claude"
+    && architectHeaderMatches(entry) && header.model === "opus" && header.fresh
+    && typeof header.runId === "string" && !trail.includes(header.runId.toLowerCase());
+}
+
+/**
+ * App-authored Architect verdicts at the head: per model the newest counts and
+ * CHANGES_REQUIRED blocks. Malformed headers, edited comments and same-time
+ * disagreements fail closed. Other authors and quoted headers are ignored.
+ */
+/** One comment's Architect verdict at the head: { reason } to block, { header, time } to count, or null to ignore. */
+function architectComment(comment, headSha) {
+  if (!inList(APP_TRUSTED_VERIFIERS, lower(comment?.user?.login))) return null;
+  const header = parseArchitectHeader(comment.body);
+  if (header?.error) {
+    // A malformed header blocks the head it names (by full SHA or a 7+ hex prefix); one naming no head is not a verdict.
+    return typeof headSha === "string" && header.shas.some((sha) => headSha.startsWith(sha)) ? { reason: { code: "architect_header_malformed", detail: `comment ${comment.id}: ${header.error}` } } : null;
+  }
+  if (header?.sha !== headSha) return null;
+  if (!comment.created_at || comment.updated_at !== comment.created_at) return { reason: { code: "architect_verdict_edited", detail: `comment ${comment.id} was edited; verdicts are never edited` } };
+  const time = Date.parse(comment.created_at);
+  if (Number.isNaN(time)) return { reason: { code: "architect_header_malformed", detail: `comment ${comment.id} has no readable timestamp` } };
+  return { header, time, id: comment.id };
+}
+
+function architectReasons(comments, headSha) {
+  const reasons = [];
+  /** model -> its newest App verdict at the head; only that comment may count (QA review 6554675199). */
+  const newest = new Map();
+  for (const item of list(comments).map((comment) => architectComment(comment, headSha))) {
+    if (item?.reason) reasons.push(item.reason);
+    if (!item?.header) continue;
+    const prior = newest.get(item.header.model);
+    const conflict = prior?.time === item.time && prior.header.verdict !== item.header.verdict;
+    if (conflict) reasons.push({ code: "architect_verdict_conflict", detail: `comments ${prior.id} and ${item.id} disagree for ${item.header.model}` });
+    if (!prior || item.time > prior.time) newest.set(item.header.model, item);
+  }
+  for (const [model, latest] of newest) {
+    if (latest.header.verdict === "CHANGES_REQUIRED") reasons.push({ code: "architect_changes_required", detail: `newest ${model} Architect review (comment ${latest.id}) is CHANGES_REQUIRED` });
+  }
+  return { reasons, newest };
+}
+
+/** A reviewer PASS counts only when it is its model's newest App verdict at the head. */
+const isNewest = (entry, newest) => entry.verdict.role !== "reviewer" || newest.get(entry.header?.model)?.id === entry.comment_id;
+
+/** The newest PASS header per model must itself be a counted verdict; one that does not parse or match blocks. */
+function newestUncounted(newest, exact) {
+  return [...newest].filter(([, latest]) => latest.header.verdict !== "CHANGES_REQUIRED" && !exact.some((entry) => entry.comment_id === latest.id))
+    .map(([model, latest]) => ({ code: "architect_newest_not_counted", detail: `newest ${model} Architect review (comment ${latest.id}) has no valid matching verdict block, so no older ${model} PASS counts` }));
+}
+
+/** The newest run of each hosted required check must be a GitHub Actions success at this exact SHA. */
+function requiredCheckReasons(requiredChecks, headSha) {
+  return DOOR_REQUIRED_CHECKS.filter((name) => {
+    const latest = list(requiredChecks).filter((run) => run?.name === name).toSorted((a, b) => (b.id ?? 0) - (a.id ?? 0))[0];
+    return !latest || latest.head_sha !== headSha || latest.app?.id !== GITHUB_ACTIONS_APP_ID
+      || latest.status !== "completed" || latest.conclusion !== "success";
+  }).map((name) => ({ code: "ci_not_pass", detail: `${name} is not green at this exact SHA from GitHub Actions` }));
+}
+
+const threadsResolved = (snapshot, headSha) => snapshot?.sha === headSha && snapshot?.complete === true
+  && Array.isArray(snapshot.threads) && snapshot.threads.every((thread) => thread?.isResolved === true);
+
+/** Enforced decision; all positive evidence is for this exact head. Pure. */
+export function evaluate(given = {}) {
+  const input = isRecord(given) ? given : {};
+  const summary = evaluateVerdicts({ ...input, mode: MODE, identity: IDENTITY });
+  const reasons = [];
+  const builders = [input.prAuthor, ...list(input.commits).flatMap((commit) => [commit?.author?.login, commit?.committer?.login])];
+  const jev = jevGate(input.commitStatuses, input.headSha, { writers: input.jevWriters ?? ALLOWED_AUTHORS, excluded: builders });
+  if (!jev.ok) reasons.push({ code: "jev_not_pass", detail: "missing, no_verdict, stale, uncertain, risky or non-independent jev-pr-screen marker (a marker from the PR author, a committer or the merger never counts)" });
+  const held = heldCategories(input.changedFiles, input.classification);
+  for (const category of held) reasons.push({ code: `held:${category}`, detail: `held category ${category} requires Blaine's separate operation` });
+  // The Jev marker is written by the builder identity, so its tier must not
+  // lower the review requirement: Opus is required at every tier (council 6538642259).
+  const opusRequired = true;
+  const { entries } = collectVerdicts(input.comments, input.headSha);
+  reasons.push(...findingReasons(entries, input));
+  const architect = architectReasons(input.comments, input.headSha);
+  const exact = entries.filter((entry) => exactPass(entry, input) && isNewest(entry, architect.newest));
+  // All counted reviews, including ones beyond the minimum, must be independent.
+  reasons.push(
+    ...reviewGateReasons(exact, opusRequired),
+    ...builderReasons(exact, input.prBody),
+    ...sameFamilyReasons(exact, input),
+    ...architect.reasons,
+    ...newestUncounted(architect.newest, exact),
+    ...requiredCheckReasons(input.requiredChecks, input.headSha),
+  );
+  if (!threadsResolved(input.reviewThreads, input.headSha)) reasons.push({ code: "threads_unresolved", detail: "review threads are unresolved, unknown or stale" });
+  // Sensitive-list work keeps its approval_missing reasons: Blaine's per-head
+  // approval record is never waived (council 6538642259, Opus 6534928475 finding 1).
+  summary.reasons = dedupeReasons([...summary.reasons, ...reasons]);
+  summary.gate = summary.reasons.length ? "fail" : "pass";
+  summary.automerge = summary.gate === "pass" ? "eligible" : "blocked";
+  summary.enforced = true;
+  summary.tier = jev.tier;
+  summary.held_categories = held;
+  summary.opus_required = opusRequired;
+  return summary;
+}
+
+/** The switch is supplied only by vars.DOOR_AUTOMERGE in the trusted workflow. */
+export function mergeEligibility(summary, switchValue, pull) {
+  return switchValue === "true" && summary?.enforced === true && summary.mode === "enforce"
+    && HEX40.test(summary.sha ?? "") && summary.gate === "pass" && summary.automerge === "eligible"
+    && Array.isArray(summary.reasons) && summary.reasons.length === 0
+    && Array.isArray(summary.held_categories) && summary.held_categories.length === 0
+    && pull?.head?.sha === summary.sha && pull.state === "open" && pull.draft === false
+    && pull.mergeable === true && pull.mergeable_state === "clean";
 }
 
 /**
@@ -774,7 +1068,7 @@ export function evaluate(given = {}) {
  * to this SHA; missing/unknown inputs fail closed. No labels are consulted.
  */
 export function revertableOk(ctx, { summary, candidates } = {}) {
-  if (!summary) return evaluate(ctx).door_report;
+  if (!summary) return evaluateVerdicts(ctx).door_report;
   const reasons = [];
   const add = (code, detail) => reasons.push({ code, detail });
   const classification = ctx.classification;
@@ -818,7 +1112,7 @@ export function revertableOk(ctx, { summary, candidates } = {}) {
   if (!ctx.revertPlan) add("revert_plan_missing", "no Revert plan validation result");
   else if (ctx.revertPlan.sha !== ctx.headSha || ctx.revertPlan.ok !== true || ctx.revertPlan.required !== true
       || !Array.isArray(ctx.revertPlan.errors) || ctx.revertPlan.errors.length) add("revert_plan_invalid", "Revert plan is invalid, unknown or stale");
-  return { door, ok: reasons.length === 0, automerge_enabled: DOOR_AUTOMERGE, reasons: dedupeReasons(reasons) };
+  return { door, ok: reasons.length === 0, automerge_enabled: false, reasons: dedupeReasons(reasons) };
 }
 
 function dedupeReasons(reasons) {
@@ -871,7 +1165,7 @@ export function formatSummary(summary) {
   const legacy = lines.join("\n");
   if (!summary.door_report) return legacy;
   const report = [
-    `Door report (auto-merge off): \`${summary.door_report.door}\`; revertable conditions: ${summary.door_report.ok ? "pass" : "fail"}`,
+    `Legacy door report (not merge authority): \`${summary.door_report.door}\`; revertable conditions: ${summary.door_report.ok ? "pass" : "fail"}`,
     "",
     ...summary.door_report.reasons.map((reason) => `- door \`${reason.code}\`: ${oneLine(reason.detail)}`),
     "",
@@ -1076,6 +1370,30 @@ export function headDiffId({ pr, repo, headSha, baseRef, cwd, token, fetch = tru
   }
 }
 
+const MAX_SCAN_FILES = 200;
+const MAX_SCAN_FILE_BYTES = 256 * 1024;
+const MAX_SCAN_TOTAL_BYTES = 4 * 1024 * 1024;
+
+/**
+ * Scan complete head text, not truncated API patches. Unreadable/binary or
+ * oversized work cannot quietly bypass a held operation. No code executes.
+ * Files are read one at a time (inSequence), so a large PR never fans out
+ * hundreds of concurrent API reads.
+ */
+async function scanHeldContent(pull) {
+  if (pull.files.length > MAX_SCAN_FILES) throw new Error(`held-content scan exceeds ${MAX_SCAN_FILES}-file ceiling`);
+  const held = new Set();
+  let scannedBytes = 0;
+  const heads = pull.files.filter((file) => file.status !== "removed");
+  for await (const text of inSequence(heads, (file) => pull.readHeadFile(file.filename))) {
+    if (typeof text !== "string" || text.length > MAX_SCAN_FILE_BYTES) throw new Error("held-content scan unreadable or oversized");
+    scannedBytes += Buffer.byteLength(text);
+    if (Buffer.byteLength(text) > MAX_SCAN_FILE_BYTES || scannedBytes > MAX_SCAN_TOTAL_BYTES) throw new Error("held-content scan exceeds byte ceiling");
+    for (const hold of heldContent(text)) held.add(hold);
+  }
+  return [...held];
+}
+
 /**
  * The default-branch sensitive-class detector over the PR, exactly as its
  * CLI runs it (config, file list, SQL content, gate-loosening reads). Any
@@ -1087,8 +1405,10 @@ export async function classifyPull({ client, repo, pr, headSha, root, loadConfig
     if (!config) return { classification: { status: "error", sha: headSha, errors: configErrors ?? ["detector config did not load"] }, files: null };
     const pull = await fetchPullRequest(client, repo, pr, { expectedHeadSha: headSha });
     const result = await detectImpl({ ...pull, config, allowEmpty: pull.changedFiles === 0 });
+    result.held_categories = await scanHeldContent(pull);
     const incomplete = pull.errors.length ? "the changed-file list is incomplete or stale" : null;
     const loosening = await gateLooseningForPull({ ...pull, baseRaw, sensitivePathsText, incomplete });
+    result.gate_loosening = loosening.gateLoosening;
     if (loosening.gateLoosening.detected) {
       result.door = "one-way";
       (result.door_reasons ??= []).push({ code: "O-GATE" });
@@ -1430,7 +1750,7 @@ function failClosed(summary, detail) {
  * Read everything evaluate() needs for one PR and evaluate it.
  * Never throws for missing data: an unreadable input becomes a fail reason.
  */
-export async function runGate({ client, repo, pr, sha, cwd, root, token, fetch = true, event = null, git, diff, classify = classifyPull, historyResult, reviewThreads }) {
+export async function runGate({ client, repo, pr, sha, cwd, root, token, fetch = true, event = null, git, diff, classify = classifyPull, historyResult, reviewThreads, jevWriters }) {
   const pull = await client.json(`/repos/${repo}/pulls/${pr}`);
   const liveHeadSha = pull?.head?.sha ?? null;
   const headSha = sha ?? liveHeadSha;
@@ -1444,6 +1764,8 @@ export async function runGate({ client, repo, pr, sha, cwd, root, token, fetch =
   const { diffId, error: diffIdError } = headDiffId({ pr, repo, headSha, baseRef: pull?.base?.ref, cwd, token, fetch, git, diff });
   const { classification, files } = await classify({ client, repo, pr, headSha, root });
   const requiredChecks = validHead ? await attempt(() => client.paginate(`/repos/${repo}/commits/${headSha}/check-runs?filter=all`, (data) => data?.check_runs)) : undefined;
+  const statuses = validHead ? await attempt(() => client.paginate(`/repos/${repo}/commits/${headSha}/statuses`)) : undefined;
+  const threads = reviewThreads ?? await attempt(() => readReviewThreads(client, repo, pr, headSha));
   // Lazy import: this gate runs without npm install. The PR-body validator's
   // existing TypeScript dependency may be unavailable; that only fails the
   // door report closed and cannot prevent the legacy gate from running.
@@ -1452,7 +1774,8 @@ export async function runGate({ client, repo, pr, sha, cwd, root, token, fetch =
     return { sha: headSha, ...validateRevertPlan(pull?.body, classification?.door) };
   });
   const summary = evaluate({
-    reviewThreads,
+    reviewThreads: threads,
+    commitStatuses: { sha: headSha, statuses },
     requiredChecks,
     revertPlan,
     headSha,
@@ -1466,6 +1789,7 @@ export async function runGate({ client, repo, pr, sha, cwd, root, token, fetch =
     commits,
     prAuthor: pull?.user?.login,
     prBody: typeof pull?.body === "string" ? pull.body : null,
+    jevWriters,
     changedFiles: files,
     classification,
     mode: MODE,
@@ -1480,6 +1804,8 @@ export async function runGate({ client, repo, pr, sha, cwd, root, token, fetch =
   const candidates = deletionCandidates({ deletedVerdicts, history: history ?? [], comments });
   const carried = carriedDeletions(candidates, ALL_TRUSTED);
   summary.deleted_verdicts = candidates.filter((item) => carried.blocking.includes(item) || carried.unreadable.includes(item));
+  summary.comments_fingerprint = commentsFingerprint(comments);
+  summary.body_fingerprint = bodyFingerprint(pull?.body);
   return summary;
 }
 
@@ -1546,6 +1872,8 @@ export const TRIGGER_COMMENT_MARKERS = Object.freeze([
   "```" + APPROVAL_FENCE_INFO,
   "VERDICT: PASS",
   "VERDICT: FAIL",
+  // Architect header verdicts (item-6 ruling): a header-only CHANGES_REQUIRED must reach the history.
+  "VERDICT: CHANGES_REQUIRED",
   "QA PASS",
   "QA FAIL",
 ]);
@@ -1685,7 +2013,86 @@ async function writeMergeGroup({ client, options, stdout }) {
   return 0;
 }
 
-async function writeGate({ client, options, summary, stdout, stderr }) {
+/** Read every thread and bind the connection to GitHub's live PR head. */
+export async function readReviewThreads(client, repo, pr, sha) {
+  const [owner, name] = repo.split("/");
+  const threads = [];
+  let after = null;
+  for (let page = 0; page < 100; page += 1) {
+    const data = await client.post("/graphql", {
+      query: `query($owner:String!,$name:String!,$pr:Int!,$after:String){repository(owner:$owner,name:$name){pullRequest(number:$pr){headRefOid reviewThreads(first:100,after:$after){nodes{isResolved} pageInfo{hasNextPage endCursor}}}}}`,
+      variables: { owner, name, pr: Number(pr), after },
+    });
+    const pull = data?.data?.repository?.pullRequest;
+    const connection = pull?.reviewThreads;
+    if (data.errors || pull?.headRefOid !== sha || !Array.isArray(connection?.nodes)
+        || typeof connection.pageInfo?.hasNextPage !== "boolean") throw new Error("review thread snapshot is incomplete or stale");
+    threads.push(...connection.nodes);
+    if (!connection.pageInfo.hasNextPage) return { sha, complete: true, threads };
+    if (!connection.pageInfo.endCursor || connection.pageInfo.endCursor === after) throw new Error("review thread cursor did not advance");
+    after = connection.pageInfo.endCursor;
+  }
+  throw new Error("too many review thread pages");
+}
+
+/** A label that stops the merge; labels can only ever stop it, never enable it. */
+export const HOLD_LABEL = "automerge:hold";
+
+/**
+ * The second stop, checked on the freshly re-read PR right before the merge
+ * call: any non-empty vars.OVD_AUTOMERGE_DISABLED, the automerge:hold label,
+ * or an unreadable label list. Returns why the merge is stopped, or null.
+ */
+export function mergeStop(disabledValue, pull) {
+  if (disabledValue !== undefined && disabledValue !== "") return "OVD_AUTOMERGE_DISABLED is set";
+  if (!Array.isArray(pull?.labels)) return "the PR labels could not be read";
+  if (pull.labels.some((label) => typeof label?.name !== "string" || label.name.trim().toLowerCase() === HOLD_LABEL)) return `the PR has the ${HOLD_LABEL} label (or an unreadable label)`;
+  return null;
+}
+
+/**
+ * Identity of the evaluated comment set. A comment created, edited or deleted
+ * after evaluation changes it, so a verdict cannot change between read and merge.
+ * Null when the comments were unreadable.
+ */
+export function commentsFingerprint(comments) {
+  if (!Array.isArray(comments)) return null;
+  const keys = comments.map((comment) => `${comment?.id}@${comment?.updated_at}`).toSorted((a, b) => a.localeCompare(b, "en"));
+  return createHash("sha256").update(keys.join("\n")).digest("hex");
+}
+
+/**
+ * Identity of the evaluated PR body: its Built-by line and build-session ids
+ * decide reviewer independence, so a body edited after evaluation blocks the
+ * merge (council 6538642610). Null when the body was unreadable.
+ */
+export function bodyFingerprint(body) {
+  return typeof body === "string" ? createHash("sha256").update(body).digest("hex") : null;
+}
+
+/** Returns { merged, reason }: reason says why no merge was attempted. */
+export async function mergePull({ client, repo, pr, summary, switchValue, disabledValue, merge = (args) => execFileSync(resolveBinary("gh"), args, { stdio: "ignore", timeout: 60_000 }) }) {
+  if (switchValue !== "true") return { merged: false, reason: "DOOR_AUTOMERGE is not exactly true" };
+  // The variable needs no API read; refuse before touching the PR.
+  const disabled = mergeStop(disabledValue, { labels: [] });
+  if (disabled) return { merged: false, reason: disabled };
+  const pull = await client.json(`/repos/${repo}/pulls/${pr}`);
+  if (!mergeEligibility(summary, switchValue, pull)) return { merged: false, reason: "the gate did not pass for the live, open, clean head" };
+  // Re-read the comments: a verdict added, edited or deleted after evaluation blocks.
+  const evaluated = summary.comments_fingerprint;
+  const live = await attempt(() => client.paginate(`/repos/${repo}/issues/${pr}/comments`));
+  if (typeof evaluated !== "string" || commentsFingerprint(live) !== evaluated) return { merged: false, reason: "PR comments changed after evaluation (or could not be re-read)" };
+  if (typeof summary.body_fingerprint !== "string" || bodyFingerprint(pull?.body) !== summary.body_fingerprint) return { merged: false, reason: "the PR body changed after evaluation (or could not be read)" };
+  // The stop wins over everything else, so it is the last check before the call.
+  const stop = mergeStop(disabledValue, pull);
+  if (stop) return { merged: false, reason: stop };
+  // GitHub performs the final atomic head comparison. Never queue --auto or
+  // bypass branch protection with --admin.
+  await merge(["pr", "merge", String(pr), "--repo", repo, "--squash", "--match-head-commit", summary.sha]);
+  return { merged: true, reason: null };
+}
+
+async function writeGate({ client, options, summary, stdout, stderr, switchValue, disabledValue, merge }) {
   // Re-read the head right before writing: a result for a head that moved is not written.
   const now = (await client.json(`/repos/${options.repo}/pulls/${options.pr}`))?.head?.sha;
   if (now !== summary.sha) {
@@ -1694,6 +2101,9 @@ async function writeGate({ client, options, summary, stdout, stderr }) {
   }
   const check = await writeCheckRun({ client, repo: options.repo, sha: summary.sha, summary, pr: options.pr, runId: options.runId });
   stdout.write(`${formatSummary(summary)}\n${conclusionFor(summary).title}\n`);
+  // Merge before the status edit: editing a comment changes the evaluated comment set.
+  const { merged, reason } = await mergePull({ client, repo: options.repo, pr: options.pr, summary, switchValue, disabledValue, merge });
+  stdout.write(merged ? "ovd-merge-gate: squash merge submitted for the evaluated head\n" : `ovd-merge-gate: no merge: ${reason}\n`);
   // Advisory and best effort, after the check run: a failed edit warns and never changes the gate.
   try {
     const { action } = await upsertStatusComment({ client, repo: options.repo, pr: options.pr, body: formatStatusComment(summary, { checkUrl: check?.html_url }) });
@@ -1704,7 +2114,7 @@ async function writeGate({ client, options, summary, stdout, stderr }) {
   return 0;
 }
 
-async function runCommand({ options, env, client, token, cwd, git, diff, classify, stdout, stderr }) {
+async function runCommand({ options, env, client, token, cwd, git, diff, classify, stdout, stderr, merge, jevWriters }) {
   if (options.command === "merge-group") return writeMergeGroup({ client, options, stdout });
   if (options.command === "record") {
     const { written } = await recordHistory({ client, repo: options.repo, pr: options.pr, event: readEvent(env), runId: workflowRunId(env) });
@@ -1712,18 +2122,18 @@ async function runCommand({ options, env, client, token, cwd, git, diff, classif
     return 0;
   }
   const event = options.command === "write" ? readEvent(env) : null;
-  const summary = await runGate({ client, repo: options.repo, pr: options.pr, sha: options.sha, cwd, token, fetch: options.fetch, event, git, diff, classify, historyResult: options.historyResult });
-  if (options.command === "write") return writeGate({ client, options: { ...options, runId: workflowRunId(env) }, summary, stdout, stderr });
+  const summary = await runGate({ client, repo: options.repo, pr: options.pr, sha: options.sha, cwd, token, fetch: options.fetch, event, git, diff, classify, historyResult: options.historyResult, jevWriters });
+  if (options.command === "write") return writeGate({ client, options: { ...options, runId: workflowRunId(env) }, summary, stdout, stderr, switchValue: env.DOOR_AUTOMERGE, disabledValue: env.OVD_AUTOMERGE_DISABLED, merge });
   stdout.write(options.json ? `${JSON.stringify(summary, null, 2)}\n` : `${formatSummary(summary)}\n`);
   return summary.gate === "pass" ? 0 : 1;
 }
 
 /**
  * CLI. Returns the exit code: evaluate 0 pass / 1 fail; record, write and
- * merge-group 0 once handled (report mode never fails the job), 1 when a
+ * merge-group 0 once handled (the check carries the enforced result), 1 when a
  * check run could not be written; 2 on usage errors.
  */
-export async function main(argv = process.argv.slice(2), { env = process.env, fetchImpl, stdout = process.stdout, stderr = process.stderr, cwd = process.cwd(), git, diff, classify } = {}) {
+export async function main(argv = process.argv.slice(2), { env = process.env, fetchImpl, stdout = process.stdout, stderr = process.stderr, cwd = process.cwd(), git, diff, classify, merge, jevWriters } = {}) {
   let options;
   try {
     options = parseCli(argv);
@@ -1736,7 +2146,7 @@ export async function main(argv = process.argv.slice(2), { env = process.env, fe
   const token = env.GITHUB_TOKEN || env.GH_TOKEN;
   const client = createApi({ token, apiUrl: env.GITHUB_API_URL || undefined, fetchImpl });
   try {
-    return await runCommand({ options, env, client, token, cwd, git, diff, classify, stdout, stderr });
+    return await runCommand({ options, env, client, token, cwd, git, diff, classify, stdout, stderr, merge, jevWriters });
   } catch (error) {
     stderr.write(`ovd-merge-gate: ${error?.message ?? String(error)}\n`);
     // The writer step tees stdout into the step summary, so the API failure (status, rate-limit headers, message) shows there too.
