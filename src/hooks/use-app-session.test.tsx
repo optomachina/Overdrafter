@@ -45,6 +45,7 @@ function SessionProbe() {
       <span data-testid="auth-state">{session.authState}</span>
       <span data-testid="auth-initializing">{session.isAuthInitializing ? "yes" : "no"}</span>
       <span data-testid="has-cached-session">{session.hasCachedSession ? "yes" : "no"}</span>
+      <span data-testid="memberships-resolved">{session.hasResolvedMemberships ? "yes" : "no"}</span>
       <span data-testid="membership-count">{session.memberships.length}</span>
       <span data-testid="membership-error">{session.membershipError ?? "none"}</span>
       <span data-testid="query-error">{session.isError ? "yes" : "no"}</span>
@@ -204,6 +205,30 @@ describe("useAppSession", () => {
     vi.useRealTimers();
     vi.clearAllMocks();
     vi.unstubAllEnvs();
+  });
+
+  it("keeps memberships unresolved after anonymous SIGNED_IN until the deferred fetch completes", async () => {
+    const pending = deferredPromise<AppSessionData>();
+    const localSession = makeLocalSession();
+    localSession.user.email_confirmed_at = "2026-03-11T00:00:00.000Z";
+    fetchAppSessionDataMock.mockResolvedValueOnce({
+      user: null, memberships: [], isVerifiedAuth: false, authState: "anonymous",
+    }).mockReturnValueOnce(pending.promise);
+    const { unmount } = renderProbe();
+    await waitFor(() => {
+      expect(screen.getByTestId("email")).toHaveTextContent("anonymous");
+      expect(screen.getByTestId("auth-initializing")).toHaveTextContent("no");
+      expect(fetchAppSessionDataMock).toHaveBeenCalledTimes(1);
+    });
+    getSessionMock.mockResolvedValue({ data: { session: localSession }, error: null });
+    act(() => authStateChangeCallbacks.forEach((callback) => callback("SIGNED_IN", localSession)));
+    await waitFor(() => {
+      expect(screen.getByTestId("memberships-resolved")).toHaveTextContent("no");
+      expect(fetchAppSessionDataMock).toHaveBeenCalledTimes(2);
+    });
+    await act(async () => pending.resolve(makeRestoredSession(localSession)));
+    await waitFor(() => expect(screen.getByTestId("memberships-resolved")).toHaveTextContent("yes"));
+    unmount();
   });
 
   it.each(["throw", "session_error"])("keeps a restored session after exhausted background %s retries", async (failure) => {
