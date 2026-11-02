@@ -338,7 +338,7 @@ const UNIT_WORD = String.raw`(?:MM|RNM|MILLIMET(?:ER|RE)S?|MILIMETROS?|METRIC|IN
 // DIMENSIONS/UNITS/TOLERANCES (and the German, French and Spanish words), then optional linking words.
 // The linking words are bounded: an unbounded repeat overflows the regexp stack on a line of a few
 // million separators, and a real declaration uses at most a few of them.
-const DECLARATION_INTRODUCER = String.raw`\b(?:ALL[ \t]+DIMENSIONS|DIMENSIONS?|DIMS|UNITS?|MEASUREMENTS?|TOL(?:ERANCES?|S)?\.?|MA(?:SS|ß)E|COTES|MEDIDAS)(?:[ \t]*[:=–—-]|[ \t]+(?:ARE|IS|SHOWN|GIVEN|EXPRESSED|EN)){0,8}`;
+const DECLARATION_INTRODUCER = String.raw`\b(?:ALL[ \t]+DIMENSIONS|DIMENSIONS?|DIMS|UNITS?|MEASUREMENTS?|TOL(?:ERANCES?|S)?\.?|MA(?:SS|ß)E|COTES|MEDIDAS)(?:[ \t]*[:=–—-]|[ \t]+(?:ARE|IS|SHOWN|GIVEN|EXPRESSED|EN)){0,256}`;
 // A second unit word right after the first one on the declaration line, so the drawing declares
 // both systems ("DIMENSIONS IN INCHES [MM]", "UNITS: INCH / MM", and a units field that lists both
 // options, "UNITS: INCH MM", "UNITS: MM X INCH", or a checkbox or OCR rendering of one such as
@@ -378,7 +378,24 @@ const METRIC_TOLERANCE_STANDARD = /\b(?:ISO[ \t]*2768|DIN[ \t]*7168|JIS[ \t]*B[ 
  * decomposition as well as after it: canonical reordering is quadratic on a long run of marks of
  * mixed classes, and every mark decomposes only to marks, so the result is the same.
  */
-function normalizeUnitText(text: string) {
+function normalizeUnitText(text: string): string {
+  // Cap each normalization input at 64 Ki UTF-16 code units. In particular, V8's
+  // Unicode mark regexp can overflow on a ~5M mark run before NFKD is reached.
+  // Process every chunk rather than truncating away declarations or tolerances.
+  const chunkSize = 65_536;
+  if (text.length > chunkSize) {
+    // Fold the two-character homoglyph before chunking so it cannot be split.
+    text = text.replaceAll("ΜΜ", "MM");
+    const chunks: string[] = [];
+    for (let start = 0; start < text.length;) {
+      let end = Math.min(start + chunkSize, text.length);
+      // Keep a surrogate pair together across the chunk boundary.
+      if (end < text.length && /[\uD800-\uDBFF]/.test(text.charAt(end - 1))) end -= 1;
+      chunks.push(normalizeUnitText(text.slice(start, end)));
+      start = end;
+    }
+    return chunks.join("");
+  }
   return (
     text
       .replace(/[º˚]/g, "°")
@@ -401,6 +418,23 @@ function followsNumber(text: string, index: number) {
   return position >= 0 && /[\d.]/.test(text.charAt(position));
 }
 
+// A standalone checkbox (including a labelled one) must end its line. Opposite-system
+// sibling options may precede adjacent title-block cells. Keep the line-start anchor
+// to reject incidental text and avoid rescanning hostile blank runs.
+const UNIT_BOX = String.raw`(?:\[(?:[ \t]*[X✓✔][ \t]*|[ \t]*)\]|[☐□☑☒■✓✔])`;
+const LEADING_UNIT_BOX = new RegExp(
+  String.raw`^[ \t]*(?:${DECLARATION_INTRODUCER}(?:[ \t]+IN)?[ \t]*)?(${UNIT_BOX})[ \t]*(${UNIT_WORD})(?:[ \t]+(${UNIT_BOX})[ \t]*(${UNIT_WORD})|[ \t]*$)`, "gim",
+);
+const CHECKED_UNIT_BOX = /[X✓✔☑☒■]/i;
+
+function* selectedCheckboxUnits(text: string) {
+  for (const match of text.matchAll(LEADING_UNIT_BOX)) {
+    if (match[4] !== undefined && /^IN/i.test(match[2]) === /^IN/i.test(match[4])) continue;
+    if (CHECKED_UNIT_BOX.test(match[1])) yield match[2];
+    if (match[3] !== undefined && CHECKED_UNIT_BOX.test(match[3])) yield match[4];
+  }
+}
+
 function detectDeclaredUnits(text: string) {
   const declared = { inch: false, metric: METRIC_TOLERANCE_STANDARD.test(text) };
   const declare = (word: string | undefined) => {
@@ -408,6 +442,7 @@ function detectDeclaredUnits(text: string) {
       declared[/^IN/i.test(word) ? "inch" : "metric"] = true;
     }
   };
+  for (const word of selectedCheckboxUnits(text)) declare(word);
   for (const pattern of DECLARATION_PATTERNS) {
     for (const match of text.matchAll(pattern)) {
       match.slice(1).forEach(declare);
