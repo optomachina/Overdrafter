@@ -34,8 +34,8 @@
     {
       "signature": "public.api_authorize_xometry_beta_worker_dispatch(uuid,uuid,jsonb,text,timestamptz)",
       "file": "docs/migration-drafts/ovd-723-contract.sql",
-      "supersedesSha256": "6ac058551b5cee59ea495e06f4f029d3dc874809c5979823516d82c99e2e721f",
-      "reason": "OVD-723 contract renames the deployed OVD-987 body unchanged into its private core, preserving its quantity checks beneath the export-control wrapper; rollback restores that same core."
+      "supersedesSha256": "fceb5165584533a4d790bcb316aa245271f5c7b8341027f931099d11593d4d11",
+      "reason": "OVD-723 contract renames the deployed body unchanged into its private core (now the OVD-1007 body: the OVD-987 quantity checks plus the per-request quantity grant), beneath the export-control wrapper; rollback restores that same core."
     },
     {
       "signature": "public.api_authorize_xometry_beta_worker_dispatch(uuid,uuid,jsonb,text,timestamptz)",
@@ -46,8 +46,8 @@
     {
       "signature": "public.api_authorize_xometry_beta_worker_dispatch(uuid,uuid,jsonb,text,timestamptz)",
       "file": "docs/migration-drafts/ovd-762-xometry-fanout-scope.sql",
-      "supersedesSha256": "6ac058551b5cee59ea495e06f4f029d3dc874809c5979823516d82c99e2e721f",
-      "reason": "OVD-762 fan out draft rebased onto the MD5-guarded OVD-987 body: preserves its quantity checks and adds the existing fan out provider-set rule. Rollback restores the OVD-987 body."
+      "supersedesSha256": "fceb5165584533a4d790bcb316aa245271f5c7b8341027f931099d11593d4d11",
+      "reason": "OVD-762 fan out draft rebased onto the MD5-guarded OVD-1007 body (OVD-987 quantity checks plus the per-request quantity grant) and adds the existing fan out provider-set rule. Rollback restores the OVD-1007 body."
     },
     {
       "signature": "public.api_finalize_job_file_upload(uuid,text,text,text,job_file_kind,text,bigint,text)",

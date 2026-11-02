@@ -39,7 +39,8 @@
 -- and the three argument resolver, so the single provider path is unchanged.
 -- No DROP statements.
 
--- Require the OVD-987 quantity checks before wrapping or replacing this body.
+-- Require the OVD-987 quantity checks and the OVD-1007 quantity grant before
+-- wrapping or replacing this body.
 do $xometry_quantity_precondition$
 declare
   v_md5 text;
@@ -49,8 +50,8 @@ begin
   where p.oid = pg_catalog.to_regprocedure(
     'public.api_authorize_xometry_beta_worker_dispatch(uuid,uuid,jsonb,text,timestamptz)'
   );
-  if v_md5 is distinct from '0fef772880a4122f72475a9905b7ed19' then
-    raise exception 'OVD-762 refused: Xometry preflight is not the OVD-987 body (md5 %)',
+  if v_md5 is distinct from '5d7e026241a0346a6624063e86a088f7' then
+    raise exception 'OVD-762 refused: Xometry preflight is not the OVD-1007 body (md5 %)',
       coalesce(v_md5, 'missing') using errcode = 'P0001';
   end if;
 end;
@@ -878,7 +879,18 @@ begin
     perform pg_catalog.pg_advisory_xact_lock_shared(
       pg_catalog.hashtextextended('commercial-rollout:controlled_beta_user_quantity', 0)
     );
-    if not private.xometry_beta_user_quantity_enabled() then
+    -- OVD-1007: or the unrevoked grant this permit consumed. The shared lock
+    -- makes an audited revoke wait for this check.
+    perform pg_catalog.pg_advisory_xact_lock_shared(
+      pg_catalog.hashtextextended('xometry-beta-quantity-grant:' || v_permit.job_id::text, 0)
+    );
+    if not private.xometry_beta_user_quantity_enabled()
+      and private.xometry_beta_quantity_grant_id(
+        v_permit.job_id,
+        v_permit.id,
+        v_permit.scope_fingerprint,
+        v_lane.requested_quantity
+      ) is null then
       return pg_catalog.jsonb_build_object(
         v_authorized_key, false,
         v_reason_key, 'dispatch_quantity_not_admitted'

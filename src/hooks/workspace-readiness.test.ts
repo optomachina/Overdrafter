@@ -41,6 +41,12 @@ describe("deriveWorkspaceReadiness", () => {
     expect(deriveWorkspaceReadiness(base({ isLoading: true }))).toEqual({ status: "loading" });
   });
 
+  it("returns loading while seeded memberships are unresolved", () => {
+    expect(deriveWorkspaceReadiness(base({
+      activeMembership: null, membershipCount: 0, hasResolvedMemberships: false,
+    }))).toEqual({ status: "loading" });
+  });
+
   it("returns unverified when user is not verified", () => {
     expect(
       deriveWorkspaceReadiness(base({ isVerifiedAuth: false, activeMembership: null, membershipCount: 0 })),
