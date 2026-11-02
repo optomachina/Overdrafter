@@ -145,7 +145,9 @@ describe("fixture drift result", () => {
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }
-  });
+    // Four sequential CLI processes, each compiling TypeScript through tsx and capped at
+    // 10 s by spawnSync; the 5 s default per-test limit cannot hold them on a loaded runner.
+  }, 45_000);
 
   it("names the unmatched dashboard markers and routes to selector repair", () => {
     const result = buildDriftResult({ trigger: "authenticated_dashboard_not_confirmed", fingerprint: fp, reference: XOMETRY_AUTH_PROBE_DRIFT_REFERENCE });
