@@ -15,6 +15,7 @@ import {
   V1_COMMIT,
   V1_SAFE_CATEGORIES,
   describeCharacter,
+  emptySweep,
   formatSweep,
   nonAsciiCaseFolds,
   residualClass,
@@ -90,11 +91,40 @@ describe("residual classes", () => {
   });
 });
 
+// A Vitest worker reads the coordinator's RPC replies on its event loop, and a reply
+// left unread for 60 s fails the whole run ('[vitest-worker]: Timeout calling
+// "onTaskUpdate"') after every test has passed. One synchronous sweep of 160,000
+// names blocks the loop for the whole sweep, 65-72 s on a slow CI runner, so the
+// sweep runs in chunks with a real macrotask between them: each block stays at a
+// few seconds, and the worker reads its replies in between.
+async function sweepInChunks(options, chunkSize = 10_000) {
+  const stats = emptySweep();
+  let chunk = [];
+  for (const name of sweepNames(options)) {
+    chunk.push(name);
+    if (chunk.length === chunkSize) {
+      runSweep({ config, names: chunk, stats });
+      chunk = [];
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+  }
+  return runSweep({ config, names: chunk, stats });
+}
+
 // The full sweep (every directory and tail) runs as `node scripts/sensitive-class-sweep.mjs`
 // and gives the PR body's numbers; this runs every character and position in two directories.
 describe("sweep against 0163daf7", () => {
-  it("loses no sensitive name outside the residual classes, and makes no name newly safe", () => {
-    const stats = runSweep({ config, names: sweepNames({ directories: ["src/features", "scripts"], tails: [".tsx"] }) });
+  it("adds to the stats it is given, so a sweep in parts equals one sweep", () => {
+    const names = [...sweepNames({ directories: ["scripts"], tails: [".tsx"] })].slice(0, 3_000);
+    const stats = emptySweep();
+    runSweep({ config, names: names.slice(0, 1_000), stats });
+    expect(runSweep({ config, names: names.slice(1_000), stats })).toBe(stats);
+    expect(stats).toEqual(runSweep({ config, names }));
+    expect(stats.total).toBe(3_000);
+  });
+
+  it("loses no sensitive name outside the residual classes, and makes no name newly safe", async () => {
+    const stats = await sweepInChunks({ directories: ["src/features", "scripts"], tails: [".tsx"] });
     expect(stats.total).toBeGreaterThan(100_000);
     expect(stats.unexplained.slice(0, 20)).toEqual([]);
     expect(stats.newlySafeNames).toEqual([]);
