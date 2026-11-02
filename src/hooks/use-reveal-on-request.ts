@@ -8,7 +8,7 @@ export function useRevealOnRequest() {
     if (requestCount === 0) return;
     const heading = headingRef.current;
     const prefersReducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-    heading?.scrollIntoView?.({ block: "start", behavior: prefersReducedMotion ? "auto" : "smooth" });
+    heading?.scrollIntoView?.({ block: "start", behavior: prefersReducedMotion ? "instant" : "smooth" });
     heading?.focus({ preventScroll: true });
   }, [requestCount]);
 

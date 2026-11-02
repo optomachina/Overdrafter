@@ -222,7 +222,7 @@ describe("client review pages", () => {
       const heading = screen.getByRole("heading", { name: "More procurement detail is still needed" });
       expect(Element.prototype.scrollIntoView).toHaveBeenCalledTimes(1);
       expect(vi.mocked(Element.prototype.scrollIntoView).mock.contexts[0]).toBe(heading);
-      expect(Element.prototype.scrollIntoView).toHaveBeenCalledWith({ block: "start", behavior: reducedMotion ? "auto" : "smooth" });
+      expect(Element.prototype.scrollIntoView).toHaveBeenCalledWith({ block: "start", behavior: reducedMotion ? "instant" : "smooth" });
       expect(heading).toHaveFocus();
       expect(matchMedia).toHaveBeenCalledWith("(prefers-reduced-motion: reduce)");
       fireEvent.click(button);
