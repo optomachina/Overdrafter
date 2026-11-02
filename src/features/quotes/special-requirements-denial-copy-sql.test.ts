@@ -26,7 +26,7 @@ function latestDefinition(signature: string): { file: string; body: string } {
     readFileSync(`${MIGRATIONS}/${name}`, "utf8").includes(signature),
   );
   const file = defining.at(-1)!;
-  const sql = normalize(readFileSync(`${MIGRATIONS}/${file}`, "utf8"));
+  const sql = normalize(readFileSync(`${MIGRATIONS}/${file}`, "utf8").replace(/--[^\n]*/g, ""));
   const start = sql.lastIndexOf(normalize(signature));
   // Function body: from the opening to the closing dollar quote.
   const open = sql.indexOf("$$", start);
@@ -120,6 +120,43 @@ describe("provider_dispatch_exact_scope_required", () => {
     expect(message).toContain("Remove extra Quote quantities");
     expect(message).not.toContain("Qty");
   });
+});
+
+// OVD-998: read the newest resolver, so a later quantity condition change requires copy review.
+describe("quantity denial copy matches the latest resolver", () => {
+  it("pins the grant quantity-and-scope gate when the switch is disabled", () => {
+    const { body } = latestDefinition("create or replace function private.resolve_xometry_beta_dispatch_scope_with_access(");
+    const start = body.indexOf("if v_candidate.requested_quantity <> 1");
+    const end = body.indexOf("return pg_catalog.jsonb_build_object(", start);
+    expect(body.slice(start, end)).toBe(
+      "if v_candidate.requested_quantity <> 1 and not private.xometry_beta_user_quantity_enabled() and private.xometry_beta_quantity_grant_id( p_job_id, p_existing_permit_id, v_candidate.scope_fingerprint, v_candidate.requested_quantity ) is null then raise exception 'xometry_beta_quantity_one_required'; end if; ",
+    );
+  });
+
+  it("has exactly two quantity-one denial sites in the latest resolver", () => {
+    const { body } = latestDefinition("create or replace function private.resolve_xometry_beta_dispatch_scope_with_access(");
+    expect(body.match(/raise exception 'xometry_beta_quantity_one_required'/g)).toHaveLength(2);
+  });
+
+  it("keeps quantity 1 only behind the disabled switch or a per-request grant, and otherwise requires one positive quantity", () => {
+    const { body: sql } = latestDefinition("create or replace function private.resolve_xometry_beta_dispatch_scope_with_access(");
+    const start = sql.lastIndexOf("if public.normalize_positive_integer_array(");
+    const end = sql.indexOf("if v_requirement.applicable_vendors", start);
+    expect(sql.slice(start, end)).toBe(
+      "if public.normalize_positive_integer_array( v_requirement.quote_quantities, v_requirement.quantity ) is distinct from array[1]::integer[] and not private.xometry_beta_user_quantity_enabled() and private.xometry_beta_quantity_grant_id(p_job_id, p_existing_permit_id, null, null) is null then raise exception 'xometry_beta_quantity_one_required'; end if; if pg_catalog.cardinality(public.normalize_positive_integer_array( v_requirement.quote_quantities, v_requirement.quantity )) <> 1 then raise exception 'xometry_beta_single_quantity_required'; end if; ",
+    );
+    expect(getXometryBetaScopeFailureMessage({ message: "xometry_beta_quantity_one_required" })).toContain("quantity 1 only");
+    expect(getXometryBetaScopeFailureMessage({ message: "xometry_beta_single_quantity_required" })).toContain("exactly one quantity of 1 or more");
+  });
+});
+
+it("keeps the worker quantity note bound to the latest server switch-or-grant refusal", () => {
+  const { body } = latestDefinition("create or replace function public.api_authorize_xometry_beta_worker_dispatch(");
+  const start = body.indexOf("if v_lane.requested_quantity <> 1 then");
+  const end = body.indexOf("end if; end if;", start) + "end if; end if;".length;
+  expect(body.slice(start, end)).toBe(
+    "if v_lane.requested_quantity <> 1 then perform pg_catalog.pg_advisory_xact_lock_shared( pg_catalog.hashtextextended('commercial-rollout:controlled_beta_user_quantity', 0) ); perform pg_catalog.pg_advisory_xact_lock_shared( pg_catalog.hashtextextended('xometry-beta-quantity-grant:' || v_permit.job_id::text, 0) ); if not private.xometry_beta_user_quantity_enabled() and private.xometry_beta_quantity_grant_id( v_permit.job_id, v_permit.id, v_permit.scope_fingerprint, v_lane.requested_quantity ) is null then return pg_catalog.jsonb_build_object( v_authorized_key, false, v_reason_key, 'dispatch_quantity_not_admitted' ); end if; end if;",
+  );
 });
 
 // OVD-993: the remaining envelope denials. Each block pins the condition the

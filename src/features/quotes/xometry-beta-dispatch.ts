@@ -116,6 +116,7 @@ export type XometryBetaScopeDenialCode =
   | "xometry_beta_standard_tolerance_required"
   // OVD-981: request fields the controlled beta envelope refuses, named in the dialog.
   | "xometry_beta_quantity_one_required"
+  | "xometry_beta_single_quantity_required"
   | "xometry_beta_special_delivery_date_not_supported"
   | "xometry_beta_special_requirements_not_supported"
   | "provider_dispatch_special_requirements_not_supported"
@@ -134,6 +135,7 @@ const ACTIONABLE_SCOPE_DENIAL_CODES: readonly XometryBetaScopeDenialCode[] = [
   "xometry_beta_confirmed_sourcing_address_required",
   "xometry_beta_standard_tolerance_required",
   "xometry_beta_quantity_one_required",
+  "xometry_beta_single_quantity_required",
   "xometry_beta_special_delivery_date_not_supported",
   "xometry_beta_special_requirements_not_supported",
   "provider_dispatch_special_requirements_not_supported",
@@ -599,6 +601,8 @@ export function getXometryBetaScopeFailureMessage(
       return "Enter this part's tightest tolerance. The controlled Xometry beta accepts ±0.005 in (0.127 mm) or looser; tighter tolerances are outside the beta.";
     case "xometry_beta_quantity_one_required":
       return `The controlled ${label} beta quotes quantity 1 only. Set Qty to 1 and clear extra Quote quantities, then retry.`;
+    case "xometry_beta_single_quantity_required":
+      return `The controlled ${label} beta quotes one quantity per request. Remove extra Quote quantities so exactly one quantity of 1 or more remains, then retry. To see another quantity, request it as its own quote.`;
     case "xometry_beta_special_delivery_date_not_supported":
       return `The controlled ${label} beta does not support a Need by date. Clear Need by in the request, then retry.`;
     case "xometry_beta_special_requirements_not_supported":
