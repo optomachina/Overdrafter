@@ -124,6 +124,20 @@ describe("provider_dispatch_exact_scope_required", () => {
 
 // OVD-998: read the newest resolver, so a later quantity condition change requires copy review.
 describe("quantity denial copy matches the latest resolver", () => {
+  it("pins the grant quantity-and-scope gate when the switch is disabled", () => {
+    const { body } = latestDefinition("create or replace function private.resolve_xometry_beta_dispatch_scope_with_access(");
+    const start = body.indexOf("if v_candidate.requested_quantity <> 1");
+    const end = body.indexOf("return pg_catalog.jsonb_build_object(", start);
+    expect(body.slice(start, end)).toBe(
+      "if v_candidate.requested_quantity <> 1 and not private.xometry_beta_user_quantity_enabled() and private.xometry_beta_quantity_grant_id( p_job_id, p_existing_permit_id, v_candidate.scope_fingerprint, v_candidate.requested_quantity ) is null then raise exception 'xometry_beta_quantity_one_required'; end if; ",
+    );
+  });
+
+  it("has exactly two quantity-one denial sites in the latest resolver", () => {
+    const { body } = latestDefinition("create or replace function private.resolve_xometry_beta_dispatch_scope_with_access(");
+    expect(body.match(/raise exception 'xometry_beta_quantity_one_required'/g)).toHaveLength(2);
+  });
+
   it("keeps quantity 1 only behind the disabled switch or a per-request grant, and otherwise requires one positive quantity", () => {
     const { body: sql } = latestDefinition("create or replace function private.resolve_xometry_beta_dispatch_scope_with_access(");
     const start = sql.lastIndexOf("if public.normalize_positive_integer_array(");
