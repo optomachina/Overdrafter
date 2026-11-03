@@ -34,8 +34,8 @@
     {
       "signature": "public.api_authorize_xometry_beta_worker_dispatch(uuid,uuid,jsonb,text,timestamptz)",
       "file": "docs/migration-drafts/ovd-723-contract.sql",
-      "supersedesSha256": "6ac058551b5cee59ea495e06f4f029d3dc874809c5979823516d82c99e2e721f",
-      "reason": "OVD-723 contract renames the deployed OVD-987 body unchanged into its private core, preserving its quantity checks beneath the export-control wrapper; rollback restores that same core."
+      "supersedesSha256": "fceb5165584533a4d790bcb316aa245271f5c7b8341027f931099d11593d4d11",
+      "reason": "OVD-723 contract renames the deployed body unchanged into its private core (now the OVD-1007 body: the OVD-987 quantity checks plus the per-request quantity grant), beneath the export-control wrapper; rollback restores that same core."
     },
     {
       "signature": "public.api_authorize_xometry_beta_worker_dispatch(uuid,uuid,jsonb,text,timestamptz)",
@@ -46,8 +46,8 @@
     {
       "signature": "public.api_authorize_xometry_beta_worker_dispatch(uuid,uuid,jsonb,text,timestamptz)",
       "file": "docs/migration-drafts/ovd-762-xometry-fanout-scope.sql",
-      "supersedesSha256": "6ac058551b5cee59ea495e06f4f029d3dc874809c5979823516d82c99e2e721f",
-      "reason": "OVD-762 fan out draft rebased onto the MD5-guarded OVD-987 body: preserves its quantity checks and adds the existing fan out provider-set rule. Rollback restores the OVD-987 body."
+      "supersedesSha256": "fceb5165584533a4d790bcb316aa245271f5c7b8341027f931099d11593d4d11",
+      "reason": "OVD-762 fan out draft rebased onto the MD5-guarded OVD-1007 body (OVD-987 quantity checks plus the per-request quantity grant) and adds the existing fan out provider-set rule. Rollback restores the OVD-1007 body."
     },
     {
       "signature": "public.api_finalize_job_file_upload(uuid,text,text,text,job_file_kind,text,bigint,text)",
@@ -66,6 +66,12 @@
       "file": "docs/migration-drafts/ovd-723-contract.sql",
       "supersedesSha256": "5ef5ae02d57bc04469886624201d7ddc4893228dd73d2d475b1f8e6a6edfd577",
       "reason": "OVD-723 contract draft (window 2): written against the body deployed today. Recorded as the baseline when this check was added; if a newer migration changes this function before the draft is promoted, this entry stops matching and the draft must be rebased onto it."
+    },
+    {
+      "signature": "private.api_list_client_part_metadata(uuid[])",
+      "file": "docs/migration-drafts/ovd-978.sql",
+      "supersedesSha256": "221e540cadc088879829be7813ac381c986c602450e5a5c385149d7b06761cde",
+      "reason": "OVD-978 already carries the identical historical projectPartProperties projection restored by OVD-1011, including defaults, overrides and timestamps. Its broader extraction-shape repair may supersede this body without dropping the reset defaults; its rollback must be rebased onto OVD-1011 before promotion."
     }
   ]
 }

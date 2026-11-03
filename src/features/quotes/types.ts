@@ -610,6 +610,8 @@ export type JobPartSummary = {
 };
 
 export type AppSessionData = {
+  /** False only while an auth seed awaits its membership fetch; undefined means resolved. */
+  membershipsResolved?: boolean;
   user: User | null;
   memberships: AppMembership[];
   isVerifiedAuth: boolean;
@@ -857,6 +859,7 @@ export type PartDetailAggregate = {
 
 export type ClientPartRequestUpdateInput = {
   jobId: string;
+  clearThreads?: boolean;
 } & ClientPartRequestEditableFields &
   RfqLineItemExtendedMetadata;
 

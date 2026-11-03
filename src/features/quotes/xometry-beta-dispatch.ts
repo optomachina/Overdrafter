@@ -1,5 +1,7 @@
+import type { ClientPartRequestUpdateInput } from "./types";
 import type { Json, VendorName } from "@/integrations/supabase/types";
 import { PROVIDER_CATALOG } from "@/features/quotes/generated/provider-catalog";
+import { REQUESTED_SERVICE_TYPE_OPTIONS } from "@/features/quotes/service-intent";
 
 export type XometryBetaModelUnits = "inch" | "millimeter";
 
@@ -115,22 +117,51 @@ export type XometryBetaScopeDenialCode =
   | "xometry_beta_standard_tolerance_required"
   // OVD-981: request fields the controlled beta envelope refuses, named in the dialog.
   | "xometry_beta_quantity_one_required"
+  | "xometry_beta_single_quantity_required"
   | "xometry_beta_special_delivery_date_not_supported"
   | "xometry_beta_special_requirements_not_supported"
   | "provider_dispatch_special_requirements_not_supported"
   | "provider_dispatch_exact_scope_required"
   // OVD-1068: the generic path's missing confirmed destination, resolved inline like Xometry's.
-  | "provider_dispatch_confirmed_destination_required";
+  | "provider_dispatch_confirmed_destination_required"
+  // OVD-993: envelope fields the customer can correct in the request form (Process,
+  // Material, Finish), and a drawing whose bytes the worker has not verified yet.
+  | "xometry_beta_cnc_milling_required"
+  | "xometry_beta_6061_t6_required"
+  | "xometry_beta_as_machined_required"
+  | "provider_dispatch_process_not_admitted"
+  | "xometry_beta_compatible_drawing_required";
 
 const ACTIONABLE_SCOPE_DENIAL_CODES: readonly XometryBetaScopeDenialCode[] = [
   "xometry_beta_confirmed_sourcing_address_required",
   "xometry_beta_standard_tolerance_required",
   "xometry_beta_quantity_one_required",
+  "xometry_beta_single_quantity_required",
   "xometry_beta_special_delivery_date_not_supported",
   "xometry_beta_special_requirements_not_supported",
   "provider_dispatch_special_requirements_not_supported",
   "provider_dispatch_exact_scope_required",
   "provider_dispatch_confirmed_destination_required",
+  "xometry_beta_cnc_milling_required",
+  "xometry_beta_6061_t6_required",
+  "xometry_beta_as_machined_required",
+  "provider_dispatch_process_not_admitted",
+  "xometry_beta_compatible_drawing_required",
+];
+
+/**
+ * OVD-993: server denials the customer cannot resolve from the dispatch dialog,
+ * named so the customer learns why without a promised action. Both resolvers
+ * refuse a job whose Requested services are anything but exactly Manufacturing
+ * quote; those services are set at intake and edited only by the internal team.
+ */
+export type XometryBetaScopeExplainedDenialCode =
+  | "xometry_beta_manufacturing_quote_only"
+  | "provider_dispatch_manufacturing_quote_only";
+
+const EXPLAINED_SCOPE_DENIAL_CODES: readonly XometryBetaScopeExplainedDenialCode[] = [
+  "xometry_beta_manufacturing_quote_only",
+  "provider_dispatch_manufacturing_quote_only",
 ];
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -433,6 +464,14 @@ export function getXometryBetaScopeDenialCode(error: unknown): XometryBetaScopeD
   return ACTIONABLE_SCOPE_DENIAL_CODES.find((code) => code === message) ?? null;
 }
 
+/** Returns the explained-only denial code when the server raised exactly that code. */
+export function getXometryBetaScopeExplainedDenialCode(
+  error: unknown,
+): XometryBetaScopeExplainedDenialCode | null {
+  const message = getFailureMessage(error).trim();
+  return EXPLAINED_SCOPE_DENIAL_CODES.find((code) => code === message) ?? null;
+}
+
 /** A concurrent edit held one of the job's rows, so the server refused the admission without waiting. */
 export function isXometryBetaJobBusy(error: unknown): boolean {
   return /\bxometry_beta_job_busy\b/.test(getFailureMessage(error));
@@ -506,8 +545,8 @@ export function classifyXometryBetaDispatchFailure(
 /**
  * OVD-991: every request field that both server scope checks (the legacy Xometry
  * resolver and the generic provider resolver) refuse as a special requirement,
- * in the words of the request form. The list is the whole set so a customer with
- * no Notes is not left guessing. Condition source: the latest definitions of
+ * in the words of the request form. This fallback is used when request details
+ * are unavailable. Condition source: the latest definitions of
  * private.resolve_xometry_beta_dispatch_scope_with_access (OVD-679) and
  * private.resolve_provider_dispatch_scope (OVD-628).
  */
@@ -515,21 +554,95 @@ const SPECIAL_REQUIREMENT_FIELDS =
   "Threads, Notes (including service, packaging, shipping, certification, sourcing and release notes), " +
   "required certifications, material certification, a certificate of conformance, " +
   "an inspection level other than Standard, preferred suppliers, a sourcing preference other than Best value, " +
-  "material provisioning other than Supplier to source, or a release hold or block";
+  "material provisioning other than Supplier to source, or a saved release hold or block (contact support)";
 
 /**
- * The request's Threads field falls back to the thread callouts read from the
- * drawing when it is cleared, and any save records them, so a part with thread
- * callouts cannot clear Threads.
+ * Drawing callouts can populate Threads, but customers can explicitly clear
+ * Threads in the request editor when the part does not need them.
  */
 const DRAWING_THREADS_NOTE =
-  " Thread callouts read from the drawing are saved as Threads with the request and cannot be cleared, so a part with thread callouts is outside the beta.";
+  " Thread callouts read from the drawing are saved as Threads with the request. You can clear Threads in the request editor if the part does not need them, then retry.";
+
+function joinWithOr(items: readonly string[]): string {
+  return items.length <= 1 ? items.join("") : `${items.slice(0, -1).join(", ")} or ${items.at(-1)}`;
+}
+
+/**
+ * OVD-993: every Requested services option other than Manufacturing quote, in
+ * the words of the form. Both resolvers deny a job whose normalized service
+ * kinds are anything but exactly ['manufacturing_quote'] (latest definitions of
+ * private.resolve_xometry_beta_dispatch_scope_with_access and
+ * private.resolve_provider_dispatch_scope, over public.normalize_requested_service_kinds).
+ */
+const NON_MANUFACTURING_SERVICES = joinWithOr(
+  REQUESTED_SERVICE_TYPE_OPTIONS.filter((option) => option.code !== "manufacturing_quote").map(
+    (option) => option.label,
+  ),
+);
 
 /** Facts about the request that sharpen a denial message. */
 export type XometryBetaScopeFailureContext = {
-  /** The drawing has thread callouts that the request's Threads field falls back to. */
+  /** The drawing has thread callouts that can populate the request's Threads field. */
   drawingThreads?: boolean;
+  /** Known saved request fields, used only to shorten denial copy. */
+  request?: Partial<ClientPartRequestUpdateInput>;
+  /**
+   * True only when `request` was read from a source that carries every field the server checks
+   * (SERVER_SPECIAL_REQUIREMENT_PATHS). A draft normalized from the client part metadata is not
+   * complete: that payload omits packaging notes, and normalization fills missing fields with
+   * null, so an unset-looking field may still be set on the server.
+   */
+  requestComplete?: boolean;
 };
+
+/** Server snapshot paths; kept in sync with both resolvers by the SQL contract test. */
+export const SERVER_SPECIAL_REQUIREMENT_PATHS = [
+  "threads", "notes", "serviceNotes", "shipping.packagingNotes", "shipping.shippingNotes",
+  "certifications.requiredCertifications", "certifications.materialCertificationRequired",
+  "certifications.certificateOfConformanceRequired", "certifications.inspectionLevel", "certifications.notes",
+  "sourcing.preferredSuppliers", "sourcing.regionPreferenceOverride", "sourcing.materialProvisioning",
+  "sourcing.notes", "release.releaseStatus", "release.notes",
+] as const;
+
+function hasEverySpecialRequirement(request: Partial<ClientPartRequestUpdateInput>): boolean {
+  return SERVER_SPECIAL_REQUIREMENT_PATHS.every((path) => {
+    let value: unknown = request;
+    for (const key of path.split(".")) {
+      if (value === null || typeof value !== "object" || !Object.prototype.hasOwnProperty.call(value, key)) return false;
+      value = (value as Record<string, unknown>)[key];
+      if (value === undefined) return false;
+    }
+    return true;
+  });
+}
+
+/** Copy only: this list never authorizes dispatch or changes the submitted request. */
+function describeSetSpecialRequirements(
+  request: Partial<ClientPartRequestUpdateInput>,
+  requestComplete: boolean,
+): string {
+  if (!requestComplete || !hasEverySpecialRequirement(request)) return SPECIAL_REQUIREMENT_FIELDS;
+  const text = (value: unknown) => typeof value === "string" && value.trim().length > 0;
+  const fields: Array<[unknown, string]> = [
+    [text(request.threads), "Threads"],
+    [text(request.notes), "Notes"],
+    [text(request.serviceNotes), "service notes"],
+    [text(request.shipping?.packagingNotes), "packaging notes"],
+    [text(request.shipping?.shippingNotes), "shipping notes"],
+    [request.certifications?.requiredCertifications?.length, "required certifications"],
+    [request.certifications?.materialCertificationRequired, "material certification"],
+    [request.certifications?.certificateOfConformanceRequired, "a certificate of conformance"],
+    [request.certifications?.inspectionLevel && request.certifications.inspectionLevel !== "standard", "an inspection level other than Standard"],
+    [text(request.certifications?.notes), "certification notes"],
+    [request.sourcing?.preferredSuppliers?.length, "preferred suppliers"],
+    [request.sourcing?.regionPreferenceOverride && request.sourcing.regionPreferenceOverride !== "best_value", "a sourcing preference other than Best value"],
+    [request.sourcing?.materialProvisioning && request.sourcing.materialProvisioning !== "supplier_to_source", "material provisioning other than Supplier to source"],
+    [text(request.sourcing?.notes), "sourcing notes"],
+    [["hold", "blocked"].includes(request.release?.releaseStatus ?? ""), "a saved release hold or block (contact support)"],
+    [text(request.release?.notes), "release notes"],
+  ];
+  return fields.filter(([set]) => Boolean(set)).map(([, label]) => label).join(", ");
+}
 
 /** Converts scope failures to bounded customer copy without exposing database details. */
 export function getXometryBetaScopeFailureMessage(
@@ -539,6 +652,11 @@ export function getXometryBetaScopeFailureMessage(
 ): string {
   const label = LIVE_DISPATCH_PROVIDER_LABELS[provider];
   const drawingThreadsNote = context.drawingThreads === true ? DRAWING_THREADS_NOTE : "";
+  const specialFields = context.request
+    ? describeSetSpecialRequirements(context.request, context.requestComplete === true)
+    : SPECIAL_REQUIREMENT_FIELDS;
+  const genericFields = [context.request ? context.request.requestedByDate && "a Need by date" : "a Need by date", specialFields]
+    .filter(Boolean).join(", ");
   switch (getXometryBetaScopeDenialCode(error)) {
     case "xometry_beta_confirmed_sourcing_address_required":
     case "provider_dispatch_confirmed_destination_required":
@@ -547,18 +665,40 @@ export function getXometryBetaScopeFailureMessage(
       return "Enter this part's tightest tolerance. The controlled Xometry beta accepts ±0.005 in (0.127 mm) or looser; tighter tolerances are outside the beta.";
     case "xometry_beta_quantity_one_required":
       return `The controlled ${label} beta quotes quantity 1 only. Set Qty to 1 and clear extra Quote quantities, then retry.`;
+    case "xometry_beta_single_quantity_required":
+      return `The controlled ${label} beta quotes one quantity per request. Remove extra Quote quantities so exactly one quantity of 1 or more remains, then retry. To see another quantity, request it as its own quote.`;
     case "xometry_beta_special_delivery_date_not_supported":
       return `The controlled ${label} beta does not support a Need by date. Clear Need by in the request, then retry.`;
     case "xometry_beta_special_requirements_not_supported":
-      return `The controlled ${label} beta cannot carry ${SPECIAL_REQUIREMENT_FIELDS}. If this part needs any of them, it is outside the beta. Remove them only if the part does not need them, then retry.${drawingThreadsNote}`;
+      return `The controlled ${label} beta cannot carry ${specialFields || "the saved special requirements"}. If this part needs any of them, it is outside the beta. Remove them only if the part does not need them, then retry.${drawingThreadsNote}`;
     case "provider_dispatch_special_requirements_not_supported":
-      return `The controlled ${label} beta cannot carry a Need by date, ${SPECIAL_REQUIREMENT_FIELDS}. If this part needs any of them, it is outside the beta. Remove them only if the part does not need them, then retry.${drawingThreadsNote}`;
+      return `The controlled ${label} beta cannot carry ${genericFields || "the saved special requirements"}. If this part needs any of them, it is outside the beta. Remove them only if the part does not need them, then retry.${drawingThreadsNote}`;
     case "provider_dispatch_exact_scope_required":
-      // Generic path only: it denies several Quote quantities (one lane per quantity) or a part or drawing
-      // that no longer matches its approved files. A single quantity of any size is accepted.
-      return `The controlled ${label} beta quotes one part at one quantity from its approved files. Remove extra Quote quantities so one quantity remains, then retry. If it still fails, the part or drawing does not match its approved files; contact support.`;
+      return `The controlled ${label} beta quotes one part at one quantity from its approved files. Check that the provider applies to this part and that the request contains one part and one Quote quantity. The approved files must also match. If the scope still cannot be verified, contact support.`;
+    // OVD-993, legacy Xometry resolver: Process, Material and Finish are compared after lowercasing and
+    // dropping every character outside a-z and 0-9, so the values named here are the forms the server accepts.
+    case "xometry_beta_cnc_milling_required":
+      return `The controlled ${label} beta quotes CNC milled parts only. If this part is CNC milled, set Process to CNC milling, then retry; a part made by another process is outside the beta.`;
+    case "xometry_beta_6061_t6_required":
+      return `The controlled ${label} beta quotes 6061-T6 aluminum only. If this part is 6061-T6 aluminum, set Material to 6061-T6 aluminum, then retry; a part in another material is outside the beta.`;
+    case "xometry_beta_as_machined_required":
+      return `The controlled ${label} beta quotes an as-machined finish only. If this part needs no finish, set Finish to As machined or leave it blank, then retry; a part that needs another finish is outside the beta.`;
+    case "provider_dispatch_process_not_admitted":
+      // Generic path only: a blank Process is refused, and the admitted process list lives in the
+      // server-side admission registry, so the copy names no process.
+      return `The controlled ${label} beta quotes only the manufacturing processes ${label} is admitted for, and this request's Process is blank or not one of them. Set Process to the process that makes this part, then retry; if ${label} is not admitted for that process, the part is outside the beta.`;
+    case "xometry_beta_compatible_drawing_required":
+      // Only the worker registers a file's verified hash, and the part page has no action that removes
+      // a drawing, so the customer can only wait for verification and retry.
+      return `The controlled ${label} beta accepts a drawing only as a PDF whose uploaded bytes have been verified, and this part's drawing has not passed that check. Wait for file processing to finish, then retry the scope check; if it still fails, contact support.`;
     default:
       break;
+  }
+
+  if (getXometryBetaScopeExplainedDenialCode(error) !== null) {
+    // Both paths: Requested services are set when the part is uploaded and are not editable here, so
+    // this explains the refusal without promising an action.
+    return `This request's Requested services include a service other than Manufacturing quote (${NON_MANUFACTURING_SERVICES}). Requested services are recorded when the part is uploaded, and controlled ${label} beta dispatch quotes manufacturing only, so this request is outside the beta.`;
   }
 
   if (isExplicitXometryBetaDispatchDenial(error)) {

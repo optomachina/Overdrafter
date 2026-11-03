@@ -48,7 +48,7 @@ export function getExportControlNoticeCopy(status: JobExportControlStatus): Expo
     return {
       title: "Export-control answer needed",
       detail:
-        "Quotes for this part are on hold until you tell us whether its files are export-controlled. Your answer covers every file on the part.",
+        "New quotes for this part are on hold until you tell us whether its files are export-controlled. Quotes you already received are not affected. Your answer covers every file on the part.",
       action: "Answer export-control question",
       actionKind: "declare",
     };

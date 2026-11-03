@@ -1,5 +1,5 @@
 import { STATUS_TONE } from "@/components/quotes/status-tone";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import {
   Archive,
@@ -171,6 +171,7 @@ const ClientPart = () => {
   const {
     activeMembership,
     automaticQuoteCollectionEnabled,
+    quoteAccessState,
     isQuoteCollectionModeLoading,
     isVerifiedAuth,
     activityEntries,
@@ -235,7 +236,7 @@ const ClientPart = () => {
     requestSummaryRequestedByDate,
     quoteViewRequestedByDate,
     needByFilterIsViewOnly,
-    needByRemovalSavesDrawingThreads,
+    clearNeedByMutation,
     revisionOptions,
     saveRequestMutation,
     singleQuantity,
@@ -272,6 +273,13 @@ const ClientPart = () => {
     refetchXometryDispatchScope,
     isXometryDispatchScopeLoading,
   } = useClientPartController(undefined, { warmNavigation: false });
+  const focusNeedByAfterRemove = useRef(false);
+  useEffect(() => {
+    if (focusNeedByAfterRemove.current && !saveRequestMutation.isPending && !clearNeedByMutation.isPending) {
+      document.getElementById("quote-selection-due-by")?.focus();
+      focusNeedByAfterRemove.current = false;
+    }
+  }, [saveRequestMutation.isPending, clearNeedByMutation.isPending]);
 
   const notificationCenter = useWorkspaceNotifications({
     accessScope: workspaceAccessScope,
@@ -349,7 +357,7 @@ const ClientPart = () => {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [handleToggleCurrentPartPin, jobId]);
 
-  if (isAuthInitializing && !user) {
+  if (isAuthInitializing && (!user || !isVerifiedAuth)) {
     // A persisted session means the user is probably signed in: draw the shell now and keep
     // part data and the account menu gated on the verified `user`.
     return hasCachedSession ? (
@@ -391,7 +399,7 @@ const ClientPart = () => {
   };
 
   const handleQuoteRequestFlowOpenChange = (open: boolean) => {
-    if (open && saveRequestMutation.isPending) {
+    if (open && (saveRequestMutation.isPending || clearNeedByMutation.isPending)) {
       return;
     }
 
@@ -533,7 +541,7 @@ const ClientPart = () => {
         onDraftChange={handleDraftChange}
         onSave={handleSaveRequest}
         onUploadRevision={attachFilesPicker.openFilePicker}
-        isSaving={saveRequestMutation.isPending}
+        isSaving={saveRequestMutation.isPending || clearNeedByMutation.isPending}
         onResetField={handleResetField}
         onResetAllFields={handleResetAllFields}
         fieldDefaults={partFieldDefaults}
@@ -586,7 +594,11 @@ const ClientPart = () => {
                   !automaticQuoteCollectionEnabled &&
                   (quoteRequestViewModel.action.kind === "request" ||
                     quoteRequestViewModel.action.kind === "retry")
-                    ? "Automatic quote collection is not enabled for this organization. Provider recommendations and official RFQ links remain available. The Founding Beta is free and invitation-only. No payment card, order, or supplier commitment is created."
+                    ? isQuoteCollectionModeLoading
+                      ? "Checking automatic quote access."
+                      : quoteAccessState === "unknown"
+                      ? "Quote is unavailable: automatic quote access could not be verified. Try again shortly."
+                      : "Automatic quote collection is not enabled for this organization. Provider recommendations and official RFQ links remain available. The Founding Beta is free and invitation-only. No payment card, order, or supplier commitment is created."
                     : quoteRequestViewModel.detail
                 }
                 actionLabel={
@@ -612,9 +624,10 @@ const ClientPart = () => {
                     : handleQuoteRequestAction
                 }
                 heading={
-                  automaticQuoteCollectionEnabled
-                    ? "Automatic quote status"
-                    : "Automatic quote access"
+                  !automaticQuoteCollectionEnabled &&
+                  (quoteRequestViewModel.action.kind === "request" || quoteRequestViewModel.action.kind === "retry")
+                    ? "Automatic quote access"
+                    : "Quote status"
                 }
               />
             ) : null}
@@ -677,7 +690,7 @@ const ClientPart = () => {
         provider={dispatchProvider}
         fanout={providerFanout}
         scope={automaticQuoteCollectionEnabled ? xometryDispatchScope : null}
-        isScopeLoading={isXometryDispatchScopeLoading || saveRequestMutation.isPending}
+        isScopeLoading={isXometryDispatchScopeLoading || saveRequestMutation.isPending || clearNeedByMutation.isPending}
         isSubmitting={isRequestingQuote}
         scopeError={
           automaticQuoteCollectionEnabled
@@ -761,9 +774,16 @@ const ClientPart = () => {
                       type="button"
                       onClick={() => setIsQuoteRequestFlowOpen(true)}
                       disabled={isQuoteCollectionModeLoading || !automaticQuoteCollectionEnabled}
+                      title={isQuoteCollectionModeLoading ? "Checking automatic quote access." : !automaticQuoteCollectionEnabled ? quoteAccessState === "unknown" ? "Quote is unavailable: automatic quote access could not be verified. Try again shortly." : "Automatic quote collection is not enabled for this organization." : undefined}
+                      aria-describedby={isQuoteCollectionModeLoading || !automaticQuoteCollectionEnabled ? "quote-disabled-reason" : undefined}
                     >
                       Quote
                     </Button>
+                    {isQuoteCollectionModeLoading || !automaticQuoteCollectionEnabled ? (
+                      <span id="quote-disabled-reason" className="sr-only">
+                        {isQuoteCollectionModeLoading ? "Checking automatic quote access." : quoteAccessState === "unknown" ? "Quote is unavailable: automatic quote access could not be verified. Try again shortly." : "Quote is unavailable: automatic quote collection is not enabled."}
+                      </span>
+                    ) : null}
                     <Button
                       type="button"
                       variant="outline"
@@ -962,7 +982,7 @@ const ClientPart = () => {
                   <ClientSourcingResultPanel
                     result={sourcingResult}
                     selectedProcess={effectiveRequestDraft?.process}
-                    isProcessSaving={saveRequestMutation.isPending}
+                    isProcessSaving={saveRequestMutation.isPending || clearNeedByMutation.isPending}
                     onProcessSelect={(process) => handleSaveRequestPatch({ process })}
                   />
                 ) : null}
@@ -1022,12 +1042,14 @@ const ClientPart = () => {
                     }
                     controls={(deadlineCounts, viewDeadline) => (
                       <>
-                        {needByFilterIsViewOnly && requestSummaryRequestedByDate ? (
+                        {needByFilterIsViewOnly && !isQuoteCollectionModeLoading && requestSummaryRequestedByDate ? (
                           <SavedNeedByNotice
                             requestedByDate={requestSummaryRequestedByDate}
-                            onRemove={() => handleSaveRequestPatch({ requestedByDate: null })}
-                            disabled={saveRequestMutation.isPending}
-                            savesDrawingThreads={needByRemovalSavesDrawingThreads}
+                            onRemove={() => {
+                              focusNeedByAfterRemove.current = true;
+                              clearNeedByMutation.mutate();
+                            }}
+                            disabled={saveRequestMutation.isPending || clearNeedByMutation.isPending}
                           />
                         ) : null}
                         <QuoteSelectionFunctionBar
@@ -1037,7 +1059,7 @@ const ClientPart = () => {
                           deadlineCounts={viewDeadline ? deadlineCounts : null}
                           onScopeChange={(nextScope) => applyPartPreset(partPresetMode, nextScope)}
                           onRequestedByDateChange={handleNeedByFilterChange}
-                          disabled={saveRequestMutation.isPending}
+                          disabled={saveRequestMutation.isPending || clearNeedByMutation.isPending}
                           dueDateHelpText={
                             needByFilterIsViewOnly
                               ? NEED_BY_VIEW_ONLY_HELP_TEXT
@@ -1051,7 +1073,7 @@ const ClientPart = () => {
                   <ClientSourcingResultPanel
                     result={sourcingResult}
                     selectedProcess={effectiveRequestDraft?.process}
-                    isProcessSaving={saveRequestMutation.isPending}
+                    isProcessSaving={saveRequestMutation.isPending || clearNeedByMutation.isPending}
                     onProcessSelect={(process) => handleSaveRequestPatch({ process })}
                   />
                 ) : null}

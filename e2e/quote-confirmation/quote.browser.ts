@@ -118,7 +118,10 @@ for (const accessMode of ["blocked", "error", "malformed"] as const) {
     await openPage(page);
     await expect.poll(() => backend.calls.filter(call => call.name === "api_get_quote_access").length).toBe(1);
     await expect(page.getByText("Automatic quote access", { exact: true })).toBeVisible();
-    await expect(page.getByText(/Automatic quote collection is not enabled for this organization/)).toBeVisible();
+    // A confirmed denial says collection is not enabled; an unverifiable lookup says so instead (OVD-1033 P2).
+    await expect(page.locator("p").filter({ hasText: accessMode === "blocked"
+      ? /Automatic quote collection is not enabled for this organization/
+      : /automatic quote access could not be verified/ })).toBeVisible();
     await expect(page.getByRole("button", { name: "Request quote", exact: true })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Check previous quote request", exact: true })).toHaveCount(0);
     expect(backend.scopes).toHaveLength(0);

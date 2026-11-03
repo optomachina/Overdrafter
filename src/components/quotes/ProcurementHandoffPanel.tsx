@@ -1,3 +1,4 @@
+import { useId } from "react";
 import { STATUS_TONE } from "@/components/quotes/status-tone";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -5,6 +6,7 @@ import {
   PROCUREMENT_BILLING_OPTIONS,
   PROCUREMENT_SHIPPING_OPTIONS,
   summarizeProcurementHandoff,
+  isValidBillingContactEmail,
   type ProcurementBillingOption,
   type ProcurementHandoffState,
   type ProcurementShippingOption,
@@ -22,6 +24,8 @@ export function ProcurementHandoffPanel({
   value,
   onChange,
 }: ProcurementHandoffPanelProps) {
+  const emailHintId = useId();
+  const invalidEmail = value.billingContactEmail.trim().length > 0 && !isValidBillingContactEmail(value.billingContactEmail);
   const summary = summarizeProcurementHandoff(value);
 
   function updateField<Key extends keyof ProcurementHandoffState>(
@@ -146,11 +150,14 @@ export function ProcurementHandoffPanel({
               <span className="text-sm text-foreground">Billing contact email</span>
               <Input
                 type="email"
+                aria-invalid={invalidEmail}
+                aria-describedby={invalidEmail ? emailHintId : undefined}
                 value={value.billingContactEmail}
                 onChange={(event) => updateField("billingContactEmail", event.target.value)}
                 placeholder="buyer@company.com"
                 className="border-border bg-muted text-foreground placeholder:text-muted-foreground"
               />
+              {invalidEmail ? <span id={emailHintId} className="block text-sm text-foreground">Enter a valid billing contact email, such as buyer@example.com.</span> : null}
             </label>
           </div>
 

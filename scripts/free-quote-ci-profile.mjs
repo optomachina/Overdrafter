@@ -55,6 +55,9 @@ export const REVIEWED_APPENDED_MIGRATIONS = Object.freeze([
   reviewedMigration('supabase/migrations/20261101120100_ovd979u4_attempt_bound_auto_approval.sql', 'OVD-979', '3c46872db181f81badc96e2565c21398541b9fbac492a34a97ac54adba764652'),
   reviewedMigration('supabase/migrations/20261101120200_ovd979u5_drawing_extraction_dedupe.sql', 'OVD-979', '2c28901ddfa9ff89253cd4fd056a2b7d85ad20116cb7e35fed25e58d28a2d643'),
   reviewedMigration('supabase/migrations/20261101130000_ovd987_controlled_beta_user_quantity.sql', 'OVD-987', 'e674bc081e5fe53a0513a00030781ccfd8c1032e4d0f4318769bb5c408540362'),
+  reviewedMigration('supabase/migrations/20261101130100_ovd1007_xometry_beta_quantity_grant.sql', 'OVD-1007', 'c06048a243762d474425814a9c6b5056225803b43a45e18c48508bbdb573be17'),
+  reviewedMigration('supabase/migrations/20261101130200_ovd994_clear_need_by_and_threads.sql', 'OVD-994', '4cd268bf66461dd96767061134763f0157dca9a4067326cfd33d561eac6e0f7c'),
+  reviewedMigration('supabase/migrations/20261101130300_ovd1011_client_part_metadata_defaults.sql', 'OVD-1011', 'fb9acb7f07576dd626f4f4f6827ceae6f621c25a5cc0a9a4690ff05cf0c9b85c'),
 ]);
 
 export function reviewedMigrationCount(reviewed = REVIEWED_APPENDED_MIGRATIONS) {

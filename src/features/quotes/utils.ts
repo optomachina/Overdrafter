@@ -930,6 +930,7 @@ export function buildRequirementDraft(
       (materialRequired ? "Unknown material" : ""),
     finish: finishResolution.value,
     threads:
+      (asObject(approved?.spec_snapshot).threads === "" ? "" : null) ??
       clientRequirement?.threads ??
       readSpecSnapshotString(approved?.spec_snapshot, "threads") ??
       (normalizedExtraction.threads && normalizedExtraction.threads.length > 0

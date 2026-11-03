@@ -62,7 +62,7 @@
     },
     "release": {
       "role": "release",
-      "note": "Architect/Release bot. Sensitive-scope issues route here architect-first (design and plan before any engineer handoff); protected merges route here from the merge gate."
+      "note": "The Claude thread (the Claude Code session that owns OverDrafter work), represented by the legacy `release` node. Sensitive-scope issues route here first (design and plan before any engineer handoff); protected merges route here from the merge gate."
     },
     "ci": {
       "role": "ci",
@@ -248,7 +248,7 @@
       "note": "auto-merge eligibility"
     },
     "usage_balancer": {
-      "note": "Pool selection and Jev-first screening (Overdrafter Lead, 2026-10-16). Placement only; does not change edges, verdicts or the merge gate. Precedence: caps (weekly-review-only, five-hour-no-builds) override every assignment rule (build-furthest-behind-pace, burn-before-reset); each override is declared in `overrides`, and overrides must not form a cycle.",
+      "note": "Pool selection and Jev-first screening owned by the Claude thread (original policy: Overdrafter Lead, 2026-10-16). Placement only; does not change edges, verdicts or the merge gate. Precedence: caps (weekly-review-only, five-hour-no-builds) override every assignment rule (build-furthest-behind-pace, burn-before-reset); each override is declared in `overrides`, and overrides must not form a cycle.",
       "balancer": {
         "repo": "optomachina/pstack-project-template",
         "script": "scripts/usage-balancer/usage-balancer.mjs",

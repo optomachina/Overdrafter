@@ -67,6 +67,8 @@ describe("QuoteSelectionFunctionBar", () => {
       />,
     );
 
+    expect(screen.getByLabelText("Need by date")).toHaveAccessibleDescription("Changes this view only.");
+    expect(screen.getByText("Changes this view only.")).toBeVisible();
     fireEvent.focus(screen.getByText("Need by date"));
     expect((await screen.findAllByText("Changes this view only.")).length).toBeGreaterThan(0);
   });

@@ -1288,8 +1288,8 @@ project IAM; the canonical Cloud Run execution inventory is compared
 byte-for-byte with the pinned baseline of exactly 11 historical completed and
 zero active executions; the checked-in sanitized operational-envelope collector
 proves the four commercial rollout controls are off (it tolerates, but does not
-certify, the OVD-987 `controlled_beta_user_quantity` control once that migration
-is applied) and compares queue/request counts and ID/status-only
+certify, the OVD-987 `controlled_beta_user_quantity` control, applied in production
+on 2026-11-02 with the switch OFF) and compares queue/request counts and ID/status-only
 fingerprints with their zero-active baseline; the hosted billing-disabled
 verifier runs; and production snapshot generation, size, and full bucket IAM
 are compared unchanged, including the full canonical bindings-and-etag document

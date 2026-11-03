@@ -10,6 +10,7 @@ import type { AppMembership, AppSessionData } from "@/features/quotes/types";
 import { getFixtureSessionDataForSearch } from "@/features/quotes/client-workspace-fixtures";
 import { fetchAppSessionData } from "@/features/quotes/api/session-access";
 import {
+  STARTUP_AUTH_TIMEOUT_MS,
   getStoredSupabaseAccessToken,
   readLiveSupabaseBootstrap,
   readStartupSupabaseBootstrap,
@@ -22,6 +23,10 @@ import { hasVerifiedAuth } from "@/lib/auth-status";
 import { recordWorkspaceSessionDiagnostic } from "@/lib/workspace-session-diagnostics";
 
 const APP_SESSION_QUERY_KEY = ["app-session"] as const;
+export const SESSION_ATTEMPT_TIMEOUT_MS = STARTUP_AUTH_TIMEOUT_MS;
+
+class SessionAttemptTimeout extends Error {}
+
 const EMPTY_MEMBERSHIPS: AppMembership[] = [];
 const EMPTY_APP_SESSION: AppSessionData = {
   user: null,
@@ -34,15 +39,25 @@ const EMPTY_APP_SESSION: AppSessionData = {
 
 // Shared by every observer, including a queryFn owned by an unmounted observer.
 const sessionEpochs = new WeakMap<QueryClient, number>();
+const failedRestores = new WeakSet<QueryClient>();
+const pendingRestores = new WeakMap<QueryClient, { epoch: number; promise: Promise<AppSessionData>; timedOut: boolean }>();
 const getSessionEpoch = (client: QueryClient) => sessionEpochs.get(client) ?? 0;
 
 function advanceSessionEpoch(client: QueryClient, cancelFetch = true) {
+  pendingRestores.delete(client);
   sessionEpochs.set(client, getSessionEpoch(client) + 1);
   if (cancelFetch) void client.cancelQueries({ queryKey: APP_SESSION_QUERY_KEY });
 }
 
 function isRestoredSession(session: AppSessionData | undefined): session is AppSessionData {
   return session?.restoreComplete === true && session.authState === "authenticated" && Boolean(session.user);
+}
+
+// A completed projection without a user (the deadline's session_error, or an
+// anonymous/invalid result) is final for every observer, even while a Retry
+// or an abandoned queryFn is still in flight.
+function isSettledWithoutUser(session: AppSessionData | undefined): boolean {
+  return session?.restoreComplete === true && !session.user;
 }
 
 function isAppSessionQuery(queryKey: readonly unknown[]): boolean {
@@ -77,7 +92,6 @@ export function useAppSession() {
   const queryClient = useQueryClient();
   const pendingAuthTransitionRef = useRef(false);
   const retryTimeoutRef = useRef<number | null>(null);
-  const initialAuthCheckRef = useRef<InitialAuthCheckState>("checking");
   const hasResolvedInitialRestoreRef = useRef(false);
   const terminalAuthStateRef = useRef<"invalid_session" | null>(null);
   const sessionErrorRetriedRef = useRef(false);
@@ -85,10 +99,16 @@ export function useAppSession() {
   const fixtureSession = getFixtureSessionDataForSearch(location.search);
   const isFixtureSession = fixtureSession !== null;
   const startupHadStoredTokenRef = useRef(Boolean(fixtureSession ? false : getStoredSupabaseAccessToken()));
+  // An observer mounted after the shared restore settled without a user (for
+  // example the Sign in panel after the deadline) must not reopen the splash.
+  const [mountedAfterSettledRestore] = useState(() =>
+    !fixtureSession && isSettledWithoutUser(queryClient.getQueryData<AppSessionData>(APP_SESSION_QUERY_KEY)));
   const [initialAuthCheck, setInitialAuthCheck] = useState<InitialAuthCheckState>(
-    fixtureSession ? "none" : "checking",
+    fixtureSession || mountedAfterSettledRestore ? "none" : "checking",
   );
-  const [hasResolvedInitialRestore, setHasResolvedInitialRestore] = useState(Boolean(fixtureSession));
+  const initialAuthCheckRef = useRef<InitialAuthCheckState>(initialAuthCheck);
+  const [hasResolvedInitialRestore, setHasResolvedInitialRestore] = useState(
+    Boolean(fixtureSession) || mountedAfterSettledRestore);
   const sessionQueryKey = isFixtureSession
     ? [...APP_SESSION_QUERY_KEY, "fixture", location.pathname, location.search]
     : APP_SESSION_QUERY_KEY;
@@ -166,6 +186,7 @@ export function useAppSession() {
       queryClient.setQueryData<AppSessionData>(APP_SESSION_QUERY_KEY, (current) => ({
         user: session.user,
         memberships: current?.user?.id === session.user.id ? current.memberships : EMPTY_MEMBERSHIPS,
+        membershipsResolved: current?.user?.id === session.user.id ? current.membershipsResolved : false,
         isVerifiedAuth: hasVerifiedAuth(session.user),
         isPlatformAdmin: current?.user?.id === session.user.id ? current.isPlatformAdmin ?? false : false,
         authState: "authenticated",
@@ -375,6 +396,20 @@ export function useAppSession() {
         return;
       }
 
+      // Every observer subscribes, and each subscription replays INITIAL_SESSION
+      // under supabase-js's auth lock. It is the stored session that the startup
+      // bootstrap and the in-flight restore already read. Restarting the query
+      // for it cancels that restore and queues another serialised getUser()
+      // behind the lock, so under latency the restore never finishes.
+      if (event === "INITIAL_SESSION") {
+        const cached = queryClient.getQueryData<AppSessionData>(APP_SESSION_QUERY_KEY);
+        if (queryClient.isFetching({ queryKey: APP_SESSION_QUERY_KEY }) > 0 ||
+            (cached?.user?.id === session.user.id && cached.restoreComplete === true)) {
+          return;
+        }
+      }
+
+      failedRestores.delete(queryClient);
       terminalAuthStateRef.current = null;
       updateInitialAuthCheck("present");
       seedSessionFromSupabaseSession(session, "use-app-session.auth-state-change.seed", true);
@@ -409,7 +444,59 @@ export function useAppSession() {
           throw new Error("Session fetch superseded");
         }
       };
-      const result = await fetchAppSessionData();
+      // Fence late results at the projection boundary. Underlying auth calls may
+      // still share a client lock or a deduplicated admin request.
+      // Keep an initial hydration alive after the UI budget expires. Recovery
+      // after a completed error remains a separate, bounded attempt.
+      let pending = pendingRestores.get(queryClient);
+      if (!pending && !failedRestores.has(queryClient) && !sessionErrorRetriedRef.current && !membershipErrorRetriedRef.current &&
+          !isRestoredSession(queryClient.getQueryData(APP_SESSION_QUERY_KEY))) {
+        const entry = { epoch, promise: fetchAppSessionData(), timedOut: false };
+        pending = entry;
+        pendingRestores.set(queryClient, entry);
+        signal.addEventListener("abort", () => {
+          if (pendingRestores.get(queryClient) === entry) pendingRestores.delete(queryClient);
+        }, { once: true });
+        void entry.promise.then((lateResult) => {
+          if (pendingRestores.get(queryClient) !== entry || entry.epoch !== getSessionEpoch(queryClient)) return;
+          // A failure arriving after the UI deadline must not poison future Retry hydration.
+          if (!entry.timedOut && (lateResult.authState === "session_error" || lateResult.membershipError)) failedRestores.add(queryClient);
+          if (entry.timedOut && lateResult.authState === "authenticated" && !lateResult.membershipError) {
+            const previous = queryClient.getQueryData<AppSessionData>(APP_SESSION_QUERY_KEY);
+            clearSubjectBoundClientState(queryClient, previous?.user?.id, lateResult.user?.id);
+            queryClient.setQueryData(APP_SESSION_QUERY_KEY, { ...lateResult, restoreComplete: true });
+          }
+          pendingRestores.delete(queryClient);
+        }, () => {
+          if (pendingRestores.get(queryClient) === entry) pendingRestores.delete(queryClient);
+        });
+      }
+      const attemptDeadline = Date.now() + STARTUP_AUTH_TIMEOUT_MS;
+      let result: AppSessionData;
+      for (;;) {
+        let attemptTimer: ReturnType<typeof setTimeout> | undefined;
+        try {
+          result = await Promise.race([
+            pending?.promise ?? fetchAppSessionData(),
+            new Promise<never>((_, reject) => {
+              attemptTimer = setTimeout(
+                () => reject(new SessionAttemptTimeout("Session restore attempt timed out")),
+                Math.min(SESSION_ATTEMPT_TIMEOUT_MS, Math.max(0, attemptDeadline - Date.now())),
+              );
+            }),
+          ]).finally(() => clearTimeout(attemptTimer));
+          break;
+        } catch (error) {
+          assertCurrentFetch();
+          if (!(error instanceof SessionAttemptTimeout)) throw error;
+          if (pending) pending.timedOut = true;
+          if (Date.now() >= attemptDeadline && !isRestoredSession(queryClient.getQueryData(APP_SESSION_QUERY_KEY))) {
+            return { ...EMPTY_APP_SESSION, authState: getStoredSupabaseAccessToken() ? "session_error" : "anonymous" } satisfies AppSessionData;
+          }
+          // Timeout retries are explicit: never add React Query backoff to this budget.
+          if (isRestoredSession(queryClient.getQueryData(APP_SESSION_QUERY_KEY))) throw error;
+        }
+      }
       // A cancelled query can keep executing when the transport ignores abort.
       // It must not mutate auth state, clear caches, or schedule another fetch.
       assertCurrentFetch();
@@ -453,7 +540,8 @@ export function useAppSession() {
             membershipErrorRetriedRef.current = true;
             scheduleSessionRefresh();
           } else if (!isRestoredSession(currentSession)) {
-            // Initial membership failure remains visible after its retry.
+            // Preserve identity and the error for the controller's bounded recovery.
+            // Empty memberships continue to withhold authenticated workspace content.
             return { ...result, restoreComplete: true };
           }
           // A degraded refetch cannot replace the last completed projection.
@@ -462,6 +550,7 @@ export function useAppSession() {
             : result;
         }
 
+        failedRestores.delete(queryClient);
         membershipErrorRetriedRef.current = false;
         sessionErrorRetriedRef.current = false;
         return { ...result, restoreComplete: true };
@@ -515,6 +604,7 @@ export function useAppSession() {
             }
             return {
               user: liveBootstrap.session.user,
+              membershipsResolved: false,
               memberships: currentSession?.user?.id === liveBootstrap.session.user.id
                 ? currentSession.memberships
                 : EMPTY_MEMBERSHIPS,
@@ -540,6 +630,12 @@ export function useAppSession() {
       );
       return { ...result, restoreComplete: true };
     },
+    retry: (failureCount, error) => {
+      if (error instanceof SessionAttemptTimeout) return false;
+      const retry = queryClient.getDefaultOptions().queries?.retry ?? 3;
+      return typeof retry === "function" ? retry(failureCount, error)
+        : retry === true || (typeof retry === "number" && failureCount < retry);
+    },
     initialData: fixtureSession ?? undefined,
     staleTime: fixtureSession ? Infinity : WORKSPACE_SHARED_STALE_TIME_MS,
   });
@@ -547,7 +643,17 @@ export function useAppSession() {
   useEffect(() => {
     // Only an accepted shared result can finish restoration. Cancelled query functions
     // may still finish executing, and other observers may never run their own queryFn.
-    if (isFixtureSession || sessionQuery.fetchStatus !== "idle") {
+    if (isFixtureSession) {
+      return;
+    }
+    if (sessionQuery.fetchStatus !== "idle") {
+      // The first observer to reach the deadline settles the shared projection;
+      // every other observer leaves the splash with it.
+      if (isSettledWithoutUser(sessionQuery.data)) {
+        pendingAuthTransitionRef.current = false;
+        updateInitialAuthCheck("none");
+        markInitialRestoreResolved("use-app-session.settled-projection");
+      }
       return;
     }
     if (sessionQuery.isError || sessionQuery.data?.restoreComplete === true) {
@@ -562,22 +668,53 @@ export function useAppSession() {
     }
   }, [isFixtureSession, markInitialRestoreResolved, sessionQuery.data, sessionQuery.fetchStatus, sessionQuery.isError, updateInitialAuthCheck]);
 
+  const restorePending = !isFixtureSession && (!hasResolvedInitialRestore ||
+    (!sessionQuery.data?.restoreComplete && !sessionQuery.isError));
+  useEffect(() => {
+    if (!restorePending) return;
+    const deadline = window.setTimeout(() => {
+      const current = queryClient.getQueryData<AppSessionData>(APP_SESSION_QUERY_KEY);
+      if (current?.restoreComplete) {
+        // Another observer settled first, or the restore finished while a
+        // refetch is still in flight: this observer resolves too.
+        pendingAuthTransitionRef.current = false;
+        if (!current.user) updateInitialAuthCheck("none");
+        markInitialRestoreResolved("use-app-session.deadline");
+        return;
+      }
+      const pending = pendingRestores.get(queryClient);
+      if (pending) pending.timedOut = true;
+      else advanceSessionEpoch(queryClient);
+      clearRetryTimeout();
+      pendingAuthTransitionRef.current = false;
+      updateInitialAuthCheck("none");
+      queryClient.setQueryData(APP_SESSION_QUERY_KEY, { ...EMPTY_APP_SESSION, authState: getStoredSupabaseAccessToken() ? "session_error" : "anonymous" });
+      markInitialRestoreResolved("use-app-session.deadline");
+    }, STARTUP_AUTH_TIMEOUT_MS);
+    return () => window.clearTimeout(deadline);
+  }, [restorePending, queryClient, clearRetryTimeout, updateInitialAuthCheck, markInitialRestoreResolved]);
+
   // A failed initial restore exposes sign-in; a failed background refetch keeps
   // the last completed session and the query's non-blocking error/refetch API.
   const sessionData = sessionQuery.isError && !isRestoredSession(sessionQuery.data)
     ? EMPTY_APP_SESSION
     : sessionQuery.data;
+  // Consumers need the seed identity immediately; initialization and privilege
+  // gates keep authenticated content and bootstrap waiting for memberships.
+  const publicSessionData = sessionData?.user && !sessionData.restoreComplete && !isFixtureSession
+    ? { ...sessionData, isVerifiedAuth: false, isPlatformAdmin: false }
+    : sessionData;
   const memberships = sessionData?.memberships ?? EMPTY_MEMBERSHIPS;
   const activeMembership: AppMembership | null = memberships[0] ?? null;
   const hasResolvedCurrentRestore = hasResolvedInitialRestore &&
-    (!sessionData?.user || isFixtureSession || sessionData.restoreComplete === true);
+    (isFixtureSession || sessionQuery.isError || sessionData?.restoreComplete === true);
   const isAuthInitializing = !sessionQuery.isError &&
     !hasResolvedCurrentRestore &&
     (Boolean(sessionData?.user) || initialAuthCheck === "present" ||
-      (initialAuthCheck === "checking" && startupHadStoredTokenRef.current));
+      startupHadStoredTokenRef.current);
   // The React Query cache is empty after a reload, so also trust the persisted Supabase
   // token read synchronously at startup. This only lets pages draw their shell chrome;
-  // `user` stays null (and data queries stay disabled) until the session is verified.
+  // seeded users remain visible, while initialization and privilege gates block workspace access.
   const hasCachedSession =
     startupHadStoredTokenRef.current ||
     Boolean(sessionQuery.data?.user && sessionQuery.data.authState === "authenticated");
@@ -718,11 +855,12 @@ export function useAppSession() {
 
   return {
     ...sessionQuery,
-    data: sessionData,
-    user: sessionData?.user ?? null,
+    data: publicSessionData,
+    user: publicSessionData?.user ?? null,
     memberships,
-    isVerifiedAuth: sessionData?.isVerifiedAuth ?? false,
-    isPlatformAdmin: sessionData?.isPlatformAdmin ?? false,
+    hasResolvedMemberships: sessionQuery.data?.membershipsResolved !== false,
+    isVerifiedAuth: publicSessionData?.isVerifiedAuth ?? false,
+    isPlatformAdmin: publicSessionData?.isPlatformAdmin ?? false,
     authState: sessionData?.authState ?? "anonymous",
     membershipError: sessionData?.membershipError ?? null,
     isAuthInitializing,

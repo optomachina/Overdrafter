@@ -340,7 +340,7 @@ export function classifyPaths(paths, config) {
   return { sensitive: classes.length > 0, classes, files };
 }
 
-/** Triage route for an issue whose scope touches these paths (AGENTS.md: architect-first). */
+/** Triage route: legacy architect_first means route to the Claude thread first (AGENTS.md). */
 export function triageRoute(paths, config) {
   const result = classifyPaths(paths, config);
   return { route: result.sensitive ? "architect_first" : "standard", classes: result.classes };

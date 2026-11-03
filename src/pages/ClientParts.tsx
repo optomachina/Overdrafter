@@ -149,7 +149,7 @@ export default function ClientParts() {
     [collection, filter, parsedQuery],
   );
 
-  if (controller.isAuthInitializing && !controller.user) {
+  if (controller.isAuthInitializing && (!controller.user || !controller.isVerifiedAuth)) {
     return <AuthBootstrapScreen message="Restoring your parts workspace." />;
   }
 

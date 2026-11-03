@@ -41,10 +41,13 @@ function SessionProbe() {
 
   return (
     <div>
+      <span data-testid="data-user">{session.data?.user?.id ?? "none"}</span>
       <span data-testid="email">{session.user?.email ?? "anonymous"}</span>
+      <span data-testid="verified-auth">{session.isVerifiedAuth ? "yes" : "no"}</span>
       <span data-testid="auth-state">{session.authState}</span>
       <span data-testid="auth-initializing">{session.isAuthInitializing ? "yes" : "no"}</span>
       <span data-testid="has-cached-session">{session.hasCachedSession ? "yes" : "no"}</span>
+      <span data-testid="memberships-resolved">{session.hasResolvedMemberships ? "yes" : "no"}</span>
       <span data-testid="membership-count">{session.memberships.length}</span>
       <span data-testid="membership-error">{session.membershipError ?? "none"}</span>
       <span data-testid="query-error">{session.isError ? "yes" : "no"}</span>
@@ -69,13 +72,7 @@ function renderProbe() {
     },
   });
 
-  const view = render(
-    <QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={["/"]}>
-        <SessionProbe />
-      </MemoryRouter>
-    </QueryClientProvider>,
-  );
+  const view = renderProbeWithQueryClient(queryClient);
 
   return {
     ...view,
@@ -134,6 +131,13 @@ function makeRestoredSession(session: Session): AppSessionData {
     isVerifiedAuth: true,
     authState: "authenticated",
   };
+}
+
+function seedLocalSession(storage: ReturnType<typeof createStorageMock>) {
+  const session = makeLocalSession();
+  storage.setItem(getSupabaseAuthStorageKey(), JSON.stringify({ access_token: session.access_token }));
+  getSessionMock.mockResolvedValue({ data: { session }, error: null });
+  return session;
 }
 
 function createStorageMock() {
@@ -206,15 +210,313 @@ describe("useAppSession", () => {
     vi.unstubAllEnvs();
   });
 
-  it.each(["throw", "session_error"])("keeps a restored session after exhausted background %s retries", async (failure) => {
+  it("keeps memberships unresolved after anonymous SIGNED_IN until the deferred fetch completes", async () => {
+    const pending = deferredPromise<AppSessionData>();
     const localSession = makeLocalSession();
-    storageMock.setItem(getSupabaseAuthStorageKey(), JSON.stringify({ access_token: localSession.access_token }));
+    localSession.user.email_confirmed_at = "2026-03-11T00:00:00.000Z";
+    fetchAppSessionDataMock.mockResolvedValueOnce({
+      user: null, memberships: [], isVerifiedAuth: false, authState: "anonymous",
+    }).mockReturnValueOnce(pending.promise);
+    const { unmount } = renderProbe();
+    await waitFor(() => {
+      expect(screen.getByTestId("email")).toHaveTextContent("anonymous");
+      expect(screen.getByTestId("auth-initializing")).toHaveTextContent("no");
+      expect(fetchAppSessionDataMock).toHaveBeenCalledTimes(1);
+    });
     getSessionMock.mockResolvedValue({ data: { session: localSession }, error: null });
+    act(() => authStateChangeCallbacks.forEach((callback) => callback("SIGNED_IN", localSession)));
+    await waitFor(() => {
+      expect(screen.getByTestId("memberships-resolved")).toHaveTextContent("no");
+      expect(fetchAppSessionDataMock).toHaveBeenCalledTimes(2);
+    });
+    await act(async () => pending.resolve(makeRestoredSession(localSession)));
+    await waitFor(() => expect(screen.getByTestId("memberships-resolved")).toHaveTextContent("yes"));
+    unmount();
+  });
+
+  async function renderRestoredProbe(queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })) {
+    const localSession = seedLocalSession(storageMock);
     fetchAppSessionDataMock.mockResolvedValue(makeRestoredSession(localSession));
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: 3, retryDelay: 1 } } });
-    renderProbeWithQueryClient(queryClient);
+    const view = renderProbeWithQueryClient(queryClient);
     await waitFor(() => expect(screen.getByTestId("membership-count")).toHaveTextContent("1"));
     await waitFor(() => expect(screen.getByTestId("auth-initializing")).toHaveTextContent("no"));
+    return { ...view, queryClient, localSession };
+  }
+
+  it("does not apply default query retries to a timed-out background fetch", async () => {
+    const { queryClient, localSession } = await renderRestoredProbe(new QueryClient({ defaultOptions: { queries: { retry: 3 } } }));
+    vi.useFakeTimers();
+    const before = fetchAppSessionDataMock.mock.calls.length;
+    fetchAppSessionDataMock.mockReturnValue(new Promise(() => undefined));
+    act(() => { void queryClient.invalidateQueries({ queryKey: ["app-session"] }); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(STARTUP_AUTH_TIMEOUT_MS + 10000); });
+    expect(fetchAppSessionDataMock).toHaveBeenCalledTimes(before + 1);
+    expect(screen.getByTestId("email")).toHaveTextContent(localSession.user.email!);
+    expect(queryClient.getQueryState(["app-session"])?.fetchStatus).toBe("idle");
+  });
+
+  it("restores a 2000 ms fetch on the first attempt", async () => {
+    vi.useFakeTimers();
+    const local = seedLocalSession(storageMock);
+    fetchAppSessionDataMock.mockImplementation(() => new Promise((resolve) => {
+      setTimeout(() => resolve(makeRestoredSession(local)), 2000);
+    }));
+    renderProbe();
+    await act(async () => { await vi.advanceTimersByTimeAsync(2001); });
+    expect(fetchAppSessionDataMock).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId("membership-count")).toHaveTextContent("1");
+    expect(screen.getByTestId("auth-initializing")).toHaveTextContent("no");
+  });
+
+  it.each([false, true])("adopts sequential 2 s restore steps beyond the deadline (Retry: %s)", async (retry) => {
+    vi.useFakeTimers();
+    const local = seedLocalSession(storageMock);
+    const steps: string[] = [];
+    fetchAppSessionDataMock.mockImplementation(async () => {
+      for (const step of ["auth-1", "auth-2", "auth-3", "memberships", "admin"]) {
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+        steps.push(step);
+      }
+      return makeRestoredSession(local);
+    });
+    renderProbe();
+    await act(async () => { await vi.advanceTimersByTimeAsync(STARTUP_AUTH_TIMEOUT_MS + 1); });
+    expect(screen.getByTestId("auth-state")).toHaveTextContent("session_error");
+    expect(screen.getByTestId("auth-initializing")).toHaveTextContent("no");
+    expect(screen.getByTestId("verified-auth")).toHaveTextContent("no");
+    if (retry) fireEvent.click(screen.getByRole("button", { name: "Retry session" }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(5001); });
+    expect(steps).toEqual(["auth-1", "auth-2", "auth-3", "memberships", "admin"]);
+    expect(fetchAppSessionDataMock).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId("email")).toHaveTextContent(local.user.email!);
+    expect(screen.getByTestId("membership-count")).toHaveTextContent("1");
+    expect(screen.getByTestId("verified-auth")).toHaveTextContent("yes");
+    expect(screen.getByTestId("auth-state")).toHaveTextContent("authenticated");
+  });
+
+  it("restores on Retry after a timed-out six-second membership failure", async () => {
+    vi.useFakeTimers();
+    const local = seedLocalSession(storageMock);
+    let calls = 0;
+    fetchAppSessionDataMock.mockImplementation(async () => {
+      const first = ++calls === 1;
+      await new Promise((resolve) => setTimeout(resolve, 6000));
+      return first
+        ? { ...makeRestoredSession(local), memberships: [], membershipError: "Membership lookup failed" }
+        : makeRestoredSession(local);
+    });
+    renderProbe();
+    await act(async () => { await vi.advanceTimersByTimeAsync(6001); });
+    expect(screen.getByTestId("auth-state")).toHaveTextContent("session_error");
+    fireEvent.click(screen.getByRole("button", { name: "Retry session" }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(5001); });
+    expect(screen.getByTestId("auth-state")).toHaveTextContent("session_error");
+    fireEvent.click(screen.getByRole("button", { name: "Retry session" }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(6001); });
+    expect(fetchAppSessionDataMock).toHaveBeenCalledTimes(2);
+    expect(screen.getByTestId("auth-state")).toHaveTextContent("authenticated");
+    expect(screen.getByTestId("membership-count")).toHaveTextContent("1");
+    expect(screen.getByTestId("verified-auth")).toHaveTextContent("yes");
+  });
+
+  it("adopts locked serial hydration after same-user SIGNED_IN restarts the query", async () => {
+    vi.useFakeTimers();
+    const local = seedLocalSession(storageMock);
+    let lock = Promise.resolve();
+    fetchAppSessionDataMock.mockImplementation(async () => {
+      for (let step = 0; step < 3; step++) {
+        const next = lock.then(() => new Promise<void>((resolve) => setTimeout(resolve, 2000)));
+        lock = next;
+        await next;
+      }
+      return makeRestoredSession(local);
+    });
+    renderProbe();
+    await act(async () => { await vi.advanceTimersByTimeAsync(2500); });
+    act(() => authStateChangeCallbacks.forEach((callback) => callback("SIGNED_IN", local)));
+    await act(async () => { await vi.advanceTimersByTimeAsync(2501); });
+    expect(fetchAppSessionDataMock).toHaveBeenCalledTimes(2);
+    expect(screen.getByTestId("auth-state")).toHaveTextContent("session_error");
+    expect(screen.getByTestId("verified-auth")).toHaveTextContent("no");
+    await act(async () => { await vi.advanceTimersByTimeAsync(10000); });
+    expect(screen.getByTestId("auth-state")).toHaveTextContent("authenticated");
+    expect(screen.getByTestId("email")).toHaveTextContent(local.user.email!);
+    expect(screen.getByTestId("membership-count")).toHaveTextContent("1");
+    expect(screen.getByTestId("verified-auth")).toHaveTextContent("yes");
+  });
+
+  it("resolves every observer at the deadline after a same-user SIGNED_IN restarts the restore", async () => {
+    vi.useFakeTimers();
+    const local = seedLocalSession(storageMock);
+    fetchAppSessionDataMock.mockImplementation(() => new Promise((resolve) => {
+      setTimeout(() => resolve(makeRestoredSession(local)), 6000);
+    }));
+    function BareObserver() {
+      useAppSession();
+      return null;
+    }
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const tree = (withSignInPanel: boolean) => (
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={["/internal/jobs/job-1"]}>
+          <BareObserver />
+          <SessionProbe />
+          {withSignInPanel ? <SessionProbe /> : null}
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+    const view = render(tree(false));
+    await act(async () => { await vi.advanceTimersByTimeAsync(2500); });
+    act(() => authStateChangeCallbacks.forEach((callback) => callback("SIGNED_IN", local)));
+    await act(async () => { await vi.advanceTimersByTimeAsync(STARTUP_AUTH_TIMEOUT_MS - 2500 + 100); });
+    expect(screen.getByTestId("auth-initializing")).toHaveTextContent("no");
+    expect(screen.getByTestId("auth-state")).toHaveTextContent("session_error");
+    expect(screen.getByTestId("verified-auth")).toHaveTextContent("no");
+    // Opening the Sign in panel mounts another observer; it must not reopen the splash.
+    view.rerender(tree(true));
+    for (const initializing of screen.getAllByTestId("auth-initializing")) {
+      expect(initializing).toHaveTextContent("no");
+    }
+  });
+
+  it("lets an auth event clear an earlier failed restore so its slow restore is still adopted", async () => {
+    vi.useFakeTimers();
+    const local = seedLocalSession(storageMock);
+    let calls = 0;
+    // Two quick failures settle the startup restore; the next one is slow.
+    fetchAppSessionDataMock.mockImplementation(() => new Promise((resolve) => {
+      calls += 1;
+      if (calls <= 2) {
+        setTimeout(() => resolve({ user: null, memberships: [], isVerifiedAuth: false, authState: "session_error" }), 300);
+      } else {
+        setTimeout(() => resolve(makeRestoredSession(local)), 6000);
+      }
+    }));
+    renderProbe();
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+    expect(fetchAppSessionDataMock).toHaveBeenCalledTimes(2);
+    expect(screen.getByTestId("auth-state")).toHaveTextContent("session_error");
+    expect(screen.getByTestId("auth-initializing")).toHaveTextContent("no");
+    act(() => authStateChangeCallbacks.forEach((callback) => callback("SIGNED_IN", local)));
+    await act(async () => { await vi.advanceTimersByTimeAsync(STARTUP_AUTH_TIMEOUT_MS + 100); });
+    expect(screen.getByTestId("auth-state")).toHaveTextContent("session_error");
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+    expect(fetchAppSessionDataMock).toHaveBeenCalledTimes(3);
+    expect(screen.getByTestId("auth-state")).toHaveTextContent("authenticated");
+    expect(screen.getByTestId("membership-count")).toHaveTextContent("1");
+    expect(screen.getByTestId("verified-auth")).toHaveTextContent("yes");
+  });
+
+  it.each(["SIGNED_OUT", "SIGNED_IN"])("fences late hydration after the deadline and %s", async (event) => {
+    vi.useFakeTimers();
+    const local = seedLocalSession(storageMock);
+    const late = deferredPromise<AppSessionData>();
+    fetchAppSessionDataMock.mockReturnValueOnce(late.promise).mockReturnValue(new Promise(() => undefined));
+    renderProbe();
+    await act(async () => { await vi.advanceTimersByTimeAsync(STARTUP_AUTH_TIMEOUT_MS + 1); });
+    const second = { ...local, user: { ...local.user, id: "user-2", email: "second@example.com" } };
+    await act(async () => {
+      authStateChangeCallbacks.forEach((callback) => callback(event, event === "SIGNED_OUT" ? null : second));
+      await vi.advanceTimersByTimeAsync(1);
+      late.resolve(makeRestoredSession(local));
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    expect(screen.getByTestId("email")).toHaveTextContent(event === "SIGNED_OUT" ? "anonymous" : "second@example.com");
+    expect(screen.getByTestId("membership-count")).toHaveTextContent("0");
+    expect(screen.getByTestId("verified-auth")).toHaveTextContent("no");
+  });
+
+  it("bounds a hung membership retry by the overall startup deadline", async () => {
+    vi.useFakeTimers();
+    const local = seedLocalSession(storageMock);
+    const first = deferredPromise<AppSessionData>();
+    fetchAppSessionDataMock.mockReturnValueOnce(first.promise).mockReturnValue(new Promise(() => undefined));
+    renderProbe();
+    await act(async () => { await vi.advanceTimersByTimeAsync(4000); });
+    await act(async () => {
+      first.resolve({ ...makeRestoredSession(local), memberships: [], membershipError: "Memberships unavailable" });
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    expect(fetchAppSessionDataMock).toHaveBeenCalledTimes(2);
+    expect(screen.getByTestId("auth-initializing")).toHaveTextContent("yes");
+    expect(screen.getByTestId("membership-error")).toHaveTextContent("Memberships unavailable");
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+    expect(screen.getByTestId("auth-state")).toHaveTextContent("session_error");
+    expect(screen.getByTestId("auth-initializing")).toHaveTextContent("no");
+    expect(fetchAppSessionDataMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("withholds verified auth from an email-confirmed seed while initializing", async () => {
+    const local = seedLocalSession(storageMock);
+    local.user.email_confirmed_at = "2026-03-11T00:00:00.000Z";
+    const pending = deferredPromise<AppSessionData>();
+    fetchAppSessionDataMock.mockReturnValueOnce(pending.promise);
+    const { queryClient } = renderProbe();
+    await waitFor(() => expect(screen.getByTestId("email")).toHaveTextContent(local.user.email!));
+    expect(queryClient.getQueryData<AppSessionData>(["app-session"])?.isVerifiedAuth).toBe(true);
+    expect(screen.getByTestId("auth-initializing")).toHaveTextContent("yes");
+    expect(screen.getByTestId("verified-auth")).toHaveTextContent("no");
+    await act(async () => pending.resolve(makeRestoredSession(local)));
+    await waitFor(() => expect(screen.getByTestId("auth-initializing")).toHaveTextContent("no"));
+    expect(screen.getByTestId("verified-auth")).toHaveTextContent("yes");
+  });
+
+  it("classifies a hung visitor fetch without a stored token as anonymous at both deadlines", async () => {
+    vi.useFakeTimers();
+    fetchAppSessionDataMock.mockReturnValue(new Promise(() => undefined));
+    renderProbe();
+    await act(async () => { await vi.advanceTimersByTimeAsync(STARTUP_AUTH_TIMEOUT_MS + 1); });
+    expect(screen.getByTestId("auth-state")).toHaveTextContent("anonymous");
+    expect(screen.getByTestId("auth-initializing")).toHaveTextContent("no");
+    fireEvent.click(screen.getByRole("button", { name: "Retry session" }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(STARTUP_AUTH_TIMEOUT_MS + 1); });
+    expect(screen.getByTestId("auth-state")).toHaveTextContent("anonymous");
+  });
+
+  it.each([true, false])("abandons hung retry attempts and fails closed at the deadline (bootstrap session: %s)", async (hasBootstrapSession) => {
+    vi.useFakeTimers();
+    const local = makeLocalSession();
+    storageMock.setItem(getSupabaseAuthStorageKey(), JSON.stringify({ access_token: local.access_token }));
+    getSessionMock.mockResolvedValue({ data: { session: hasBootstrapSession ? local : null }, error: null });
+    const abandoned = deferredPromise<AppSessionData>();
+    fetchAppSessionDataMock.mockResolvedValueOnce({ user: null, memberships: [], isVerifiedAuth: false, authState: "session_error" }).mockReturnValue(abandoned.promise);
+    renderProbeWithQueryClient(new QueryClient({ defaultOptions: { queries: { retry: 3, retryDelay: 1 } } }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(STARTUP_AUTH_TIMEOUT_MS + 1); });
+    expect(screen.getByTestId("auth-initializing")).toHaveTextContent("no");
+    expect(screen.getByTestId("auth-state")).toHaveTextContent("session_error");
+    expect(screen.getByRole("button", { name: "Retry session" })).toBeEnabled();
+    await act(async () => { abandoned.resolve(makeRestoredSession(local)); await vi.advanceTimersByTimeAsync(1); });
+    expect(screen.getByTestId("email")).toHaveTextContent("anonymous");
+    fetchAppSessionDataMock.mockResolvedValue(makeRestoredSession(local));
+    fireEvent.click(screen.getByRole("button", { name: "Retry session" }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+    expect(screen.getByTestId("membership-count")).toHaveTextContent("1");
+    expect(screen.getByTestId("email")).toHaveTextContent(local.user.email!);
+  });
+
+  it("preserves identity and membershipError for controller recovery after the membership retry fails", async () => {
+    const local = makeLocalSession();
+    getSessionMock.mockResolvedValue({ data: { session: local }, error: null });
+    const pending = deferredPromise<AppSessionData>();
+    const failure: AppSessionData = {
+      ...makeRestoredSession(local), memberships: [], membershipError: "Memberships unavailable",
+    };
+    fetchAppSessionDataMock.mockReturnValueOnce(pending.promise).mockResolvedValue(failure);
+    const { queryClient } = renderProbe();
+    await waitFor(() => expect(queryClient.getQueryData<AppSessionData>(["app-session"])?.user?.id).toBe(local.user.id));
+    await act(async () => pending.resolve(failure));
+    await waitFor(() => expect(fetchAppSessionDataMock).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.getByTestId("auth-initializing")).toHaveTextContent("no"));
+    expect(screen.getByTestId("membership-error")).toHaveTextContent("Memberships unavailable");
+    expect(screen.getByTestId("email")).toHaveTextContent(local.user.email!);
+    expect(screen.getByTestId("membership-count")).toHaveTextContent("0");
+  });
+
+  it.each(["throw", "session_error"])("keeps a restored session after exhausted background %s retries", async (failure) => {
+    const { queryClient, localSession } = await renderRestoredProbe(
+      new QueryClient({ defaultOptions: { queries: { retry: 3, retryDelay: 1 } } }),
+    );
     const before = fetchAppSessionDataMock.mock.calls.length;
     if (failure === "throw") {
       fetchAppSessionDataMock.mockRejectedValue(new Error("Session RPC timed out"));
@@ -238,9 +540,7 @@ describe("useAppSession", () => {
     ["membership_error", "session_error"],
     ["anonymous", "throw"],
   ])("keeps the last completed session through background %s then %s", async (degraded, failure) => {
-    const localSession = makeLocalSession();
-    storageMock.setItem(getSupabaseAuthStorageKey(), JSON.stringify({ access_token: localSession.access_token }));
-    getSessionMock.mockResolvedValue({ data: { session: localSession }, error: null });
+    const localSession = seedLocalSession(storageMock);
     fetchAppSessionDataMock.mockResolvedValueOnce(makeRestoredSession(localSession));
     const { queryClient } = renderProbe();
     await waitFor(() => expect(screen.getByTestId("membership-count")).toHaveTextContent("1"));
@@ -262,9 +562,7 @@ describe("useAppSession", () => {
   });
 
   it("does not reseed the startup account on remount after sign-out when storage cleanup lags", async () => {
-    const localSession = makeLocalSession();
-    storageMock.setItem(getSupabaseAuthStorageKey(), JSON.stringify({ access_token: localSession.access_token }));
-    getSessionMock.mockResolvedValue({ data: { session: localSession }, error: null });
+    const localSession = seedLocalSession(storageMock);
     fetchAppSessionDataMock.mockResolvedValue(makeRestoredSession(localSession));
     const { queryClient, unmount } = renderProbe();
     await waitFor(() => expect(screen.getByTestId("membership-count")).toHaveTextContent("1"));
@@ -278,9 +576,7 @@ describe("useAppSession", () => {
   });
 
   it.each(["refetch", "TOKEN_REFRESHED"])("SIGNED_OUT wins during %s, including for every observer", async (trigger) => {
-    const localSession = makeLocalSession();
-    storageMock.setItem(getSupabaseAuthStorageKey(), JSON.stringify({ access_token: localSession.access_token }));
-    getSessionMock.mockResolvedValue({ data: { session: localSession }, error: null });
+    const localSession = seedLocalSession(storageMock);
     fetchAppSessionDataMock.mockResolvedValue(makeRestoredSession(localSession));
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(<QueryClientProvider client={queryClient}><MemoryRouter><SessionProbe /><SessionProbe /></MemoryRouter></QueryClientProvider>);
@@ -330,7 +626,7 @@ describe("useAppSession", () => {
     });
     await waitFor(() => expect(fetchAppSessionDataMock).toHaveBeenCalledTimes(3));
     await act(async () => oldFetch.resolve(makeRestoredSession(first)));
-    expect(screen.getByTestId("email")).toHaveTextContent(second.user.email);
+    expect(screen.getByTestId("email")).toHaveTextContent("second@example.com");
     expect(screen.getByTestId("membership-count")).toHaveTextContent("0");
     expect(screen.getByTestId("auth-initializing")).toHaveTextContent("yes");
     await act(async () => newFetch.resolve(makeRestoredSession(second)));
@@ -375,9 +671,7 @@ describe("useAppSession", () => {
   });
 
   it("resolves exhausted session_error retries to sign-in and recovers through refetch", async () => {
-    const localSession = makeLocalSession();
-    storageMock.setItem(getSupabaseAuthStorageKey(), JSON.stringify({ access_token: localSession.access_token }));
-    getSessionMock.mockResolvedValue({ data: { session: localSession }, error: null });
+    const localSession = seedLocalSession(storageMock);
     fetchAppSessionDataMock.mockResolvedValue({ user: null, memberships: [], isVerifiedAuth: false, authState: "session_error" });
     const { queryClient } = renderProbe();
     await waitFor(() => {
@@ -393,7 +687,7 @@ describe("useAppSession", () => {
     expect(screen.getByTestId("auth-initializing")).toHaveTextContent("no");
   });
 
-  it("hydrates the user immediately from a signed-in auth event before the session refetch completes", async () => {
+  it("exposes the signed-in seed while membership restoration gates access", async () => {
     const deferred = deferredPromise<AppSessionData>();
     fetchAppSessionDataMock
       .mockResolvedValueOnce({
@@ -432,9 +726,11 @@ describe("useAppSession", () => {
 
     await waitFor(() => {
       expect(screen.getByTestId("email")).toHaveTextContent("client@example.com");
+      expect(screen.getByTestId("data-user")).toHaveTextContent("user-1");
+      expect(screen.getByTestId("auth-initializing")).toHaveTextContent("yes");
       expect(screen.getByTestId("auth-state")).toHaveTextContent("authenticated");
     });
-    expect(screen.queryByRole("button", { name: "Log in" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Log out" })).toBeInTheDocument();
 
     deferred.resolve({
       user: {
@@ -451,7 +747,7 @@ describe("useAppSession", () => {
     });
   });
 
-  it("hydrates a local Supabase session before the network app-session fetch resolves", async () => {
+  it("exposes the local Supabase seed while membership restoration gates access", async () => {
     const deferred = deferredPromise<AppSessionData>();
     const localSession = {
       access_token: "token-1",
@@ -477,11 +773,11 @@ describe("useAppSession", () => {
     renderProbe();
 
     await waitFor(() => {
-      expect(screen.getByTestId("email")).toHaveTextContent("client@example.com");
+      expect(screen.getByTestId("email")).toHaveTextContent(localSession.user.email!);
       expect(screen.getByTestId("auth-state")).toHaveTextContent("authenticated");
       expect(screen.getByTestId("auth-initializing")).toHaveTextContent("yes");
     });
-    expect(screen.queryByRole("button", { name: "Log in" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Log out" })).toBeInTheDocument();
 
     deferred.resolve({
       user: localSession.user as AppSessionData["user"],
@@ -504,9 +800,7 @@ describe("useAppSession", () => {
   });
 
   it("resolves restoration for every observer of the shared session query", async () => {
-    const localSession = makeLocalSession();
-    storageMock.setItem(getSupabaseAuthStorageKey(), JSON.stringify({ access_token: "token-1" }));
-    getSessionMock.mockResolvedValue({ data: { session: localSession }, error: null });
+    const localSession = seedLocalSession(storageMock);
     const deferred = deferredPromise<AppSessionData>();
     fetchAppSessionDataMock.mockReturnValueOnce(deferred.promise);
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -524,7 +818,7 @@ describe("useAppSession", () => {
     await waitFor(() => {
       expect(screen.getAllByTestId("email")).toHaveLength(3);
       for (const email of screen.getAllByTestId("email")) {
-        expect(email).toHaveTextContent("estimator@example.com");
+        expect(email).toHaveTextContent(localSession.user.email!);
       }
     });
     expect(fetchAppSessionDataMock).toHaveBeenCalledTimes(1);
@@ -542,9 +836,7 @@ describe("useAppSession", () => {
   });
 
   it.each(["authenticated", "invalid_session", "anonymous"] as const)("does not resolve restoration from a cancelled %s fetch before memberships arrive", async (authState) => {
-    const localSession = makeLocalSession();
-    storageMock.setItem(getSupabaseAuthStorageKey(), JSON.stringify({ access_token: "token-1" }));
-    getSessionMock.mockResolvedValue({ data: { session: localSession }, error: null });
+    const localSession = seedLocalSession(storageMock);
     const first = deferredPromise<AppSessionData>();
     const second = deferredPromise<AppSessionData>();
     fetchAppSessionDataMock.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
@@ -629,7 +921,7 @@ describe("useAppSession", () => {
       authStateChangeCallbacks.forEach((callback) => callback("SIGNED_IN", second));
     });
     await waitFor(() => {
-      expect(screen.getByTestId("email")).toHaveTextContent("second@example.com");
+      expect(screen.getByTestId("email")).toHaveTextContent(second.user.email!);
       expect(screen.getByTestId("auth-initializing")).toHaveTextContent("yes");
     });
     // A seed for B cannot inherit A's completed projection or memberships.
@@ -657,7 +949,7 @@ describe("useAppSession", () => {
     queryClient.setQueryData(["app-session"], { ...makeRestoredSession(first), restoreComplete: true });
     renderProbeWithQueryClient(queryClient);
     await waitFor(() => {
-      expect(screen.getByTestId("email")).toHaveTextContent("second@example.com");
+      expect(screen.getByTestId("email")).toHaveTextContent(second.user.email!);
       expect(screen.getByTestId("auth-initializing")).toHaveTextContent("yes");
       expect(fetchAppSessionDataMock).toHaveBeenCalledTimes(1);
     });
@@ -670,9 +962,7 @@ describe("useAppSession", () => {
   });
 
   it("does not accept a fresh idle bootstrap seed as a completed cached projection", async () => {
-    const localSession = makeLocalSession();
-    storageMock.setItem(getSupabaseAuthStorageKey(), JSON.stringify({ access_token: localSession.access_token }));
-    getSessionMock.mockResolvedValue({ data: { session: localSession }, error: null });
+    const localSession = seedLocalSession(storageMock);
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     queryClient.setQueryData(["app-session"], { ...makeRestoredSession(localSession), memberships: [], restoreComplete: false });
     const pending = deferredPromise<AppSessionData>();
@@ -709,7 +999,8 @@ describe("useAppSession", () => {
       await act(async () => bootstrap.resolve({ data: { session: localSession }, error: null }));
     } else {
       await act(async () => bootstrap.resolve({ data: { session: localSession }, error: null }));
-      await waitFor(() => expect(screen.getByTestId("email")).toHaveTextContent(localSession.user.email!));
+      await waitFor(() => expect(queryClient.getQueryData<AppSessionData>(["app-session"])?.user?.id).toBe(localSession.user.id));
+      expect(screen.getByTestId("email")).toHaveTextContent("estimator@example.com");
       await act(async () => pending.reject(error));
     }
     await waitFor(() => {
@@ -731,9 +1022,7 @@ describe("useAppSession", () => {
   });
 
   it("clears the pending transition for an observer whose shared query ran in an unmounted sibling", async () => {
-    const localSession = makeLocalSession();
-    storageMock.setItem(getSupabaseAuthStorageKey(), JSON.stringify({ access_token: localSession.access_token }));
-    getSessionMock.mockResolvedValue({ data: { session: localSession }, error: null });
+    const localSession = seedLocalSession(storageMock);
     const refreshed = deferredPromise<AppSessionData>();
     fetchAppSessionDataMock.mockResolvedValueOnce(makeRestoredSession(localSession)).mockImplementation(() => refreshed.promise);
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -1238,7 +1527,7 @@ describe("useAppSession", () => {
     });
   });
 
-  it("keeps the local session visible during startup session_error retries without restoring the gate", async () => {
+  it("keeps the local session gated during startup session_error retries without restoring the gate", async () => {
     const retryDeferred = deferredPromise<AppSessionData>();
     const localSession = {
       access_token: "token-1",
@@ -1298,7 +1587,7 @@ describe("useAppSession", () => {
     });
   });
 
-  it("keeps the local session visible during startup membership retries without restoring the gate", async () => {
+  it("keeps the local session gated during startup membership retries without restoring the gate", async () => {
     const retryDeferred = deferredPromise<AppSessionData>();
     const localSession = {
       access_token: "token-1",
