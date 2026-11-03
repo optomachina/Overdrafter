@@ -1,5 +1,5 @@
 import { STATUS_TONE } from "@/components/quotes/status-tone";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import {
   Archive,
@@ -273,6 +273,13 @@ const ClientPart = () => {
     refetchXometryDispatchScope,
     isXometryDispatchScopeLoading,
   } = useClientPartController(undefined, { warmNavigation: false });
+  const focusNeedByAfterRemove = useRef(false);
+  useEffect(() => {
+    if (focusNeedByAfterRemove.current && !saveRequestMutation.isPending && !clearNeedByMutation.isPending) {
+      document.getElementById("quote-selection-due-by")?.focus();
+      focusNeedByAfterRemove.current = false;
+    }
+  }, [saveRequestMutation.isPending, clearNeedByMutation.isPending]);
 
   const notificationCenter = useWorkspaceNotifications({
     accessScope: workspaceAccessScope,
@@ -1035,10 +1042,13 @@ const ClientPart = () => {
                     }
                     controls={(deadlineCounts, viewDeadline) => (
                       <>
-                        {needByFilterIsViewOnly && requestSummaryRequestedByDate ? (
+                        {needByFilterIsViewOnly && !isQuoteCollectionModeLoading && requestSummaryRequestedByDate ? (
                           <SavedNeedByNotice
                             requestedByDate={requestSummaryRequestedByDate}
-                            onRemove={() => clearNeedByMutation.mutate()}
+                            onRemove={() => {
+                              focusNeedByAfterRemove.current = true;
+                              clearNeedByMutation.mutate();
+                            }}
                             disabled={saveRequestMutation.isPending || clearNeedByMutation.isPending}
                           />
                         ) : null}

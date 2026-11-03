@@ -1,9 +1,10 @@
 // @vitest-environment node
 
-import { readdirSync, readFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import type { ClientPartRequestUpdateInput } from "./types";
 import { REQUESTED_SERVICE_TYPE_OPTIONS } from "./service-intent";
-import { getXometryBetaScopeFailureMessage } from "./xometry-beta-dispatch";
+import { SERVER_SPECIAL_REQUIREMENT_PATHS, getXometryBetaScopeFailureMessage } from "./xometry-beta-dispatch";
 
 /**
  * OVD-991: the customer copy for the special requirements and exact scope
@@ -21,17 +22,25 @@ function normalize(sql: string): string {
   return sql.replace(/\s+/g, " ");
 }
 
-function latestDefinition(signature: string): { file: string; body: string } {
-  const defining = sqlFiles.filter((name) =>
-    readFileSync(`${MIGRATIONS}/${name}`, "utf8").includes(signature),
-  );
-  const file = defining.at(-1)!;
-  const sql = normalize(readFileSync(`${MIGRATIONS}/${file}`, "utf8").replace(/--[^\n]*/g, ""));
-  const start = sql.lastIndexOf(normalize(signature));
-  // Function body: from the opening to the closing dollar quote.
-  const open = sql.indexOf("$$", start);
-  const end = sql.indexOf("$$", open + 2) + 2;
-  return { file, body: sql.slice(start, end) };
+function latestDefinition(
+  signature: string,
+  sources = sqlFiles.map((file) => ({ file, sql: readFileSync(`${MIGRATIONS}/${file}`, "utf8") })),
+): { file: string; body: string } {
+  const [, schema, name] = signature.match(/\b(private|public)\.(\w+)/i)!;
+  const declaration = new RegExp(`\\bcreate\\s+(?:or\\s+replace\\s+)?function\\s+${schema}\\s*\\.\\s*${name}\\b`, "gi");
+  const definition = new RegExp(`${declaration.source}\\s*\\([\\s\\S]*?\\bas\\s+(\\$(?:[a-z_][a-z_0-9]*)?\\$)([\\s\\S]*?)\\1`, "gi");
+  let latest: { file: string; body: string } | undefined;
+  for (const { file, sql } of sources) {
+    const declarations = [...sql.matchAll(declaration)];
+    const definitions = [...sql.matchAll(definition)];
+    if (declarations.length !== definitions.length) {
+      throw new Error(`Unmatched definition of ${name} in ${file}`);
+    }
+    const match = definitions.at(-1);
+    if (match) latest = { file, body: normalize(match[0].replace(/--[^\n]*/g, "")) };
+  }
+  if (!latest) throw new Error(`No definition of ${name}`);
+  return latest;
 }
 
 function specialRequirementsBlock(body: string, code: string): string {
@@ -58,9 +67,20 @@ const DENIED_SPECIAL_REQUIREMENTS: ReadonlyArray<readonly [string, string]> = [
   ["v_special #>> '{sourcing,regionPreferenceOverride}', 'best_value') not in ('', 'best_value')", "a sourcing preference other than Best value"],
   ["v_special #>> '{sourcing,materialProvisioning}', 'supplier_to_source') not in ('', 'supplier_to_source')", "material provisioning other than Supplier to source"],
   ["v_special #>> '{sourcing,notes}'", "sourcing"],
-  ["v_special #>> '{release,releaseStatus}', 'approved') in ('hold', 'blocked')", "a release hold or block"],
+  ["v_special #>> '{release,releaseStatus}', 'approved') in ('hold', 'blocked')", "a saved release hold or block (contact support)"],
   ["v_special #>> '{release,notes}'", "release notes"],
 ];
+
+const allSetRequest: Partial<ClientPartRequestUpdateInput> = {
+  threads: "M8", notes: "Deburr", serviceNotes: "Service", requestedByDate: "2030-01-01",
+  shipping: { packagingNotes: "Wrap", shippingNotes: "Ship", requestedByDateOverride: null },
+  certifications: { requiredCertifications: ["ISO"], materialCertificationRequired: true,
+    certificateOfConformanceRequired: true, inspectionLevel: "fai", notes: "Cert" },
+  sourcing: { preferredSuppliers: ["Supplier"], regionPreferenceOverride: "domestic_only",
+    materialProvisioning: "customer_supplied", notes: "Source" },
+  // Legacy server status; the customer form cannot set a hold or block.
+  release: { releaseStatus: "hold" as never, reviewDisposition: null, quoteBlockedUntilRelease: null, notes: "Release" },
+};
 
 describe.each([
   {
@@ -78,7 +98,7 @@ describe.each([
 ])("$label", ({ signature, code, foldsNeedByIntoSpecialRequirements }) => {
   const { body } = latestDefinition(signature);
   const block = specialRequirementsBlock(body, code);
-  const message = getXometryBetaScopeFailureMessage({ message: code }, "fictiv");
+  const message = getXometryBetaScopeFailureMessage({ message: code }, "fictiv", { request: allSetRequest, requestComplete: true });
 
   it("denies exactly the special requirements the copy names", () => {
     for (const [sqlFragment, copyFragment] of DENIED_SPECIAL_REQUIREMENTS) {
@@ -86,7 +106,24 @@ describe.each([
       expect(message, copyFragment).toContain(copyFragment);
     }
     // A new condition must be added to the table above and to the copy.
-    expect(block.match(/v_special (?:->>|#>>|#>) /g)).toHaveLength(DENIED_SPECIAL_REQUIREMENTS.length);
+    expect(block.match(/v_special\s*(?:->>|#>>|#>)\s*/gi)).toHaveLength(DENIED_SPECIAL_REQUIREMENTS.length);
+  });
+
+  it("pins every client completeness path to the server reads", () => {
+    const paths = [...block.matchAll(/v_special\s*(?:->>|#>>|#>)\s*'([^']+)'/gi)]
+      .map((match) => match[1].replace(/[{}]/g, "").replace(/,/g, "."));
+    expect([...SERVER_SPECIAL_REQUIREMENT_PATHS].sort()).toEqual(paths.sort());
+  });
+
+  it("uses the full list when packaging notes are absent from the client payload", () => {
+    const request = { ...allSetRequest, notes: "Deburr", shipping: { shippingNotes: null } };
+    const copy = getXometryBetaScopeFailureMessage({ message: code }, "fictiv", {
+      requestComplete: true,
+      request: request as Partial<ClientPartRequestUpdateInput>,
+    });
+    expect(copy).toContain("Notes (including service, packaging, shipping, certification, sourcing and release notes)");
+    expect(copy).toContain("Threads");
+    expect(copy).toContain("required certifications");
   });
 
   it("treats a requested delivery date the way the copy says", () => {
@@ -117,8 +154,43 @@ describe("provider_dispatch_exact_scope_required", () => {
     // One lane per Quote quantity: several quantities are what makes the count differ from one.
     expect(candidates).toContain("normalize_positive_integer_array(requirement.quote_quantities, requirement.quantity)");
     const message = getXometryBetaScopeFailureMessage({ message: "provider_dispatch_exact_scope_required" }, "fictiv");
-    expect(message).toContain("Remove extra Quote quantities");
+    expect(candidates).toContain("selected_vendor.vendor = any(requirement.applicable_vendors)");
+    expect(candidates).toContain("from public.parts part");
+    expect(candidates).toContain("where part.job_id = p_job_id");
+    expect(message).toContain("provider applies to this part");
+    expect(message).toContain("one part and one Quote quantity");
+    expect(message).toContain("approved files must also match");
     expect(message).not.toContain("Qty");
+  });
+});
+
+
+describe("latest SQL definition matcher (OVD-995)", () => {
+  const signature = "create or replace function private.resolve_provider_dispatch_scope(";
+  it("catches a later uppercase, multiline, tagged-dollar mutant the old matcher missed", () => {
+    const dir = mkdtempSync(".ovd995-sql-");
+    const file = `${dir}/99999999999999_mutant.sql`;
+    const sql = "CREATE OR REPLACE\n FUNCTION private . resolve_provider_dispatch_scope (p_job_id uuid) RETURNS void LANGUAGE plpgsql AS $function$ BEGIN PERFORM v_special->>'mutant'; END; $function$;";
+    try {
+      writeFileSync(file, sql);
+      const scratch = readFileSync(file, "utf8");
+      expect(scratch.includes(signature)).toBe(false);
+      const latest = latestDefinition(signature, [
+        { file: "earlier.sql", sql: `${signature}) returns void as $$ begin end; $$;` },
+        { file, sql: scratch },
+      ]);
+      expect(latest.file).toBe(file);
+      expect(latest.body).toContain("v_special->>'mutant'");
+      expect(latest.body.match(/v_special (?:->>|#>>|#>) /g)).toBeNull();
+      expect(latest.body.match(/v_special\s*(?:->>|#>>|#>)\s*/gi)).toHaveLength(1);
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+  it("fails closed when a later declaration has no matched body", () => {
+    expect(() => latestDefinition(signature, [
+      { file: "later.sql", sql: `${signature}) returns void as $function$ unterminated` },
+    ])).toThrow("Unmatched definition");
   });
 });
 

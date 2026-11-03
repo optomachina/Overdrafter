@@ -463,9 +463,9 @@ vi.mock("@/components/quotes/QuoteSelectionFunctionBar", () => ({
   }) => (
     <div data-testid="quote-selection-function-bar">
       <output data-testid="deadline-counts">{JSON.stringify({ deadlineCounts, viewDeadline })}</output>
-      <label htmlFor="mock-due-by">Need by date</label>
+      <label htmlFor="quote-selection-due-by">Need by date</label>
       <input
-        id="mock-due-by"
+        id="quote-selection-due-by"
         aria-label="Need by date"
         value={requestedByDate ?? ""}
         disabled={disabled}
@@ -788,12 +788,20 @@ function createLiveOfferPartDetail(liveTimestamp: string, selectedOfferId: strin
  * (Notes, quantity, Quote quantities, Need by date), optionally with Threads
  * already saved and/or thread callouts read from the drawing.
  */
-function createNeedByRequestDetail(options: { savedThreads?: string; drawingThreads?: string[] } = {}) {
+function createNeedByRequestDetail(options: { savedThreads?: string; drawingThreads?: string[]; clientThreads?: string; storedDefault?: string | null } = {}) {
   const detail = createLiveOfferPartDetail(new Date().toISOString());
   return {
     ...detail,
     part: {
       ...detail.part,
+      clientRequirement: options.clientThreads !== undefined || "storedDefault" in options ? {
+        description: "Bracket", partNumber: null, revision: null, material: "6061", finish: null,
+        tightestToleranceInch: 0.005, process: "CNC milling", notes: null, quantity: 1,
+        quoteQuantities: [1], requestedByDate: "2026-04-15", threads: options.clientThreads ?? null,
+        projectPartProperties: {
+          defaults: { threads: options.storedDefault ?? null }, overrides: {}, createdAt: null, updatedAt: null,
+        },
+      } : null,
       extraction: options.drawingThreads
         ? ({ id: "extraction-1", extraction: { threads: options.drawingThreads }, warnings: [] } as never)
         : null,
@@ -1533,7 +1541,7 @@ describe("ClientPart", () => {
     it.each([
       ["while access is loading or refetching", { state: "unknown", isLoading: true }],
       ["when access could not be verified", { state: "unknown", isLoading: false }],
-      ["when access is blocked but still refetching", { state: "blocked", isLoading: true }],
+
       ["when access is eligible", { state: "eligible", isLoading: false }],
     ] as const)("stays view only %s (OVD-991)", async (_label, access) => {
       mockQuoteCollectionMode.automaticEnabled = access.state === "eligible" && !access.isLoading;
@@ -1566,6 +1574,23 @@ describe("ClientPart", () => {
           expect.objectContaining({ jobId: "job-1", requestedByDate: "2000-01-01" }),
         ),
       );
+      queryClient.clear();
+    });
+
+    it("discards an old view date after persisting a date while access is blocked (OVD-995)", async () => {
+      api.fetchPartDetailByJobId.mockResolvedValue(createLiveOfferPartDetail(new Date().toISOString()));
+      const { result, rerender, queryClient } = renderPartControllerHook();
+      await waitFor(() => expect(result.current.rankedQuoteOptions.length).toBeGreaterThan(0));
+      act(() => result.current.handleNeedByFilterChange("2000-01-01"));
+      mockQuoteCollectionMode.state = "blocked";
+      mockQuoteCollectionMode.automaticEnabled = false;
+      rerender({ jobId: "job-1" });
+      act(() => result.current.handleNeedByFilterChange("2030-02-02"));
+      await waitFor(() => expect(api.updateClientPartRequest).toHaveBeenCalledWith(expect.objectContaining({ requestedByDate: "2030-02-02" })));
+      mockQuoteCollectionMode.state = "unknown";
+      mockQuoteCollectionMode.isLoading = true;
+      rerender({ jobId: "job-1" });
+      expect(result.current.quoteViewRequestedByDate).toBe("2030-02-02");
       queryClient.clear();
     });
 
@@ -3358,7 +3383,7 @@ describe("ClientPart", () => {
   describe.each([
     ["is loading or refetching", { state: "unknown", isLoading: true }],
     ["could not be verified", { state: "unknown", isLoading: false }],
-    ["is blocked but still refetching", { state: "blocked", isLoading: true }],
+
   ] as const)("while quote access %s (OVD-991)", (_label, access) => {
     beforeEach(() => {
       mockQuoteCollectionMode.automaticEnabled = false;
@@ -3379,8 +3404,13 @@ describe("ClientPart", () => {
       expect(screen.getByTestId("need-by-help-text")).toHaveTextContent("in this view only");
     });
 
-    it("keeps the saved Need by notice visible", async () => {
+    it("shows the saved notice only after access loading settles", async () => {
       renderWithClient("/parts/job-1");
+      await screen.findByTestId("quote-selection-function-bar");
+      if (access.isLoading) {
+        expect(screen.queryByRole("region", { name: "Need by date on the request" })).not.toBeInTheDocument();
+        return;
+      }
 
       expect(await screen.findByRole("region", { name: "Need by date on the request" })).toHaveTextContent(
         "Apr 15, 2026",
@@ -3410,6 +3440,7 @@ describe("ClientPart", () => {
     });
     await waitFor(() => expect(screen.getByRole("button", { name: "Remove Need by from request" })).toBeEnabled());
     expect(screen.getByLabelText("Need by date")).toBeEnabled();
+    expect(screen.getByLabelText("Need by date")).toHaveFocus();
   });
 
   it("does not claim Remove saves drawing callouts as Threads (OVD-994)", async () => {
@@ -3422,6 +3453,8 @@ describe("ClientPart", () => {
 
   it.each([
     ["the drawing has no thread callouts", createNeedByRequestDetail()],
+    ["only stored defaults have Threads, but Remove sends none", createNeedByRequestDetail({ storedDefault: "M8" })],
+    ["clientRequirement already has Threads", createNeedByRequestDetail({ clientThreads: "M8", drawingThreads: THREADED_DRAWING })],
     [
       "Threads are already saved on the request",
       createNeedByRequestDetail({ savedThreads: "1/4-20 UNC-2B", drawingThreads: THREADED_DRAWING }),
@@ -3435,12 +3468,16 @@ describe("ClientPart", () => {
   });
 
   describe("scope denial copy in the confirmation dialog (OVD-991)", () => {
-    async function openDeniedScope(denial: string, drawingThreads: string[] | undefined) {
+    async function openDeniedScope(denial: string, drawingThreads: string[] | undefined, savedThreads?: string) {
       const detail = createDispatchReadyPartDetail(["fictiv"]);
       api.fetchPartDetailByJobId.mockResolvedValue({
         ...detail,
         part: {
           ...detail.part,
+          approvedRequirement: {
+            ...detail.part.approvedRequirement,
+            spec_snapshot: { ...(detail.part.approvedRequirement?.spec_snapshot as object), ...(savedThreads ? { threads: savedThreads } : {}) },
+          },
           extraction: drawingThreads
             ? ({ id: "extraction-1", extraction: { threads: drawingThreads }, warnings: [] } as never)
             : null,
@@ -3464,12 +3501,27 @@ describe("ClientPart", () => {
 
         expect(alert).toHaveTextContent("This package is not ready for controlled Fictiv beta dispatch.");
         expect(alert).toHaveTextContent("The controlled Fictiv beta cannot carry a Need by date, Threads, Notes");
+        // The page cannot see every server-checked field (packaging notes are not in the client
+        // part metadata), so it names the full list (QA FAIL on #1029 at d268b149).
         expect(alert).toHaveTextContent("an inspection level other than Standard");
+        expect(alert).toHaveTextContent("packaging");
         expect(alert).toHaveTextContent("If this part needs any of them, it is outside the beta.");
         expect(alert).toHaveTextContent("Remove them only if the part does not need them, then retry.");
         expect(alert).not.toHaveTextContent("Xometry");
         expect(alert.textContent?.includes("Thread callouts read from the drawing are saved as Threads")).toBe(hasNote);
         expect(alert.textContent?.includes("You can clear Threads in the request editor if the part does not need them, then retry.")).toBe(hasNote);
+        expect(alert).not.toHaveTextContent("cannot be cleared");
+      } finally {
+        vi.unstubAllEnvs();
+      }
+    });
+
+    it("keeps the drawing denial note when Threads are already saved (OVD-995)", async () => {
+      vi.stubEnv("VITE_LIVE_DISPATCH_PROVIDER", "fictiv");
+      try {
+        const alert = await openDeniedScope("provider_dispatch_special_requirements_not_supported", THREADED_DRAWING, "M8");
+        expect(alert).toHaveTextContent("Thread callouts read from the drawing are saved as Threads");
+        expect(alert).toHaveTextContent("You can clear Threads in the request editor if the part does not need them, then retry.");
         expect(alert).not.toHaveTextContent("cannot be cleared");
       } finally {
         vi.unstubAllEnvs();
@@ -3482,7 +3534,8 @@ describe("ClientPart", () => {
         const alert = await openDeniedScope("provider_dispatch_exact_scope_required", undefined);
 
         expect(alert).toHaveTextContent("The controlled Fictiv beta quotes one part at one quantity from its approved files.");
-        expect(alert).toHaveTextContent("Remove extra Quote quantities so one quantity remains, then retry.");
+        expect(alert).toHaveTextContent("provider applies to this part");
+        expect(alert).toHaveTextContent("one part and one Quote quantity");
         expect(alert).toHaveTextContent("contact support");
         expect(alert).not.toHaveTextContent("Qty");
         expect(alert).not.toHaveTextContent("Xometry");

@@ -23,7 +23,7 @@ export function SavedNeedByNotice({
     <section className="border-y border-paper-hairline bg-paper-inset px-4 py-3" aria-label="Need by date on the request">
       <p className="text-sm text-paper-ink">
         This request has a Need by date of <span className="font-mono">{label}</span>. The controlled beta does
-        not support a Need by date, so quote requests are denied until it is removed.
+        not support a Need by date. It may prevent a quote request; removing it does not guarantee eligibility.
       </p>
       <p className="mt-1 text-sm text-paper-muted">The Need by filter changes this view only.</p>
       <p className="mt-1 text-sm text-paper-muted">Removing it changes only the saved Need by date.</p>

@@ -8,8 +8,6 @@ import { test, expect } from "../test";
 // visible with its Remove action. Set NEED_BY_SCREENSHOT_DIR to also save a screenshot.
 const PART_ROUTE = "/parts/fx-job-published?fixture=client-published&debug=1";
 const APP_ENTRY_TIMEOUT_MS = 30_000;
-// A date far from the fixture's saved Need by date, so the two cannot be confused.
-const FILTER_DATE = "2031-01-05";
 
 test.describe("Need by display filter while quote access is unverified", { tag: "@fixture" }, () => {
   test("stays view only, says so, and keeps the saved date notice", async ({ page }) => {
@@ -26,11 +24,14 @@ test.describe("Need by display filter while quote access is unverified", { tag: 
     expect(savedNotice).toContain("Need by date of");
 
     const needBy = page.getByLabel("Need by date", { exact: true });
-    await needBy.fill(FILTER_DATE);
-    await expect(needBy).toHaveValue(FILTER_DATE);
+    const savedDate = await needBy.inputValue();
+    const filterYear = Number(savedDate.slice(0, 4)) + 5;
+    const filterDate = `${filterYear}-01-05`;
+    await needBy.fill(filterDate);
+    await expect(needBy).toHaveValue(filterDate);
     // The notice keeps the date saved on the request, not the date the filter shows.
     await expect(notice).toHaveText(savedNotice);
-    await expect(notice).not.toContainText("2031");
+    await expect(notice).not.toContainText(String(filterYear));
 
     await page.getByText("Need by date", { exact: true }).hover();
     await expect(page.getByRole("tooltip")).toContainText("in this view only");

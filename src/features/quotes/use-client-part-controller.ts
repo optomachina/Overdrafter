@@ -1006,9 +1006,8 @@ export function useClientPartController(
   // requested_by_date, which every controlled dispatch denies, so it persists only when quote
   // access is known to be blocked (outside the controlled envelope) and settled. Loading,
   // refetching, errored and eligible access all stay view-only (fail closed).
-  const needByFilterIsViewOnly = !(
-    quoteCollectionMode.state === "blocked" && !quoteCollectionMode.isLoading
-  );
+  // useQuoteAccess reports unknown throughout fetching, including background refreshes.
+  const needByFilterIsViewOnly = quoteCollectionMode.state !== "blocked";
   const requestThreadDefault = getRequestThreadDefault(partDetail?.part ?? null, extraction);
   const drawingHasThreads = hasText(requestThreadDefault);
   const quoteViewRequestedByDate =
@@ -1679,6 +1678,7 @@ export function useClientPartController(
       setViewRequestedByDate(nextDate);
       return;
     }
+    setViewRequestedByDate(undefined);
     if (nextDate === null) clearNeedByMutation.mutate();
     else handleSaveRequestPatch({ requestedByDate: nextDate });
   };
@@ -1896,6 +1896,7 @@ export function useClientPartController(
   const xometryDispatchScopeError = xometryDispatchScopeQuery.error
     ? getXometryBetaScopeFailureMessage(xometryDispatchScopeQuery.error, dispatchProvider, {
         drawingThreads: drawingHasThreads,
+        request: fallbackRequestDraft ?? undefined,
       })
     : null;
   const xometryDispatchScopeDenialCode = xometryDispatchScopeQuery.error
