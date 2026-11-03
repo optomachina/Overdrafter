@@ -1006,11 +1006,8 @@ export function useClientPartController(
   // requested_by_date, which every controlled dispatch denies, so it persists only when quote
   // access is known to be blocked (outside the controlled envelope) and settled. Loading,
   // refetching, errored and eligible access all stay view-only (fail closed).
-  // useQuoteAccess reports unknown throughout fetching, including background refreshes;
-  // isLoading is checked as well so a settled "blocked" state is the only persist path.
-  const needByFilterIsViewOnly = !(
-    quoteCollectionMode.state === "blocked" && !quoteCollectionMode.isLoading
-  );
+  // useQuoteAccess reports unknown throughout fetching, including background refreshes.
+  const needByFilterIsViewOnly = quoteCollectionMode.state !== "blocked";
   const requestThreadDefault = getRequestThreadDefault(partDetail?.part ?? null, extraction);
   const drawingHasThreads = hasText(requestThreadDefault);
   const quoteViewRequestedByDate =
