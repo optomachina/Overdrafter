@@ -10,7 +10,7 @@ Every step that changes a hosted system, a credential, a flag or a Windows host 
 
 > **PROTECTED: needs Blaine's exact yes.** Blaine names the action, the target and the moment in chat. A yes for one step is not a yes for the next, and not a yes for a retry.
 
-The labels are numbered `PA-1` to `PA-14` and collected in section 9. Read-only inspection by the lead is not protected, but reading production through `DB_URL` needs the connection string from Blaine, so the go or no go queries are labelled too.
+The labels are numbered `PA-1` to `PA-14` and collected in section 9. Read-only inspection by the Claude thread is not protected, but reading production through `DB_URL` needs the connection string from Blaine, so the go or no go queries are labelled too.
 
 ## 2. Pointers, not copies
 

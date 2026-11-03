@@ -40,7 +40,7 @@ export function pinDrift(root, manifest) {
   return drift;
 }
 
-/** The lead's read only go or no go query, run as both roles on the pristine
+/** The Claude thread's read only go or no go query, run as both roles on the pristine
  * baseline (before any OVD-558 forward), checked against the manifest pins. */
 export function checkReadOnlyDigest({ psql, catalogSql, root }) {
   const manifest = JSON.parse(readFileSync(join(root, MANIFEST), "utf8"));

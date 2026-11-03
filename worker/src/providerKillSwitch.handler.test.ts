@@ -190,6 +190,20 @@ describe("handleVendorQuoteTask with the provider kill switch (OVD-722)", () => 
     ]));
   });
 
+  it("keeps the server quantity cause on the manual follow-up lane before adapter launch", async () => {
+    const db = database();
+    db.denyPreflight({ authorized: false, reasonCode: "dispatch_quantity_not_admitted" });
+    const quote = vi.spyOn(XometryAdapter.prototype, "quote");
+    await handleVendorQuoteTask(db.client, task, live);
+    const lane = db.writes.filter((write) => write.table === "vendor_quote_results" && "update" in write).at(-1)?.update as Record<string, unknown>;
+    expect(lane.status).toBe("manual_vendor_followup");
+    expect(lane.notes).toEqual(["Xometry quote not started: quantities above 1 are not enabled for this request in the controlled beta. Nothing was sent to Xometry. Manual follow-up is required."]);
+    expect(lane.raw_payload).toMatchObject({ failureCode: "dispatch_quantity_not_admitted",
+      manualFollowUpReason: "dispatch_quantity_not_admitted", requiresManualVendorFollowUp: true });
+    expect(JSON.stringify(db.writes)).not.toContain("dispatch_authorization_denied");
+    expect(quote).not.toHaveBeenCalled();
+  });
+
   it("a retryable error after the kill switch cancel never requeues the cancelled task (no revival)", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     vi.spyOn(console, "error").mockImplementation(() => undefined);

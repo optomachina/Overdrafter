@@ -45,6 +45,7 @@ describe("getXometryBetaScopeDenialCode", () => {
 
   it.each([
     "xometry_beta_quantity_one_required",
+    "xometry_beta_single_quantity_required",
     "xometry_beta_special_delivery_date_not_supported",
     "xometry_beta_special_requirements_not_supported",
     "provider_dispatch_special_requirements_not_supported",
@@ -187,14 +188,16 @@ describe("getXometryBetaScopeFailureMessage", () => {
       ).toBe(plain);
       expect(withThreads.startsWith(plain)).toBe(true);
       expect(withThreads).toContain("Thread callouts read from the drawing are saved as Threads");
-      expect(withThreads).toContain("cannot be cleared");
-      expect(withThreads).toContain("a part with thread callouts is outside the beta");
+      expect(withThreads).toContain("You can clear Threads in the request editor if the part does not need them, then retry.");
+      expect(withThreads).not.toContain("cannot be cleared");
+      expect(withThreads).not.toContain("a part with thread callouts is outside the beta");
     });
   });
 
   it("keeps the drawing thread note off every other denial", () => {
     for (const code of [
       "xometry_beta_quantity_one_required",
+      "xometry_beta_single_quantity_required",
       "xometry_beta_special_delivery_date_not_supported",
       "provider_dispatch_exact_scope_required",
       "provider_dispatch_job_busy",
@@ -225,6 +228,7 @@ describe("getXometryBetaScopeFailureMessage", () => {
   // OVD-991: Fictiv customers must never read "Xometry" in a Fictiv denial.
   it.each([
     "xometry_beta_quantity_one_required",
+    "xometry_beta_single_quantity_required",
     "xometry_beta_special_delivery_date_not_supported",
     "xometry_beta_special_requirements_not_supported",
     "provider_dispatch_special_requirements_not_supported",
@@ -351,4 +355,13 @@ describe("getXometryBetaScopeFailureMessage", () => {
     expect(getXometryBetaScopeFailureMessage(new TypeError("Failed to fetch")))
       .toBe("The current Xometry confirmation scope could not be verified. Try the scope check again.");
   });
+});
+
+it.each(["xometry", "fictiv"] as const)("names %s and gives the single positive quantity remedy", (provider) => {
+  const message = getXometryBetaScopeFailureMessage(postgrestError("xometry_beta_single_quantity_required"), provider);
+  expect(message).toContain(provider === "xometry" ? "Xometry" : "Fictiv");
+  expect(message).toContain("exactly one quantity of 1 or more");
+  expect(message).toContain("Remove extra Quote quantities");
+  expect(message).toContain("request it as its own quote");
+  expect(message).not.toMatch(/quantity 1 only|Set Qty to 1|limit|maximum|_required/);
 });

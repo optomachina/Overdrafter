@@ -242,7 +242,7 @@ older snapshot means it was not computed.
 | `qaFamilies.summary.prs` | integer | All merged PRs in the window. Equals `merges.total`. |
 | `qaFamilies.summary.builderUnknown` | integer | Merged PRs whose builder remains `"unknown"`. |
 
-An Architect model review must start with this first line (a full, lowercase
+A model review coordinated by the Claude thread must retain this legacy header as its first line (a full, lowercase
 40-character hexadecimal SHA). The line may end with `: VERDICT` and/or
 qualifiers such as `(round 2)`; the verdict is the uppercase word in that
 suffix, or a later `Verdict: <word>` line in any case, optionally bold (which
