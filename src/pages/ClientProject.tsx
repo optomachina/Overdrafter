@@ -54,6 +54,7 @@ import {
 } from "@/features/quotes/use-client-project-controller";
 import { formatStatusLabel } from "@/features/quotes/utils";
 import type { VendorName } from "@/integrations/supabase/types";
+import { isOrderReviewEnabled } from "@/lib/order-review-flag";
 import { cn } from "@/lib/utils";
 
 function formatDateLabel(value: string | null | undefined) {
@@ -1358,21 +1359,25 @@ const ClientProject = () => {
             </p>
 
             <div className="mt-4 flex flex-wrap items-center gap-2">
-              <Button
-                onClick={() => navigate(appAwareHref(`/projects/${projectId}/review`))}
-                disabled={!Object.values(selectedOptionsByJobId).some(Boolean)}
-                aria-describedby={!Object.values(selectedOptionsByJobId).some(Boolean) ? "project-review-order-reason" : undefined}
-              >
-                Review order
-              </Button>
-              {!Object.values(selectedOptionsByJobId).some(Boolean) ? (
-                <span id="project-review-order-reason" className="text-sm text-muted-foreground">
-                  {getQuoteOptionsReason({
-                    loadFailed: projectJobsQuery.isLoadingError || projectWorkspaceItemsQuery.isLoadingError,
-                    loading: areQuoteOptionsLoading(projectJobsQuery, projectWorkspaceItemsQuery),
-                    hasPublishedPackage: Array.from(workspaceItemsByJobId.values()).some(hasPublishedQuotePackage),
-                  })}
-                </span>
+              {isOrderReviewEnabled() ? (
+                <>
+                  <Button
+                    onClick={() => navigate(appAwareHref(`/projects/${projectId}/review`))}
+                    disabled={!Object.values(selectedOptionsByJobId).some(Boolean)}
+                    aria-describedby={!Object.values(selectedOptionsByJobId).some(Boolean) ? "project-review-order-reason" : undefined}
+                  >
+                    Review order
+                  </Button>
+                  {!Object.values(selectedOptionsByJobId).some(Boolean) ? (
+                    <span id="project-review-order-reason" className="text-sm text-muted-foreground">
+                      {getQuoteOptionsReason({
+                        loadFailed: projectJobsQuery.isLoadingError || projectWorkspaceItemsQuery.isLoadingError,
+                        loading: areQuoteOptionsLoading(projectJobsQuery, projectWorkspaceItemsQuery),
+                        hasPublishedPackage: Array.from(workspaceItemsByJobId.values()).some(hasPublishedQuotePackage),
+                      })}
+                    </span>
+                  ) : null}
+                </>
               ) : null}
               <Badge className="border border-border bg-accent text-foreground">Parts: {projectPartCount}</Badge>
               {projectQuoteRequestSummary.received > 0 ? (

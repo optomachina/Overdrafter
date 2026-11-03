@@ -5,13 +5,35 @@ import { findPsql } from "../../scripts/seed-dev.mjs";
 const LOCAL_DB = "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
 const uuid = (n) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
 
-/** Reuse seed-dev's synthetic extraction and published-offer path on this run's uploaded part. */
-export function seedFriendsReleasePart(jobId) {
+const grantReason = (jobId) => `OVD-1011 friends-release journey ${jobId}`;
+
+function localPsql(jobId) {
   if (!/^[\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12}$/i.test(jobId)) {
     throw new Error("Expected the newly uploaded job UUID");
   }
   const psql = findPsql({});
   if (!psql) throw new Error("Local journey requires psql, as does npm run seed:dev");
+  return psql;
+}
+
+function runSql(psql, input) {
+  execFileSync(psql, [LOCAL_DB, "-X", "-q", "-v", "ON_ERROR_STOP=1"], {
+    timeout: 15_000,
+    stdio: ["pipe", "pipe", "pipe"],
+    input,
+  });
+}
+
+/** Ends this run's trial quote access so later specs see seed-dev's quote access again. */
+export function revokeFriendsReleaseAccess(jobId) {
+  runSql(localPsql(jobId), `UPDATE private.organization_entitlement_grants
+    SET revoked_at = now(), revoked_by_user_id = granted_by_user_id, revocation_reason = 'OVD-1011 journey finished'
+    WHERE organization_id = '${uuid(1)}' AND grant_reason = '${grantReason(jobId)}' AND revoked_at IS NULL;`);
+}
+
+/** Reuse seed-dev's synthetic extraction and published-offer path on this run's uploaded part. */
+export function seedFriendsReleasePart(jobId) {
+  const psql = localPsql(jobId);
   const tables = [
     ["drawing_extractions", [543]],
     ["approved_part_requirements", [553]],
@@ -51,10 +73,7 @@ export function seedFriendsReleasePart(jobId) {
       copied := copied + 1;
     END LOOP;`).join("\n");
 
-  execFileSync(psql, [LOCAL_DB, "-X", "-q", "-v", "ON_ERROR_STOP=1"], {
-    timeout: 15_000,
-    stdio: ["pipe", "pipe", "pipe"],
-    input: `BEGIN;
+  runSql(psql, `BEGIN;
       SET LOCAL statement_timeout = '10s';
       DO $fixture$
       DECLARE mapping jsonb; source_row jsonb; next_row jsonb; field text; part_id uuid; copied int := 0;
@@ -73,7 +92,14 @@ export function seedFriendsReleasePart(jobId) {
         mapping := mapping || jsonb_build_object('${uuid(103)}', '${jobId}', '${uuid(203)}', part_id);
         ${statements}
         IF copied <> ${sourceIds.length} THEN RAISE EXCEPTION 'Run npm run seed:dev first'; END IF;
+        -- Friends-release accounts quote inside the controlled envelope, where quote access is
+        -- eligible and Need by is display-only (OVD-991). Seed-dev's org has Founding Beta but no
+        -- quote source, so give it a short run-scoped trial; revokeFriendsReleaseAccess ends it.
+        INSERT INTO private.organization_entitlement_grants
+          (organization_id, grant_type, starts_at, expires_at, grant_reason, granted_by_user_id)
+          SELECT '${uuid(1)}', 'trial', now() - interval '1 minute', now() + interval '10 minutes',
+            '${grantReason(jobId)}', u.id FROM auth.users u WHERE u.email = 'admin.demo@overdrafter.local';
+        IF NOT FOUND THEN RAISE EXCEPTION 'Run npm run seed:dev first'; END IF;
       END $fixture$;
-      COMMIT;`,
-  });
+      COMMIT;`);
 }

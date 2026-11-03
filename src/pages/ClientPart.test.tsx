@@ -996,6 +996,8 @@ function createPartDetail(overrides: Record<string, unknown> = {}) {
 
 describe("ClientPart", () => {
   beforeEach(() => {
+    // The legacy Review order handoff is off by default (OVD-1011); these cases keep covering it.
+    vi.stubEnv("VITE_ENABLE_ORDER_REVIEW", "1");
     const localStorageState = new Map<string, string>();
     lastAccountMenuProps = null;
     lastDrawingPreviewDialogProps = null;
@@ -1153,6 +1155,7 @@ describe("ClientPart", () => {
 
   afterEach(() => {
     vi.useRealTimers();
+    vi.unstubAllEnvs();
   });
 
   it.each(["eligible", "not_enrolled", "unavailable"] as const)(
@@ -1196,6 +1199,15 @@ describe("ClientPart", () => {
     expect(screen.queryByRole("menuitem", { name: /previous revision/i })).not.toBeInTheDocument();
     expect(screen.queryByText("This part could not be loaded.")).not.toBeInTheDocument();
     expect(api.fetchPartDetailByJobId).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows no Review order handoff in the default build (OVD-1011)", async () => {
+    vi.stubEnv("VITE_ENABLE_ORDER_REVIEW", "");
+    renderWithClient("/parts/job-1");
+
+    await screen.findByText("Quote decision panel");
+    expect(screen.queryByRole("button", { name: /review order/i })).not.toBeInTheDocument();
+    expect(document.getElementById("review-order-disabled-reason")).toBeNull();
   });
 
   it("keeps the part evidence and quote comparison in one ordered workspace", async () => {

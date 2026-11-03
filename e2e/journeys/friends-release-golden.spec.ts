@@ -1,7 +1,7 @@
 import { fileURLToPath } from "node:url";
 import type { Page } from "@playwright/test";
 import { test, expect } from "../test";
-import { seedFriendsReleasePart } from "./friends-release-seed.mjs";
+import { revokeFriendsReleaseAccess, seedFriendsReleasePart } from "./friends-release-seed.mjs";
 
 // OVD-1011: authenticated real-stack lane, deliberately NOT @fixture. No worker or vendor calls.
 // seed:dev supplies the synthetic published-package path; this test gives a copy to its own upload.
@@ -30,6 +30,12 @@ test.use({
 });
 
 test.describe("friends release golden journey (OVD-1011)", () => {
+  let seededJobId: string | undefined;
+  test.afterEach(() => {
+    if (seededJobId) revokeFriendsReleaseAccess(seededJobId);
+    seededJobId = undefined;
+  });
+
   test("upload, edit, compare and inspect without ordering", async ({ page, baseURL }) => {
     test.setTimeout(180_000);
     // Refuse hosted targets; this test may only mutate the standard disposable CI stack.
@@ -70,6 +76,7 @@ test.describe("friends release golden journey (OVD-1011)", () => {
     const jobId = PART_URL.exec(partUrl)![1];
     // CI has no extraction worker: copy its existing synthetic extraction and published quotes.
     // Real upload/storage, auth, reads, edits and reloads remain on Supabase; no browser API mocks.
+    seededJobId = jobId;
     seedFriendsReleasePart(jobId);
     await page.reload();
 
@@ -93,6 +100,7 @@ test.describe("friends release golden journey (OVD-1011)", () => {
 
     await test.step("3. Show quantity and keep Need by display-only", async () => {
       // The CI default build has the single-quantity flag OFF (the ON state has its own journey).
+      // Quote access is eligible (the seeded run-scoped trial), so the Need by filter is view state.
       await expect(page.getByLabel("Qty", { exact: true })).toHaveValue("25");
       const needBy = page.getByLabel("Need by date", { exact: true });
       const savedDate = await page.getByLabel("Need by", { exact: true }).inputValue();
@@ -131,8 +139,10 @@ test.describe("friends release golden journey (OVD-1011)", () => {
       await expect(chart.locator("[data-quote-point]")).toHaveCount(2);
       await expect(chart).toContainText("Expected delivered cost");
       await expect(chart).toContainText("Delivered date");
+      // The delivered-date chart (OVD-571) projects each offer's lead time to a ship or delivery date.
       await chart.locator("[data-quote-point]").first().hover();
-      await expect(chart.getByText(/^Quoted total: \$/)).toBeVisible();
+      await expect(chart.getByText(/^Expected delivered cost at least \$360\.00; /)).toBeVisible();
+      await expect(chart.getByText(/^Ships \w{3}, \w{3} \d{1,2}, \d{4}; transit not quoted, arrives later$/)).toBeVisible();
     });
 
     await test.step("6. Inspect quote price and lead time without purchasing controls", async () => {
@@ -141,8 +151,11 @@ test.describe("friends release golden journey (OVD-1011)", () => {
       await expect(detail).toBeVisible();
       await detail.getByText("Response source facts", { exact: true }).click();
       await expect(detail.getByText("Quoted total", { exact: true })).toBeVisible();
-      // Exact friends-release contract: additional detail facts are a failure, not a skip.
-      await expect.soft(detail.getByRole("term")).toHaveText(["Quoted total", "Ready to ship"], { timeout: 1_000 });
+      // Owner acceptance (OVD-968 step 6, amended by OVD-996): the quote's price and lead time,
+      // with provider notes hidden. The other summary facts are read-only context, not controls.
+      await expect(detail.getByRole("term").filter({ hasText: /^(?:Quoted total|Ready to ship)$/ }))
+        .toHaveText(["Quoted total", "Ready to ship"]);
+      await expect(detail.getByText("Provider notes")).toHaveCount(0);
       await expect(detail.getByRole("definition").filter({ hasText: /^\$360\.00$/ })).toBeVisible();
       await expect(detail.getByRole("definition").filter({ hasText: /^9 working days$/ })).toBeVisible();
       await expect(detail.getByRole("button")).toHaveCount(0);

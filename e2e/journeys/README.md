@@ -65,11 +65,17 @@ is allowed. The browser uses real Supabase auth, storage, reads, and saves. Run-
 records remain in the disposable database until its next reset; no existing seed rows
 are changed. No screenshots are written to tracked source.
 
-There are no skipped steps. The no-order assertions deliberately include disabled
-and hidden controls and the existing `Review order` button; they are soft assertions
-so subsequent evidence can still be collected, but any violation fails the test.
-The current page still exposes that button, so this is a release regression gate,
-not a claim that the friends release is ready. The chart currently presents price
-against delivered date, derived from the seeded lead time. Quote detail requires exactly the price and lead-time facts plus absence of
-purchasing controls. The current extra vendor/material/status facts also fail that
-strict release assertion; this test change does not alter product UI.
+Friends-release accounts quote inside the controlled envelope, where quote access is
+eligible and the Need by filter is view state (OVD-991). Seed-dev's organization has
+Founding Beta but no quote source, so the helper adds a ten-minute trial entitlement
+for the run and the spec revokes it afterwards. Outside the envelope (blocked quote
+access) Need by is a saved request field by design, so the default seed alone cannot
+show the display-only behaviour.
+
+There are no skipped steps. The no-order assertions include disabled and hidden
+controls and the account menu. The legacy `Review order` handoff is off in the default
+build (`VITE_ENABLE_ORDER_REVIEW` unset; owner decision for the friends release, OVD-968
+step 7). The chart presents expected delivered cost against delivered date, derived from
+the seeded lead time (OVD-571). Quote detail must show the quoted total and ready-to-ship
+lead time, no provider notes (OVD-996), and no buttons or links; its other summary facts
+are read-only context. The offers are simulated, so this does not prove a live quote.

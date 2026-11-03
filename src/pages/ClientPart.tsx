@@ -81,6 +81,7 @@ import {
   getPresetScope,
   type ClientQuoteSelectionOption,
 } from "@/features/quotes/selection";
+import { isOrderReviewEnabled } from "@/lib/order-review-flag";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
@@ -1020,7 +1021,7 @@ const ClientPart = () => {
                         status: quote.status,
                       })),
                     }}
-                    headerActions={
+                    headerActions={isOrderReviewEnabled() ? (
                       <div className="flex shrink-0 flex-col items-start gap-2 lg:items-end">
                         <Button
                           type="button"
@@ -1039,7 +1040,7 @@ const ClientPart = () => {
                           </span>
                         ) : null}
                       </div>
-                    }
+                    ) : undefined}
                     controls={(deadlineCounts, viewDeadline) => (
                       <>
                         {needByFilterIsViewOnly && !isQuoteCollectionModeLoading && requestSummaryRequestedByDate ? (
