@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ClientPartRequestUpdateInput } from "@/features/quotes/types";
-import { fetchJobPartSummariesByJobIds, fetchJobPartSummariesByOrganization, updateClientPartRequest } from "./jobs-api";
+import { clearClientPartRequestedByDate, fetchJobPartSummariesByJobIds, fetchJobPartSummariesByOrganization, updateClientPartRequest } from "./jobs-api";
 
 const { callRpcMock, callUntypedRpcMock, fromMock } = vi.hoisted(() => ({
   callRpcMock: vi.fn(),
@@ -144,4 +144,24 @@ describe("published package selection summaries", () => {
       expect(await fetchSummaries()).toEqual([expect.objectContaining({ selectedSupplier: "Old supplier", selectedPriceUsd: 100 })]);
     });
   }
+});
+
+ describe("OVD-994 narrow request changes", () => {
+  beforeEach(() => vi.clearAllMocks());
+  it("clears only Need by through the narrow RPC", async () => {
+    callRpcMock.mockResolvedValue({ data: "job-1", error: null });
+    await clearClientPartRequestedByDate("job-1");
+    expect(callRpcMock.mock.calls).toEqual([["api_clear_client_part_requested_by_date", { p_job_id: "job-1" }]]);
+  });
+  it("sends explicit clear Threads on save", async () => {
+    callRpcMock.mockResolvedValue({ data: "job-1", error: null });
+    await updateClientPartRequest({ ...makeInput(null), threads: "", clearThreads: true });
+    expect(callRpcMock).toHaveBeenCalledWith("api_update_client_part_request", expect.objectContaining({ p_clear_threads: true, p_threads: "" }));
+  });
+  it("does not silently fall back to a signature that cannot clear Threads", async () => {
+    const error = { code: "PGRST202", message: "Could not find the function api_update_client_part_request" };
+    callRpcMock.mockResolvedValue({ data: null, error });
+    await expect(updateClientPartRequest({ ...makeInput(null), clearThreads: true })).rejects.toBeTruthy();
+    expect(callRpcMock).toHaveBeenCalledTimes(1);
+  });
 });

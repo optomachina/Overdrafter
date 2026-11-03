@@ -56,7 +56,7 @@ export const KNOWN_INVERSIONS = {};
 // Locks on tables outside LEVELS that exist on main today, per function (direct statements
 // only, not via callees). Any other table outside LEVELS is an error, and the list must match
 // exactly: a listed table the function no longer locks fails too. These tables are not ordered
-// against L0-L5; Lead/Architect decide whether any of them joins the order.
+// against L0-L5; the Claude thread decides whether any of them joins the order.
 export const KNOWN_UNORDERED_LOCKS = {
   api_reconcile_job_parts: ["job_files"],
   api_request_debug_extraction: ["debug_extraction_runs"],

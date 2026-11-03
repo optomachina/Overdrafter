@@ -1,3 +1,4 @@
+import { useRevealOnRequest } from "@/hooks/use-reveal-on-request";
 import { STATUS_TONE } from "@/components/quotes/status-tone";
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -31,7 +32,7 @@ const ClientPartReview = () => {
   const navigate = useNavigate();
   const { user, isAuthInitializing } = useAppSession();
   const [handoffState, setHandoffState] = useState(createDefaultProcurementHandoffState);
-  const [showHandoffSummary, setShowHandoffSummary] = useState(false);
+  const { requestCount, headingRef, requestReveal } = useRevealOnRequest();
 
   const workspaceQuery = useQuery({
     queryKey: ["part-review", jobId],
@@ -138,7 +139,7 @@ const ClientPartReview = () => {
                 <Button
                   type="button"
                   className="rounded-full"
-                  onClick={() => setShowHandoffSummary(true)}
+                  onClick={requestReveal}
                   disabled={!selectedOption}
                 >
                   Review handoff
@@ -206,10 +207,10 @@ const ClientPartReview = () => {
               onChange={setHandoffState}
             />
 
-            {showHandoffSummary ? (
-              <section className="rounded-[26px] border border-border bg-ws-card p-6">
+            {requestCount > 0 ? (
+              <section aria-labelledby="release-check-heading" className="rounded-[26px] border border-border bg-ws-card p-6">
                 <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Release check</p>
-                <h2 className="mt-2 text-xl font-semibold text-foreground">
+                <h2 ref={headingRef} tabIndex={-1} id="release-check-heading" className="mt-2 scroll-mt-6 text-xl font-semibold text-foreground">
                   {handoffSummary.ready ? "Ready for OverDrafter follow-up" : "More procurement detail is still needed"}
                 </h2>
                 <p className="mt-3 text-sm text-foreground">

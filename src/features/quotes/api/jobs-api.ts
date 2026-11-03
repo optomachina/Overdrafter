@@ -1250,6 +1250,11 @@ export async function createClientDraft(input: ClientDraftInput): Promise<string
   throw error;
 }
 
+export async function clearClientPartRequestedByDate(jobId: string): Promise<string> {
+  const { data, error } = await callRpc("api_clear_client_part_requested_by_date", { p_job_id: jobId });
+  return ensureData(data, error);
+}
+
 export async function updateClientPartRequest(input: ClientPartRequestUpdateInput): Promise<string> {
   const fixtureGateway = getActiveClientWorkspaceGateway();
 
@@ -1268,6 +1273,7 @@ export async function updateClientPartRequest(input: ClientPartRequestUpdateInpu
     p_material: input.material,
     p_finish: typeof input.finish === "string" ? input.finish : null,
     p_threads: input.threads ?? null,
+    ...(input.clearThreads ? { p_clear_threads: true } : {}),
     p_tightest_tolerance_inch: input.tightestToleranceInch ?? null,
     p_process: input.process ?? null,
     p_notes: input.notes ?? null,
@@ -1281,7 +1287,7 @@ export async function updateClientPartRequest(input: ClientPartRequestUpdateInpu
   };
   const { data, error } = await callRpc("api_update_client_part_request", currentArgs);
 
-  if (error && isMissingFunctionError(error, "api_update_client_part_request")) {
+  if (error && !input.clearThreads && isMissingFunctionError(error, "api_update_client_part_request")) {
     const legacyArgs = {
       p_job_id: input.jobId,
       p_requested_service_kinds: input.requestedServiceKinds,

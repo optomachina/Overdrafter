@@ -123,7 +123,8 @@ test("quote-access lookup error fails closed with bounded copy without leaking t
   await openPage(page);
   await expect.poll(() => backend.calls.filter(call => call.name === "api_get_quote_access").length).toBe(1);
   await expect(page.getByText("Automatic quote access", { exact: true })).toBeVisible();
-  await expect(page.getByText(/Automatic quote collection is not enabled for this organization/)).toBeVisible();
+  await expect(page.locator("p").filter({ hasText: /automatic quote access could not be verified/ })).toBeVisible();
+  await expect(page.getByText(/Automatic quote collection is not enabled for this organization/)).toHaveCount(0);
   await expectNoSentinel(page);
   await expect(page.getByRole("button", { name: "Request quote", exact: true })).toHaveCount(0);
   // This lookup has no in-page retry control; reloading the page is the existing recovery path.

@@ -117,6 +117,7 @@ export type XometryBetaScopeDenialCode =
   | "xometry_beta_standard_tolerance_required"
   // OVD-981: request fields the controlled beta envelope refuses, named in the dialog.
   | "xometry_beta_quantity_one_required"
+  | "xometry_beta_single_quantity_required"
   | "xometry_beta_special_delivery_date_not_supported"
   | "xometry_beta_special_requirements_not_supported"
   | "provider_dispatch_special_requirements_not_supported"
@@ -135,6 +136,7 @@ const ACTIONABLE_SCOPE_DENIAL_CODES: readonly XometryBetaScopeDenialCode[] = [
   "xometry_beta_confirmed_sourcing_address_required",
   "xometry_beta_standard_tolerance_required",
   "xometry_beta_quantity_one_required",
+  "xometry_beta_single_quantity_required",
   "xometry_beta_special_delivery_date_not_supported",
   "xometry_beta_special_requirements_not_supported",
   "provider_dispatch_special_requirements_not_supported",
@@ -555,12 +557,11 @@ const SPECIAL_REQUIREMENT_FIELDS =
   "material provisioning other than Supplier to source, or a saved release hold or block (contact support)";
 
 /**
- * The request's Threads field falls back to the thread callouts read from the
- * drawing when it is cleared, and any save records them, so a part with thread
- * callouts cannot clear Threads.
+ * Drawing callouts can populate Threads, but customers can explicitly clear
+ * Threads in the request editor when the part does not need them.
  */
 const DRAWING_THREADS_NOTE =
-  " Thread callouts read from the drawing are saved as Threads with the request and cannot be cleared, so a part with thread callouts is outside the beta.";
+  " Thread callouts read from the drawing are saved as Threads with the request. You can clear Threads in the request editor if the part does not need them, then retry.";
 
 function joinWithOr(items: readonly string[]): string {
   return items.length <= 1 ? items.join("") : `${items.slice(0, -1).join(", ")} or ${items.at(-1)}`;
@@ -581,7 +582,7 @@ const NON_MANUFACTURING_SERVICES = joinWithOr(
 
 /** Facts about the request that sharpen a denial message. */
 export type XometryBetaScopeFailureContext = {
-  /** The drawing has thread callouts that the request's Threads field falls back to. */
+  /** The drawing has thread callouts that can populate the request's Threads field. */
   drawingThreads?: boolean;
   /** Known saved request fields, used only to shorten denial copy. */
   request?: Partial<ClientPartRequestUpdateInput>;
@@ -664,6 +665,8 @@ export function getXometryBetaScopeFailureMessage(
       return "Enter this part's tightest tolerance. The controlled Xometry beta accepts ±0.005 in (0.127 mm) or looser; tighter tolerances are outside the beta.";
     case "xometry_beta_quantity_one_required":
       return `The controlled ${label} beta quotes quantity 1 only. Set Qty to 1 and clear extra Quote quantities, then retry.`;
+    case "xometry_beta_single_quantity_required":
+      return `The controlled ${label} beta quotes one quantity per request. Remove extra Quote quantities so exactly one quantity of 1 or more remains, then retry. To see another quantity, request it as its own quote.`;
     case "xometry_beta_special_delivery_date_not_supported":
       return `The controlled ${label} beta does not support a Need by date. Clear Need by in the request, then retry.`;
     case "xometry_beta_special_requirements_not_supported":

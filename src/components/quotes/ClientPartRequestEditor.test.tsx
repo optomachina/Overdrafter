@@ -655,3 +655,12 @@ describe("ClientPartRequestEditor quantities with the flag off (OVD-1023)", () =
     expect(screen.getByLabelText("Quote quantities")).toHaveAccessibleDescription(/Commas are ambiguous here/);
     expect(screen.getByRole("button", { name: /save request details/i })).toBeDisabled();
   });
+
+it("marks Threads explicitly empty when Clear threads is chosen (OVD-994)", () => {
+  const onChange = vi.fn();
+  render(<ClientPartRequestEditor draft={makeDraft({ threads: "M6x1" })}
+    quoteQuantityInput="1" onQuoteQuantityInputChange={noop} onChange={onChange}
+    onSave={noop} onUploadRevision={noop} />);
+  fireEvent.click(screen.getByRole("button", { name: "Clear threads" }));
+  expect(onChange).toHaveBeenCalledWith({ threads: "", clearThreads: true });
+});
