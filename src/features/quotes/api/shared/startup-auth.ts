@@ -447,10 +447,25 @@ async function readSupabaseBootstrap(options: {
   })();
 
   if (options.memoize) {
-    startupAuthBootstrapPromise = bootstrapPromise.then((result) => {
-      startupAuthBootstrapResolvedAt = Date.now();
-      return result;
-    });
+    const memoized: Promise<StartupAuthBootstrapResult> = bootstrapPromise.then(
+      (result) => {
+        startupAuthBootstrapResolvedAt = Date.now();
+        return result;
+      },
+      (error: unknown) => {
+        // A thrown (not timed-out) startup read must not stay "pending" forever:
+        // drop the memo so a later fetch, including Retry, makes a live read.
+        if (startupAuthBootstrapPromise === memoized) {
+          startupAuthBootstrapPromise = null;
+          startupSessionReadPromise = null;
+          startupUserReadPromise = null;
+        }
+        throw error;
+      },
+    );
+    // Callers observe the rejection through bootstrapPromise; keep the memo branch handled.
+    memoized.catch(() => undefined);
+    startupAuthBootstrapPromise = memoized;
   }
 
   return bootstrapPromise;
