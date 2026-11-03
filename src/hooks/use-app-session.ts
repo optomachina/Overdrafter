@@ -53,6 +53,13 @@ function isRestoredSession(session: AppSessionData | undefined): session is AppS
   return session?.restoreComplete === true && session.authState === "authenticated" && Boolean(session.user);
 }
 
+// A completed projection without a user (the deadline's session_error, or an
+// anonymous/invalid result) is final for every observer, even while a Retry
+// or an abandoned queryFn is still in flight.
+function isSettledWithoutUser(session: AppSessionData | undefined): boolean {
+  return session?.restoreComplete === true && !session.user;
+}
+
 function isAppSessionQuery(queryKey: readonly unknown[]): boolean {
   return queryKey[0] === APP_SESSION_QUERY_KEY[0];
 }
@@ -85,7 +92,6 @@ export function useAppSession() {
   const queryClient = useQueryClient();
   const pendingAuthTransitionRef = useRef(false);
   const retryTimeoutRef = useRef<number | null>(null);
-  const initialAuthCheckRef = useRef<InitialAuthCheckState>("checking");
   const hasResolvedInitialRestoreRef = useRef(false);
   const terminalAuthStateRef = useRef<"invalid_session" | null>(null);
   const sessionErrorRetriedRef = useRef(false);
@@ -93,10 +99,16 @@ export function useAppSession() {
   const fixtureSession = getFixtureSessionDataForSearch(location.search);
   const isFixtureSession = fixtureSession !== null;
   const startupHadStoredTokenRef = useRef(Boolean(fixtureSession ? false : getStoredSupabaseAccessToken()));
+  // An observer mounted after the shared restore settled without a user (for
+  // example the Sign in panel after the deadline) must not reopen the splash.
+  const [mountedAfterSettledRestore] = useState(() =>
+    !fixtureSession && isSettledWithoutUser(queryClient.getQueryData<AppSessionData>(APP_SESSION_QUERY_KEY)));
   const [initialAuthCheck, setInitialAuthCheck] = useState<InitialAuthCheckState>(
-    fixtureSession ? "none" : "checking",
+    fixtureSession || mountedAfterSettledRestore ? "none" : "checking",
   );
-  const [hasResolvedInitialRestore, setHasResolvedInitialRestore] = useState(Boolean(fixtureSession));
+  const initialAuthCheckRef = useRef<InitialAuthCheckState>(initialAuthCheck);
+  const [hasResolvedInitialRestore, setHasResolvedInitialRestore] = useState(
+    Boolean(fixtureSession) || mountedAfterSettledRestore);
   const sessionQueryKey = isFixtureSession
     ? [...APP_SESSION_QUERY_KEY, "fixture", location.pathname, location.search]
     : APP_SESSION_QUERY_KEY;
@@ -384,6 +396,19 @@ export function useAppSession() {
         return;
       }
 
+      // Every observer subscribes, and each subscription replays INITIAL_SESSION
+      // under supabase-js's auth lock. It is the stored session that the startup
+      // bootstrap and the in-flight restore already read. Restarting the query
+      // for it cancels that restore and queues another serialised getUser()
+      // behind the lock, so under latency the restore never finishes.
+      if (event === "INITIAL_SESSION") {
+        const cached = queryClient.getQueryData<AppSessionData>(APP_SESSION_QUERY_KEY);
+        if (queryClient.isFetching({ queryKey: APP_SESSION_QUERY_KEY }) > 0 ||
+            (cached?.user?.id === session.user.id && cached.restoreComplete === true)) {
+          return;
+        }
+      }
+
       failedRestores.delete(queryClient);
       terminalAuthStateRef.current = null;
       updateInitialAuthCheck("present");
@@ -618,7 +643,17 @@ export function useAppSession() {
   useEffect(() => {
     // Only an accepted shared result can finish restoration. Cancelled query functions
     // may still finish executing, and other observers may never run their own queryFn.
-    if (isFixtureSession || sessionQuery.fetchStatus !== "idle") {
+    if (isFixtureSession) {
+      return;
+    }
+    if (sessionQuery.fetchStatus !== "idle") {
+      // The first observer to reach the deadline settles the shared projection;
+      // every other observer leaves the splash with it.
+      if (isSettledWithoutUser(sessionQuery.data)) {
+        pendingAuthTransitionRef.current = false;
+        updateInitialAuthCheck("none");
+        markInitialRestoreResolved("use-app-session.settled-projection");
+      }
       return;
     }
     if (sessionQuery.isError || sessionQuery.data?.restoreComplete === true) {
@@ -638,7 +673,15 @@ export function useAppSession() {
   useEffect(() => {
     if (!restorePending) return;
     const deadline = window.setTimeout(() => {
-      if (queryClient.getQueryData<AppSessionData>(APP_SESSION_QUERY_KEY)?.restoreComplete) return;
+      const current = queryClient.getQueryData<AppSessionData>(APP_SESSION_QUERY_KEY);
+      if (current?.restoreComplete) {
+        // Another observer settled first, or the restore finished while a
+        // refetch is still in flight: this observer resolves too.
+        pendingAuthTransitionRef.current = false;
+        if (!current.user) updateInitialAuthCheck("none");
+        markInitialRestoreResolved("use-app-session.deadline");
+        return;
+      }
       const pending = pendingRestores.get(queryClient);
       if (pending) pending.timedOut = true;
       else advanceSessionEpoch(queryClient);

@@ -465,6 +465,15 @@ export function getStartupBootstrapAgeMs(): number | null {
 }
 
 /**
+ * True while the memoized startup auth bootstrap has started but not resolved.
+ * Its getUser() is already queued behind supabase-js's auth lock, so a caller
+ * should await it instead of queueing a second read behind it.
+ */
+export function isStartupBootstrapPending(): boolean {
+  return startupAuthBootstrapPromise !== null && startupAuthBootstrapResolvedAt === null;
+}
+
+/**
  * Returns the memoized one-time startup auth snapshot used while the app decides
  * whether to restore a workspace or show the anonymous landing page.
  *

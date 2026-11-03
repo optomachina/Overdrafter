@@ -345,6 +345,68 @@ describe("useAppSession", () => {
     expect(screen.getByTestId("verified-auth")).toHaveTextContent("yes");
   });
 
+  it("resolves every observer at the deadline after a same-user SIGNED_IN restarts the restore", async () => {
+    vi.useFakeTimers();
+    const local = seedLocalSession(storageMock);
+    fetchAppSessionDataMock.mockImplementation(() => new Promise((resolve) => {
+      setTimeout(() => resolve(makeRestoredSession(local)), 6000);
+    }));
+    function BareObserver() {
+      useAppSession();
+      return null;
+    }
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const tree = (withSignInPanel: boolean) => (
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={["/internal/jobs/job-1"]}>
+          <BareObserver />
+          <SessionProbe />
+          {withSignInPanel ? <SessionProbe /> : null}
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+    const view = render(tree(false));
+    await act(async () => { await vi.advanceTimersByTimeAsync(2500); });
+    act(() => authStateChangeCallbacks.forEach((callback) => callback("SIGNED_IN", local)));
+    await act(async () => { await vi.advanceTimersByTimeAsync(STARTUP_AUTH_TIMEOUT_MS - 2500 + 100); });
+    expect(screen.getByTestId("auth-initializing")).toHaveTextContent("no");
+    expect(screen.getByTestId("auth-state")).toHaveTextContent("session_error");
+    expect(screen.getByTestId("verified-auth")).toHaveTextContent("no");
+    // Opening the Sign in panel mounts another observer; it must not reopen the splash.
+    view.rerender(tree(true));
+    for (const initializing of screen.getAllByTestId("auth-initializing")) {
+      expect(initializing).toHaveTextContent("no");
+    }
+  });
+
+  it("lets an auth event clear an earlier failed restore so its slow restore is still adopted", async () => {
+    vi.useFakeTimers();
+    const local = seedLocalSession(storageMock);
+    let calls = 0;
+    // Two quick failures settle the startup restore; the next one is slow.
+    fetchAppSessionDataMock.mockImplementation(() => new Promise((resolve) => {
+      calls += 1;
+      if (calls <= 2) {
+        setTimeout(() => resolve({ user: null, memberships: [], isVerifiedAuth: false, authState: "session_error" }), 300);
+      } else {
+        setTimeout(() => resolve(makeRestoredSession(local)), 6000);
+      }
+    }));
+    renderProbe();
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+    expect(fetchAppSessionDataMock).toHaveBeenCalledTimes(2);
+    expect(screen.getByTestId("auth-state")).toHaveTextContent("session_error");
+    expect(screen.getByTestId("auth-initializing")).toHaveTextContent("no");
+    act(() => authStateChangeCallbacks.forEach((callback) => callback("SIGNED_IN", local)));
+    await act(async () => { await vi.advanceTimersByTimeAsync(STARTUP_AUTH_TIMEOUT_MS + 100); });
+    expect(screen.getByTestId("auth-state")).toHaveTextContent("session_error");
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+    expect(fetchAppSessionDataMock).toHaveBeenCalledTimes(3);
+    expect(screen.getByTestId("auth-state")).toHaveTextContent("authenticated");
+    expect(screen.getByTestId("membership-count")).toHaveTextContent("1");
+    expect(screen.getByTestId("verified-auth")).toHaveTextContent("yes");
+  });
+
   it.each(["SIGNED_OUT", "SIGNED_IN"])("fences late hydration after the deadline and %s", async (event) => {
     vi.useFakeTimers();
     const local = seedLocalSession(storageMock);
