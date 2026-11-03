@@ -31,6 +31,16 @@
 #       `npm run seed:dev`, then
 #       `npx playwright test <args>` as user "qa" from a copy at $QA_COPY_DIR.
 #
+# `run` may be repeated in one container, for example at a new head. The copy at
+# $QA_COPY_DIR is replaced each time, and a stack still running from the previous
+# copy is stopped first (`supabase stop` as "qa", from that copy): edge-runtime
+# bind-mounts the copy's supabase/functions, and `supabase start` does nothing
+# when the stack is already up, so without the stop a new head would be served
+# the old head's edge functions, or none once the directory is gone. `db reset`
+# covers the schema, not that mount. If the stop fails the run aborts before the
+# copy is touched; stop the stack by hand or use a fresh container (one head per
+# container).
+#
 # `check` is not read-only: it may start dockerd, install the CLI under $SHIM_DIR
 # and add browser symlinks under $PLAYWRIGHT_BROWSERS_PATH. The browser alias runs
 # the image's Chromium build, not the one CI pins; record that in QA verdicts.
@@ -192,6 +202,43 @@ safe_copy_dir() {
   fi
 }
 
+# The CLI labels every container it starts with the project_id of the checkout it
+# ran from (com.supabase.cli.project=<id>); `supabase stop --project-id` uses the
+# same label. Empty output when the checkout has no config.
+project_id_of() {
+  local f="$1/supabase/config.toml"
+  [[ -f "$f" ]] || return 0
+  sed -n 's/^project_id *= *"\([^"]*\)".*/\1/p' "$f" | head -1
+}
+
+stack_containers() { docker ps -q --filter "label=com.supabase.cli.project=$1"; }
+
+stop_previous_stack() {
+  # A stack started from the previous copy bind-mounts that directory (edge-runtime
+  # mounts supabase/functions) and `supabase start` is a no-op while it is up, so
+  # replacing the copy under it would serve the old head's functions. Stop it the
+  # way it was started: as $QA_USER, from the old copy. `stop` keeps the data
+  # volume; db-reset rebuilds the schema afterwards as before. Any doubt (docker
+  # unreadable, stop failed, containers left) aborts before the copy is touched.
+  local t; t=$(now)
+  [[ -d "$QA_COPY_DIR" ]] || { step stop-previous 0 "ok (no previous copy)"; return; }
+  local id running
+  id=$(project_id_of "$QA_COPY_DIR")
+  [[ -n "$id" ]] || id=$(project_id_of .)
+  [[ -n "$id" ]] || { step stop-previous 0 "FAIL: no project_id in supabase/config.toml of $QA_COPY_DIR or the checkout"; return 1; }
+  local hint="stop it by hand (cd $QA_COPY_DIR && sudo -u $QA_USER supabase stop) or use a fresh container: one head per container"
+  running=$(stack_containers "$id") || { step stop-previous "$(( $(now) - t ))" "FAIL: docker ps failed; $hint"; return 1; }
+  if [[ -z "$running" ]]; then
+    step stop-previous "$(( $(now) - t ))" "ok (no stack running for $id)"; return
+  fi
+  as_qa "supabase stop --project-id $(printf '%q' "$id")" || {
+    step stop-previous "$(( $(now) - t ))" "FAIL: supabase stop failed in the previous copy, which was left in place; $hint"; return 1; }
+  running=$(stack_containers "$id") || running="(docker ps failed)"
+  [[ -z "$running" ]] || {
+    step stop-previous "$(( $(now) - t ))" "FAIL: containers of $id still run after supabase stop; the previous copy was left in place; $hint"; return 1; }
+  step stop-previous "$(( $(now) - t ))" "ok (stopped the previous copy's stack)"
+}
+
 prepare_unprivileged_copy() {
   local t; t=$(now)
   safe_copy_dir
@@ -200,6 +247,7 @@ prepare_unprivileged_copy() {
   usermod -aG docker "$QA_USER"
   local sock=/var/run/docker.sock
   [[ -S "$sock" ]] && chgrp docker "$sock" && chmod 660 "$sock"
+  stop_previous_stack
   rm -rf "$QA_COPY_DIR"
   cp -a . "$QA_COPY_DIR"
   chown -R "$QA_USER:$QA_USER" "$QA_COPY_DIR"
@@ -243,4 +291,5 @@ main() {
   timed playwright as_qa "npx playwright test $args"
 }
 
-main "$@"
+# Sourcing the file (scripts/cloud-qa-boot.test.mjs) defines the functions only.
+[[ "${BASH_SOURCE[0]}" != "$0" ]] || main "$@"

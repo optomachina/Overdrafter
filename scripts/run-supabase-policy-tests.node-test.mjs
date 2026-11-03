@@ -133,6 +133,17 @@ test('OVD-987 pgTAP fixture is a byte copy of the rollback it drills', () => {
   assert(suite.includes(`select throws_ok($ovd987_guard_drill$\n${rollback.slice(start, end)}\n$ovd987_guard_drill$,\n  '55000',`));
 });
 
+test('OVD-1007 pgTAP fixture is a byte copy of the quantity-grant rollback', () => {
+  // The OVD-1007 suite drills it twice (empty and with history); the OVD-987 suite applies it
+  // once first, so it tests the OVD-987 bodies that OVD-1007 restates.
+  assert.deepEqual(readFileSync(join(source, 'fixtures/ovd1007_xometry_beta_quantity_grant_rollback.inc')),
+    readFileSync(fileURLToPath(new URL('../docs/migration-drafts/ovd-1007.rollback.sql', import.meta.url))));
+  const own = readFileSync(join(source, 'ovd1007_xometry_beta_quantity_grant.sql'), 'utf8');
+  assert.equal(own.match(/^\\ir fixtures\/ovd1007_xometry_beta_quantity_grant_rollback\.inc\n/gm)?.length, 2);
+  const ovd987 = readFileSync(join(source, 'ovd987_controlled_beta_user_quantity.sql'), 'utf8');
+  assert.equal(ovd987.match(/^\\ir fixtures\/ovd1007_xometry_beta_quantity_grant_rollback\.inc\n/gm)?.length, 1);
+});
+
 test('OVD-1018 pgTAP fixtures are byte copies of the promoted migration and its rollback', () => {
   // The suite installs the migration copy in its rolled back transaction only while
   // authenticated still holds INSERT, and applies the rollback copy twice.
@@ -274,4 +285,19 @@ test('OVD-462 a rollback queued behind a pending revoke neither deadlocks nor dr
   assert.throws(() => acceptRollbackBehindRevoke(fence, { sqlstate: '40P01', message: 'deadlock detected' }, true, true));
   assert.throws(() => acceptRollbackBehindRevoke(fence, occupantRefusal, false, true));
   assert.throws(() => acceptRollbackBehindRevoke(fence, occupantRefusal, true, false));
+});
+
+test('OVD-1011 pgTAP fixture is a byte copy of the rollback it drills', () => {
+  assert.deepEqual(readFileSync(join(source, 'fixtures/ovd1011_client_part_metadata_defaults_rollback.inc')),
+    readFileSync(fileURLToPath(new URL('../docs/migration-drafts/ovd-1011.rollback.sql', import.meta.url))));
+  const suite = readFileSync(join(source, 'ovd1011_client_part_metadata_defaults.sql'), 'utf8');
+  assert.match(suite, /\\ir fixtures\/ovd1011_client_part_metadata_defaults_rollback\.inc\n/);
+});
+
+test('OVD-994 pgTAP rollback fixture is byte identical and used by the historical ACL drill', () => {
+  assert.deepEqual(readFileSync(join(source, 'fixtures/ovd994_rollback.inc')),
+    readFileSync(fileURLToPath(new URL('../docs/migration-drafts/ovd-994.rollback.sql', import.meta.url))));
+  for (const file of ['ovd994_clear_need_by_and_threads.sql', 'ovd736_anon_definer_privileges.sql']) {
+    assert.match(readFileSync(join(source, file), 'utf8'), /\\ir fixtures\/ovd994_rollback\.inc\n/);
+  }
 });

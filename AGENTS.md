@@ -52,7 +52,7 @@ Prepare reversible work first and ask only at the protected boundary. Goals, iss
 
 ## Standing approvals and the Blaine channel
 
-- Blaine talks only to Grok Bot. Team bots (Architect/Release, Pirate/Engineer, Designer, QA) never ask Blaine directly; they hand decisions to Grok Bot, and approvals Grok Bot relays from Blaine count as Blaine's own.
+- Blaine talks only to Grok Bot. The team (the Claude thread, Engineer, Designer, QA) never asks Blaine directly; they hand decisions to Grok Bot, and approvals Grok Bot relays from Blaine count as Blaine's own.
 - Standing approval covers all reversible work in this file: branches, commits, pushes, PRs and PR comments, Linear issues/sub-issues/labels, reviews, QA verdicts, and handoffs between bots. Do not stop to ask for these.
 - Protected actions (above) still need Blaine's exact OK: Grok Bot requests it as soon as the item is ready, with one approval card naming the commit SHA and the passing checks, merge and production migration listed as separate actions.
 
@@ -84,7 +84,7 @@ Revoke by removing this subsection; once OVD-822 lands, setting `revoked_at` on 
 
 ## Sensitive paths (single shared list)
 
-`docs/sensitive-paths.json` is the source of truth. Triage (`ovd-auto-triage`), the Jev PR screen and the merge gates read it only through `scripts/lib/sensitive-paths.mjs`, never copying its globs; gates read the base checkout's copy. A Linear issue touching it routes architect-first (the Architect/Release `release` graph node); a PR touching it gets Opus review whatever the Jev score. Globs use picomatch semantics, dotfiles included, case ignored. The list below must match the JSON exactly (`scripts/validate-agent-contract.mjs` checks both directions). Adding a glob is free; removing, narrowing or reclassifying one is gate_loosening. The list covers the files that define and apply it (infra_ci), so a PR editing them is sensitive.
+`docs/sensitive-paths.json` is the source of truth. Triage (`ovd-auto-triage`), the Jev PR screen and the merge gates read it only through `scripts/lib/sensitive-paths.mjs`, never copying its globs; gates read the base checkout's copy. A Linear issue touching it routes to the Claude thread first (`architect_first`); a PR touching it gets Opus review whatever the Jev score. Globs use picomatch semantics, dotfiles included, case ignored. The list below must match the JSON exactly (`scripts/validate-agent-contract.mjs` checks both directions). Adding a glob is free; removing, narrowing or reclassifying one is gate_loosening. The list covers the files that define and apply it (infra_ci), so a PR editing them is sensitive.
 
 <!-- sensitive-paths:begin -->
 - **schema** (database schema): `**/*.sql`, `supabase/config.toml`, `docs/migration-drafts/**`, `**/*.{pgsql,psql}`, `scripts/check-lock-order.mjs`

@@ -62,6 +62,7 @@ function renderWithClient(component: React.ReactNode, initialEntry: string) {
 
 describe("client review pages", () => {
   beforeEach(() => {
+    Element.prototype.scrollIntoView = vi.fn();
     mockUseAppSession.mockReturnValue({
       user: { id: "user-1", email: "client@example.com" },
       activeMembership: null,
@@ -208,6 +209,28 @@ describe("client review pages", () => {
   });
 
   for (const scope of ["part", "project"] as const) {
+    it.each([false, true])(`${scope} review scrolls and focuses the release check on every request (reduced motion: %s)`, async (reducedMotion) => {
+      const matchMedia = vi.spyOn(window, "matchMedia").mockReturnValue({ matches: reducedMotion } as MediaQueryList);
+      renderWithClient(
+        <Routes><Route path={scope === "part" ? "/parts/:jobId/review" : "/projects/:projectId/review"} element={scope === "part" ? <ClientPartReview /> : <ClientProjectReview />} /></Routes>,
+        scope === "part" ? "/parts/job-1/review" : "/projects/project-1/review",
+      );
+      const button = await screen.findByRole("button", { name: /review handoff/i });
+      await waitFor(() => expect(button).toBeEnabled());
+      expect(Element.prototype.scrollIntoView).not.toHaveBeenCalled();
+      fireEvent.click(button);
+      const heading = screen.getByRole("heading", { name: "More procurement detail is still needed" });
+      expect(Element.prototype.scrollIntoView).toHaveBeenCalledTimes(1);
+      expect(vi.mocked(Element.prototype.scrollIntoView).mock.contexts[0]).toBe(heading);
+      expect(Element.prototype.scrollIntoView).toHaveBeenCalledWith({ block: "start", behavior: reducedMotion ? "instant" : "smooth" });
+      expect(heading).toHaveFocus();
+      expect(matchMedia).toHaveBeenCalledWith("(prefers-reduced-motion: reduce)");
+      fireEvent.click(button);
+      expect(Element.prototype.scrollIntoView).toHaveBeenCalledTimes(2);
+      expect(vi.mocked(Element.prototype.scrollIntoView).mock.contexts[1]).toBe(heading);
+      expect(heading).toHaveFocus();
+    });
+
     for (const oldPointer of ["offer-1", null]) {
       it(`${scope} review uses the published selection and marked-up price with legacy pointer ${oldPointer}`, async () => {
         const [item] = await api.fetchClientQuoteWorkspaceByJobIds();
@@ -363,6 +386,47 @@ describe("client review pages", () => {
     expect(screen.getByText(/no manufacturing payment is collected here/i)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /proceed to payment/i })).not.toBeInTheDocument();
     expect(screen.queryByText(/authorize a card payment/i)).not.toBeInTheDocument();
+  });
+
+
+  it("keeps an invalid billing email out of the ready part handoff", async () => {
+    renderWithClient(
+      <Routes><Route path="/parts/:jobId/review" element={<ClientPartReview />} /></Routes>,
+      "/parts/job-1/review",
+    );
+    await screen.findByLabelText(/ship-to contact/i);
+    for (const [label, value] of [
+      [/ship-to contact/i, "Buyer"], [/ship-to location/i, "Austin"],
+      [/billing contact name/i, "Buyer"], [/billing contact email/i, "not-an-email"],
+    ] as const) {
+      fireEvent.change(screen.getByLabelText(label), { target: { value } });
+    }
+    expect(screen.getByLabelText(/billing contact email/i)).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByLabelText(/billing contact email/i)).toHaveAccessibleDescription(/Enter a valid billing contact email/);
+    fireEvent.click(screen.getByRole("button", { name: /review handoff/i }));
+    expect(screen.getByRole("heading", { name: "More procurement detail is still needed" })).toBeInTheDocument();
+    expect(screen.getByText("Missing: a valid billing contact email.")).toBeInTheDocument();
+    expect(screen.queryByText(/ready for manual release coordination/i)).not.toBeInTheDocument();
+  });
+
+  it("keeps an invalid billing email out of the ready project handoff", async () => {
+    renderWithClient(
+      <Routes><Route path="/projects/:projectId/review" element={<ClientProjectReview />} /></Routes>,
+      "/projects/project-1/review",
+    );
+    await screen.findByLabelText(/ship-to contact/i);
+    for (const [label, value] of [
+      [/ship-to contact/i, "Buyer"], [/ship-to location/i, "Austin"],
+      [/billing contact name/i, "Buyer"], [/billing contact email/i, "buyer..name@example.com"],
+    ] as const) {
+      fireEvent.change(screen.getByLabelText(label), { target: { value } });
+    }
+    expect(screen.getByLabelText(/billing contact email/i)).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByLabelText(/billing contact email/i)).toHaveAccessibleDescription(/Enter a valid billing contact email/);
+    fireEvent.click(screen.getByRole("button", { name: /review handoff/i }));
+    expect(screen.getByRole("heading", { name: "More procurement detail is still needed" })).toBeInTheDocument();
+    expect(screen.getByText("Missing: a valid billing contact email.")).toBeInTheDocument();
+    expect(screen.queryByText(/ready for manual release coordination/i)).not.toBeInTheDocument();
   });
 
   it("holds the protected review route during auth initialization instead of redirecting", () => {

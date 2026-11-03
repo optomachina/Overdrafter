@@ -442,6 +442,20 @@ describe("ClientHome auth flow", () => {
     });
   });
 
+  it("offers Retry session at the overall deadline without rendering authenticated content", async () => {
+    vi.useFakeTimers();
+    window.localStorage.setItem(getSupabaseAuthStorageKey(), JSON.stringify({ access_token: "token-1" }));
+    authGetSessionMock.mockReturnValue(new Promise(() => undefined));
+    fetchAppSessionDataMock.mockReturnValue(new Promise(() => undefined));
+    renderClientHome();
+    expect(screen.getByText("Restoring your workspace.")).toBeInTheDocument();
+    await act(async () => { await vi.advanceTimersByTimeAsync(STARTUP_AUTH_TIMEOUT_MS + 1); });
+    expectGuestLandingVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+    expect(screen.getByRole("button", { name: "Retry session" })).toBeEnabled();
+  });
+
   it("keeps the session and closes the dialog when weak-password sign-in emits an auth event", async () => {
     const warning = vi.spyOn(toast, "warning");
     const membershipHydration = deferredPromise<AppSessionData>();

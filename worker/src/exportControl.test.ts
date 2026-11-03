@@ -919,8 +919,14 @@ describe("OVD-723 migration draft", () => {
     expect(expandRollback).not.toMatch(/drop table private\.(job_export_declarations|export_control_events|job_export_marking_blocks|job_file_export_scans)/);
     expect(contractRollback).toContain("the OVD-723 wrappers are not the outermost preflights");
     expect(contractRollback).toContain('create policy "job_files_storage_insert"');
-    expect(contractRollback).toContain("drop function public.api_authorize_provider_worker_dispatch(");
-    expect(contractRollback).toContain("drop function public.api_authorize_xometry_beta_worker_dispatch(");
+    for (const [name, core] of [
+      ["api_authorize_provider_worker_dispatch", "provider_worker_dispatch_core"],
+      ["api_authorize_xometry_beta_worker_dispatch", "xometry_beta_worker_dispatch_core"],
+    ]) {
+      expect(contractRollback).toContain(`pg_catalog.pg_get_functiondef(pg_catalog.to_regprocedure('private.${core}(`);
+      expect(contractRollback).toContain(`'FUNCTION private.${core}(', 'FUNCTION public.${name}('`);
+      expect(contractRollback).not.toContain(`drop function public.${name}(`);
+    }
   });
 
   it("binds each upload grant to one exact object and serializes Storage authorization", () => {

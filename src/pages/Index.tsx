@@ -51,10 +51,10 @@ function CapabilityLanding() {
 }
 
 const Index = () => {
-  const { user, activeMembership, isAuthInitializing } = useAppSession();
+  const { user, activeMembership, isAuthInitializing, isVerifiedAuth } = useAppSession();
   const { search, hash } = useLocation();
 
-  if (isAuthInitializing && !user) {
+  if (isAuthInitializing && (!user || !isVerifiedAuth)) {
     return <AuthBootstrapScreen message="Restoring your workspace." />;
   }
 

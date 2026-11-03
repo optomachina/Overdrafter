@@ -76,7 +76,7 @@ export default function ClientQuotes() {
   const rows = useMemo(() => filterQuoteCollection(quotes, parsedQuery), [parsedQuery, quotes]);
   const appMode = searchParams.get("app") === "ios" ? "ios" : null;
 
-  if (controller.isAuthInitializing && !controller.user) {
+  if (controller.isAuthInitializing && (!controller.user || !controller.isVerifiedAuth)) {
     return <AuthBootstrapScreen message="Restoring your quote workspace." />;
   }
 

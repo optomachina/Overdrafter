@@ -22,6 +22,7 @@ until its matching enforcement migration and verification are deployed.
 | `automatic_quote_collection` | Stops entitled automatic requests before vendor resolution or lifecycle writes. | Clients receive a neutral unavailable response; manual quotes and provider recommendations remain available. |
 | `promotion_codes` | Reserved for the promotion-code implementation. | No subscription or manufacturing-order discount is applied. |
 | `order_administration` | Reserved for the visibility-only order ledger. | Existing customer/project access is unchanged. |
+| `controlled_beta_user_quantity` | The Xometry controlled beta admits only quantity `1`. | Other quantities receive `xometry_beta_quantity_one_required` before a lane or task is created. |
 
 Hosted Checkout uses the independent server-only
 `BILLING_SELF_SERVICE_ENABLED` Edge Function secret. Billing Portal access is
@@ -115,20 +116,21 @@ commercial audit event.
 
 Call `public.api_get_commercial_rollout_controls()` with the service role. It
 returns all five controls (the four commercial controls plus OVD-987's
-`controlled_beta_user_quantity`, once that migration is applied) and the latest
-100 immutable change events. Record the current revision before proposing a
-change. Change one capability per transaction: turning
-`controlled_beta_user_quantity` and `automatic_quote_collection` in one
-transaction can deadlock with an in-flight Xometry worker preflight; if both must
-change together, change `automatic_quote_collection` first. Scripts that pin
-exactly four controls are not updated for the fifth one: the frozen OVD-373,
-OVD-418 and OVD-570 release tooling, and the live OVD-410 operational-envelope
-collector (`scripts/collect-ovd410-operational-envelope.mjs`, which the
-stable-egress containment step and the OVD-419 run call) and its OVD-419
-adapter. The collector rejects a five-control response, so the production apply
-of that migration waits for either a separate change that teaches it the fifth
-control or the OVD-206 and OVD-410 work (decided on the production card; the
-OVD-987 notes list every consumer).
+`controlled_beta_user_quantity`) and the latest 100 immutable change events.
+Record the current revision before proposing a change. Change one capability
+per transaction; see [Controlled beta user quantity](#controlled-beta-user-quantity)
+for the lock order and turn-off semantics. Historical four-control release
+packets are not evidence of the current five-control state. Updated by PR #891,
+the OVD-410 collector tolerates, but does not certify,
+`controlled_beta_user_quantity`: it sets that row aside and certifies only the
+four commercial controls. The OVD-419 diagnostic adapter reads that filtered
+envelope, and the live-release caller imports the collector; those runs do not
+stop merely because the API returns five controls. The OVD-419 acquisition
+compatibility validator still requires exactly four controls in its hash-pinned
+SQL containment packet. The frozen OVD-373, OVD-418 and OVD-570 scripts still
+require a total control count of four. Check the
+[consumer inventory](../migration-drafts/ovd-987-notes.md#known-findings)
+before reusing those packets or scripts.
 
 Never grant direct table access or update either private rollout table by hand.
 
@@ -165,11 +167,64 @@ select public.api_set_commercial_rollout_control(
 Use the revision reported by the read API; `0` is only correct for a control
 that has never changed.
 
+## Controlled beta user quantity
+
+Migration `20261101130000_ovd987_controlled_beta_user_quantity` is applied in
+production and `controlled_beta_user_quantity` is **OFF**. It is the fifth
+control, seeded off at revision 0; a missing row also reads as off. Turning it
+on is a separate decision (`OVD-1000`). The scoped grant (`OVD-1007`) is a
+separate path; this migration supplies only the global switch. Before
+switch-on, resolve the prerequisites recorded in the
+[OVD-987 known findings](../migration-drafts/ovd-987-notes.md#known-findings),
+including the quantity-1 literal in fenced result acceptance.
+
+While off, the Xometry controlled beta requires exactly `[1]`. While on, it
+admits exactly one normalized positive integer quantity, default `1`, bounded
+only by the database integer range. See the
+[runbook quantity rule](../1-0-beta-runbook.md#quantity-in-controlled-beta-requests).
+
+After the separate enablement decision, use
+`public.api_set_commercial_rollout_control` through the service-role API as in
+[Change state](#change-state), naming `controlled_beta_user_quantity`, passing
+`true` to turn it on or `false` to turn it off, with the current revision,
+verified operator, specific reason and unique idempotency key. Read back the
+state and retain the revision and immutable audit event in the owning issue.
+
+- **One capability per transaction.** The setter holds that capability's
+  exclusive advisory lock until transaction end. Worker authorization takes
+  the shared `automatic_quote_collection` lock first, then the shared quantity
+  lock for a lane above `1`. Setting quantity then automatic collection in one
+  transaction can deadlock with authorization. Use separate transactions; if
+  both must change in one transaction, change `automatic_quote_collection` first.
+- **Turn-off boundary.** Lanes already authorized still launch. Lanes above
+  quantity `1` that have not been authorized are refused at worker preflight
+  with `dispatch_quantity_not_admitted`, before browser launch. Use the
+  [provider kill switch](../runbooks/provider-cease-and-desist.md) procedure to
+  contain already-authorized traffic; turning this control off is insufficient.
+- **Replay and settlement.** Replaying a committed quantity-N request after
+  turn-off raises `xometry_beta_quantity_one_required` before the deduplicated
+  return. Its permit and hold remain intact. Reserved holds at N still settle
+  normally because settlement does not read the switch.
+- **Worker reporting.** The worker (`worker/src/xometryDispatchPreflight.ts`)
+  maps `dispatch_quantity_not_admitted` to `dispatch_authorization_denied`
+  until PR #1025 (OVD-998) adds the named reason to its bounded reason list.
+
+Use turn-off for incident containment. The guarded schema rollback refuses
+with errcode `55000` once any immutable audit event names
+`controlled_beta_user_quantity`, including an event from a no-op setter call.
+After any real turn-off, the operational rollback is to keep the migration
+applied and the switch off. Only when no such audit event exists can a separate
+reviewed schema rollback proceed with the switch off and all Xometry permits
+above quantity `1` drained; follow the guarded rollback and read-only checks in
+[OVD-987 notes](../migration-drafts/ovd-987-notes.md#rollback-and-audit-history-decision-refuse-loudly).
+The migration header retains historical pre-apply status; the current production
+status is applied and OFF, as stated above.
+
 ## Rollout order
 
 1. Confirm the target migration and functions are deployed without running a
    broad linked `supabase db push` while migration history remains divergent.
-2. Confirm all four database controls are off and
+2. Confirm all five database controls are off and
    `BILLING_SELF_SERVICE_ENABLED=false`.
 3. Confirm the OVD-315 and OVD-314 enforcement migrations are deployed before
    relying on their control values as product safety boundaries.

@@ -9,6 +9,7 @@ import { callRpc } from "./shared/rpc";
 import {
   getStartupBootstrapAgeMs,
   getStoredSupabaseAccessToken,
+  isStartupBootstrapPending,
   readLiveSupabaseBootstrap,
   readStartupSupabaseBootstrap,
 } from "./shared/startup-auth";
@@ -141,18 +142,24 @@ export async function fetchAppSessionData(): Promise<AppSessionData> {
     return session;
   }
 
-  // Reuse the memoized startup result if it resolved recently — avoids a duplicate
-  // getSession + getUser round-trip on the initial page load fetch.
+  // Reuse the memoized startup result while it is in flight or resolved recently.
+  // supabase-js serialises auth calls under one lock, so a second getUser()
+  // queues behind the startup read and doubles the restore latency.
   const STARTUP_REUSE_WINDOW_MS = 2_000;
+  const startupPending = isStartupBootstrapPending();
   const startupAge = getStartupBootstrapAgeMs();
-  const reuseStartup = startupAge !== null && startupAge < STARTUP_REUSE_WINDOW_MS;
+  const reuseStartup = startupPending || (startupAge !== null && startupAge < STARTUP_REUSE_WINDOW_MS);
   let bootstrap = await (
     reuseStartup
       ? readStartupSupabaseBootstrap()
       : readLiveSupabaseBootstrap()
   );
-  // The reuse window must not carry a previous account across sign-in/out.
-  if (reuseStartup && (bootstrap.session?.access_token ?? null) !== getStoredSupabaseAccessToken()) {
+  // The reuse window must not carry a previous account across sign-in/out, and
+  // an earlier failed startup read must not answer a later (Retry) fetch.
+  if (reuseStartup && (
+    (bootstrap.session?.access_token ?? null) !== getStoredSupabaseAccessToken() ||
+    (!startupPending && bootstrap.authState === "session_error")
+  )) {
     bootstrap = await readLiveSupabaseBootstrap();
   }
   const hasLocalSession = bootstrap.session !== null;

@@ -447,10 +447,25 @@ async function readSupabaseBootstrap(options: {
   })();
 
   if (options.memoize) {
-    startupAuthBootstrapPromise = bootstrapPromise.then((result) => {
-      startupAuthBootstrapResolvedAt = Date.now();
-      return result;
-    });
+    const memoized: Promise<StartupAuthBootstrapResult> = bootstrapPromise.then(
+      (result) => {
+        startupAuthBootstrapResolvedAt = Date.now();
+        return result;
+      },
+      (error: unknown) => {
+        // A thrown (not timed-out) startup read must not stay "pending" forever:
+        // drop the memo so a later fetch, including Retry, makes a live read.
+        if (startupAuthBootstrapPromise === memoized) {
+          startupAuthBootstrapPromise = null;
+          startupSessionReadPromise = null;
+          startupUserReadPromise = null;
+        }
+        throw error;
+      },
+    );
+    // Callers observe the rejection through bootstrapPromise; keep the memo branch handled.
+    memoized.catch(() => undefined);
+    startupAuthBootstrapPromise = memoized;
   }
 
   return bootstrapPromise;
@@ -462,6 +477,15 @@ async function readSupabaseBootstrap(options: {
  */
 export function getStartupBootstrapAgeMs(): number | null {
   return startupAuthBootstrapResolvedAt !== null ? Date.now() - startupAuthBootstrapResolvedAt : null;
+}
+
+/**
+ * True while the memoized startup auth bootstrap has started but not resolved.
+ * Its getUser() is already queued behind supabase-js's auth lock, so a caller
+ * should await it instead of queueing a second read behind it.
+ */
+export function isStartupBootstrapPending(): boolean {
+  return startupAuthBootstrapPromise !== null && startupAuthBootstrapResolvedAt === null;
 }
 
 /**

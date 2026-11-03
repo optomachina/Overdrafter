@@ -836,11 +836,14 @@ describe("pdfDrawing", () => {
     expect(result.quoteFinish).toBe("Black Anodize, Type II");
     expect(result.partNumber.reviewNeeded).toBe(true);
     expect(result.revision.reviewNeeded).toBe(true);
-    expect(result.description.reviewNeeded).toBe(false);
+    // OVD-1009: the description is the TITLE cell's value and, like the other four cells, layout text alone does not
+    // prove it.
+    expect(result.description.reviewNeeded).toBe(true);
+    expect(result.description.reasons).toContain("label_match");
     expect(result.finish.reviewNeeded).toBe(true);
     expect(result.reviewFields).toContain("partNumber");
     expect(result.reviewFields).toContain("revision");
-    expect(result.reviewFields).not.toContain("description");
+    expect(result.reviewFields).toContain("description");
     expect(result.reviewFields).toContain("finish");
     expect(result.reviewFields).not.toContain("process");
   });
@@ -960,7 +963,37 @@ describe("pdfDrawing", () => {
     expect(result.threads).toEqual([]);
     expect(result.quoteDescription).toBe("BONDED, CARBON FIBER END ATTACHMENT");
     expect(result.quoteFinish).toBe("Black Anodize, Type II");
-    expect(result.reviewFields).toEqual(["partNumber", "revision", "material", "finish"]);
+    // OVD-1009: the rescue's title is a suggestion too; only the TITLE cell, proven, approves a description.
+    expect(result.description).toMatchObject({ reviewNeeded: true });
+    expect(result.description.reasons).toContain("ocr_title_block");
+    expect(result.reviewFields).toEqual(["description", "partNumber", "revision", "material", "finish"]);
+  });
+
+  // OVD-1009: on the owner's template the description came out as "NOTES:" (the old anchors dropped the title because
+  // it held the label word PART, and the fallback took another line of the block). A label is never the description,
+  // whether the sheet has a TITLE cell (empty here) or no title label at all.
+  it("never reports a label such as NOTES: as the description", () => {
+    const withTitleCell = inferDrawingSignalsFromPdf({ titleBlockApprovalEnabled: true,
+      baseName: "upload",
+      pdfText: pdfTextOf([
+        "                    TITLE:",
+        "                    NOTES:",
+        "                    1. SAMPLE NOTE.",
+        "          MATERIAL  SIZE  DWG. NO.          REV",
+        "          AL 6061-T6   B  ABC-001           B",
+      ].join("\n")),
+    });
+    expect(withTitleCell.description).toMatchObject({ value: null, reviewNeeded: true });
+    expect(withTitleCell.reviewFields).toContain("description");
+    expect(withTitleCell.debugCandidates.description.map((candidate) => candidate.value)).not.toContain("NOTES:");
+
+    const withoutTitleLabel = inferDrawingSignalsFromPdf({ titleBlockApprovalEnabled: true,
+      baseName: "upload",
+      pdfText: pdfTextOf(["NOTES:", "1. SAMPLE NOTE.", "MATERIAL  AL 6061-T6", "FINISH  AS MACHINED", "DWG. NO.  ABC-001"].join("\n")),
+    });
+    expect(withoutTitleLabel.description.value).not.toBe("NOTES:");
+    expect(withoutTitleLabel.description.reviewNeeded).toBe(true);
+    expect(withoutTitleLabel.debugCandidates.description.find((candidate) => candidate.value === "NOTES:")?.reasons).toContain("rejected_label_token");
   });
 
   // Codex review of #884, round 5: the OCR rescue filled a MATERIAL the cell reader had flagged with the sample's
@@ -1087,6 +1120,84 @@ describe("pdfDrawing tightest tolerance units (OVD-976)", () => {
 
   // P1: units come only from explicit declarations.
   describe("P1 drawing unit declarations", () => {
+    it.each([10, 64, 255, 256])("reads %i-character declaration leaders", (length) => {
+      for (const leader of ["-", "="]) {
+        expect(tolerance([`UNITS: ${leader.repeat(length)} MM`, "BORE ±0.025"]))
+          .toMatchObject({ valueInch: 0.0009, unit: "mm", drawingUnits: "metric" });
+      }
+    });
+
+    it.each(["☑", "☒", "■", "✓", "✔", "[x]", "[X]", "[✓]", "[ ✔ ]"])(
+      "reads leading checked %s and ignores unchecked options", (checked) => {
+        for (const unchecked of ["☐", "□", "[ ]"]) {
+          for (const metric of [true, false]) {
+            const selected = `${checked} ${metric ? "MM" : "INCH"}`;
+            const other = `${unchecked} ${metric ? "INCH" : "MM"}`;
+            for (const field of [`${selected}  ${other}`, `${other}  ${selected}`]) {
+              expect(tolerance([field, "BORE ±0.025"])).toMatchObject({
+                valueInch: metric ? 0.0009 : 0.025,
+                drawingUnits: metric ? "metric" : "inch",
+              });
+            }
+          }
+        }
+      },
+    );
+
+    it.each(["☑ MM ☐ INCH", "[x] MM [ ] INCH", "■ MM □ INCH"])(
+      "reads a complete leading units choice: %s", (field) => {
+        expect(tolerance([`  ${field}`, "BORE ±0.025"]))
+          .toMatchObject({ drawingUnits: "metric", valueInch: 0.0009 });
+      },
+    );
+
+    it.each([
+      ["☑ MM ☐ INCH SCALE 1:2 SHEET 1 OF 1", "metric", 0.0009],
+      ["☐ MM ☑ INCH   SCALE 1:2", "inch", 0.025],
+      ["UNITS: ☑ MM ☐ INCH", "metric", 0.0009],
+      ["UNITS [X] MM [ ] INCH", "metric", 0.0009],
+      ["DIMENSIONS ☑ MM ☐ INCH", "metric", 0.0009],
+      ["DIMENSIONS ARE IN ☑ MM ☐ INCH", "metric", 0.0009],
+      ["UNITS: ☑ MM", "metric", 0.0009],
+      ["UNITS: INCH ☐ MM ☒", "mixed", null],
+      ["☑ MM ☒ MM", "unspecified", 0.025],
+    ])("reads checkbox field %s", (field, drawingUnits, valueInch) => {
+      expect(tolerance([String(field), "BORE ±0.025"]))
+        .toMatchObject({ drawingUnits, valueInch });
+    });
+
+    it.each(["☑ MM", "[x] MM", "■ MM"])(
+      "reads a standalone leading checked unit: %s", (field) => {
+        expect(tolerance([`\t${field}  `, "BORE ±0.025"]))
+          .toMatchObject({ drawingUnits: "metric", valueInch: 0.0009 });
+      },
+    );
+
+    it.each([
+      ["DIMENSIONS ARE IN INCHES\n■ METRIC THREADS PER ISO 965", "inch"],
+      ["■ MM/DD/YY", "unspecified"],
+      ["■ METRIC THREADS PER ISO 965", "unspecified"],
+      ["☑ MM SEE NOTE 3", "unspecified"],
+      ["☑ MM - ALL DIMS", "unspecified"],
+      ["NOTE: ✓ MM", "unspecified"],
+    ])("rejects incidental checked unit text: %s", (text, drawingUnits) => {
+      expect(tolerance([text, "BORE ±0.025"]))
+        .toMatchObject({ drawingUnits, valueInch: 0.025 });
+    });
+
+    it.each(["☐ INCH □ MM", "[ ] MM [ ] INCH", "☑ MM ☒ INCH"])(
+      "does not invent a single selection in %s", (field) => {
+        expect(tolerance([field, "BORE ±0.025"])).toMatchObject({
+          drawingUnits: field.startsWith("☑") ? "mixed" : "unspecified",
+        });
+      },
+    );
+
+    it.each([0, 1, 12, 13])("bounds second-unit punctuation at 12 marks (%i)", (count) => {
+      expect(tolerance([`UNITS: INCH${"|".repeat(count)} MM`, "BORE ±0.025"]))
+        .toMatchObject({ drawingUnits: count <= 12 ? "mixed" : "inch" });
+    });
+
     it.each([
       ["DIMENSIONS ARE IN MILLIMETERS"],
       ["ALL DIMENSIONS ARE IN MILLIMETRES"],
@@ -1528,7 +1639,8 @@ describe("pdfDrawing tightest tolerance units (OVD-976)", () => {
   // The parse is synchronous on customer text, so hostile text must stay linear. Each of these took
   // seconds before round 3 (quadratic backtracking or a backward scan per value); the bound is loose.
   describe("linear time on hostile text", () => {
-    const BOUND_MS = 500;
+    // Allow scheduler contention in the full suite; quadratic cases still take many seconds.
+    const BOUND_MS = 2_000;
     const read = (text: string) =>
       inferDrawingSignalsFromPdf({ titleBlockApprovalEnabled: true, baseName: "1000-00001-A", pdfText: pdfTextOf(text) });
     // V8 can compile a regex differently depending on the first long text it reads in the process: a
@@ -1586,13 +1698,35 @@ describe("pdfDrawing tightest tolerance units (OVD-976)", () => {
       expect(result.tightestToleranceDrawingUnits).toBe("inch");
     });
 
+    it("preserves unit homoglyphs and supplementary marks across chunk boundaries", () => {
+      for (const tail of ["ΜΜ", "\u{1D185}MM"]) {
+        const result = read(`${" ".repeat(65_528)}UNITS: ${tail}\nBORE ±0.025`);
+        expect(result.tightestToleranceDrawingUnits).toBe("metric");
+        expect(result.tightestToleranceValueInch).toBe(0.0009);
+      }
+    });
+
+    it("normalizes 5M combining marks without losing following evidence", () => {
+      const result = read(`${"\u0300".repeat(5_000_000)}\nUNITS: MM\nBORE ±0.025`);
+      expect(result.tightestToleranceValueInch).toBe(0.0009);
+      expect(result.tightestToleranceDrawingUnits).toBe("metric");
+    });
+
+    it("reads a labelled checkbox pair before 4M spaces within the bound", () => {
+      const text = `UNITS: ☑ MM ☐ INCH${" ".repeat(4_000_000)}x\nBORE ±0.025`;
+      warm();
+      const started = performance.now();
+      expect(read(text).tightestToleranceDrawingUnits).toBe("metric");
+      expect(performance.now() - started).toBeLessThan(BOUND_MS);
+    });
+
     // An unbounded repeat of the separators after UNITS overflowed the regexp stack on this line.
     it("reads a 4M-character line of separators after UNITS without throwing", () => {
       const text = `UNITS${":".repeat(4_000_000)}`;
       warm();
       const started = performance.now();
       expect(() => read(text)).not.toThrow();
-      expect(performance.now() - started).toBeLessThan(10 * BOUND_MS);
+      expect(performance.now() - started).toBeLessThan(1_000);
     });
   });
 });

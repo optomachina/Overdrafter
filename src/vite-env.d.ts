@@ -6,6 +6,7 @@ interface ImportMetaEnv {
   readonly JARVIS_PWA_ENABLED?: string;
   readonly VITE_ENABLE_FIXTURE_MODE?: string;
   readonly VITE_ENABLE_QUOTE_PROVIDER_NOTES?: string;
+  readonly VITE_ENABLE_ORDER_REVIEW?: string;
   readonly VITE_CONTROLLED_BETA_SINGLE_QUANTITY?: string;
   readonly VITE_WORKER_BASE_URL?: string;
   readonly VITE_WORKER_WAKE_ON_SUBMIT?: string;

@@ -223,11 +223,15 @@ export function ClientPartRequestEditor({
               value={draft.threads ?? ""}
               onChange={(event) => {
                 const value = event.target.value.trim();
-                onChange({ threads: value.length > 0 ? value : null });
+                onChange({ threads: value.length > 0 ? value : null, clearThreads: value.length === 0 });
               }}
               className="min-h-[88px] border-border bg-muted text-foreground"
               placeholder="Optional thread callouts such as 1/4-20 UNC-2B."
             />
+            <Button type="button" variant="ghost" size="sm" disabled={isSaving}
+              onClick={() => onChange({ threads: "", clearThreads: true })}>
+              Clear threads
+            </Button>
             <FieldResetButton field="threads" draft={draft} fieldDefaults={fieldDefaults} onResetField={onResetField} position="top" />
           </div>
         </div>

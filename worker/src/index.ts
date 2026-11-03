@@ -120,6 +120,7 @@ import {
   providerDispatchClaimFromTask,
   quoteWithRoutedDispatchPreflight,
   withExportControlDispatchRecheck,
+  xometryDispatchDenialNote,
 } from "./dispatchRouting.js";
 import {
   cancelVendorTaskForDisabledProvider,
@@ -1680,6 +1681,7 @@ export async function handleVendorQuoteTask(
       resultStatus = "queued";
     }
     let failureNote = failureMessage;
+    const quantityDenialNote = dispatchAuthorizationError ? xometryDispatchDenialNote(dispatchAuthorizationError) : null;
     if (dispatchAuthorizationError?.boundary === "kill_switch") {
       // After a provider mutation may have started the read failure is not
       // retryable and the lane goes to manual follow up; the note must not say
@@ -1706,6 +1708,8 @@ export async function handleVendorQuoteTask(
         : `Automatic ${vendor} dispatch authorization was denied before adapter launch; manual follow-up is required.`;
     } else if (retryableDispatchAuthorizationError && retryAt) {
       failureNote = `Xometry dispatch authorization is temporarily unavailable. Retry scheduled for ${retryAt}.`;
+    } else if (quantityDenialNote) {
+      failureNote = quantityDenialNote;
     } else if (dispatchAuthorizationError) {
       failureNote =
         "Automatic Xometry dispatch authorization was denied before browser launch; manual follow-up is required.";

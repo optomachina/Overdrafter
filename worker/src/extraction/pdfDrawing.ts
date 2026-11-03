@@ -338,7 +338,7 @@ const UNIT_WORD = String.raw`(?:MM|RNM|MILLIMET(?:ER|RE)S?|MILIMETROS?|METRIC|IN
 // DIMENSIONS/UNITS/TOLERANCES (and the German, French and Spanish words), then optional linking words.
 // The linking words are bounded: an unbounded repeat overflows the regexp stack on a line of a few
 // million separators, and a real declaration uses at most a few of them.
-const DECLARATION_INTRODUCER = String.raw`\b(?:ALL[ \t]+DIMENSIONS|DIMENSIONS?|DIMS|UNITS?|MEASUREMENTS?|TOL(?:ERANCES?|S)?\.?|MA(?:SS|ß)E|COTES|MEDIDAS)(?:[ \t]*[:=–—-]|[ \t]+(?:ARE|IS|SHOWN|GIVEN|EXPRESSED|EN)){0,8}`;
+const DECLARATION_INTRODUCER = String.raw`\b(?:ALL[ \t]+DIMENSIONS|DIMENSIONS?|DIMS|UNITS?|MEASUREMENTS?|TOL(?:ERANCES?|S)?\.?|MA(?:SS|ß)E|COTES|MEDIDAS)(?:[ \t]*[:=–—-]|[ \t]+(?:ARE|IS|SHOWN|GIVEN|EXPRESSED|EN)){0,256}`;
 // A second unit word right after the first one on the declaration line, so the drawing declares
 // both systems ("DIMENSIONS IN INCHES [MM]", "UNITS: INCH / MM", and a units field that lists both
 // options, "UNITS: INCH MM", "UNITS: MM X INCH", or a checkbox or OCR rendering of one such as
@@ -378,7 +378,24 @@ const METRIC_TOLERANCE_STANDARD = /\b(?:ISO[ \t]*2768|DIN[ \t]*7168|JIS[ \t]*B[ 
  * decomposition as well as after it: canonical reordering is quadratic on a long run of marks of
  * mixed classes, and every mark decomposes only to marks, so the result is the same.
  */
-function normalizeUnitText(text: string) {
+function normalizeUnitText(text: string): string {
+  // Cap each normalization input at 64 Ki UTF-16 code units. In particular, V8's
+  // Unicode mark regexp can overflow on a ~5M mark run before NFKD is reached.
+  // Process every chunk rather than truncating away declarations or tolerances.
+  const chunkSize = 65_536;
+  if (text.length > chunkSize) {
+    // Fold the two-character homoglyph before chunking so it cannot be split.
+    text = text.replaceAll("ΜΜ", "MM");
+    const chunks: string[] = [];
+    for (let start = 0; start < text.length;) {
+      let end = Math.min(start + chunkSize, text.length);
+      // Keep a surrogate pair together across the chunk boundary.
+      if (end < text.length && /[\uD800-\uDBFF]/.test(text.charAt(end - 1))) end -= 1;
+      chunks.push(normalizeUnitText(text.slice(start, end)));
+      start = end;
+    }
+    return chunks.join("");
+  }
   return (
     text
       .replace(/[º˚]/g, "°")
@@ -401,6 +418,23 @@ function followsNumber(text: string, index: number) {
   return position >= 0 && /[\d.]/.test(text.charAt(position));
 }
 
+// A standalone checkbox (including a labelled one) must end its line. Opposite-system
+// sibling options may precede adjacent title-block cells. Keep the line-start anchor
+// to reject incidental text and avoid rescanning hostile blank runs.
+const UNIT_BOX = String.raw`(?:\[(?:[ \t]*[X✓✔][ \t]*|[ \t]*)\]|[☐□☑☒■✓✔])`;
+const LEADING_UNIT_BOX = new RegExp(
+  String.raw`^[ \t]*(?:${DECLARATION_INTRODUCER}(?:[ \t]+IN)?[ \t]*)?(${UNIT_BOX})[ \t]*(${UNIT_WORD})(?:[ \t]+(${UNIT_BOX})[ \t]*(${UNIT_WORD})|[ \t]*$)`, "gim",
+);
+const CHECKED_UNIT_BOX = /[X✓✔☑☒■]/i;
+
+function* selectedCheckboxUnits(text: string) {
+  for (const match of text.matchAll(LEADING_UNIT_BOX)) {
+    if (match[4] !== undefined && /^IN/i.test(match[2]) === /^IN/i.test(match[4])) continue;
+    if (CHECKED_UNIT_BOX.test(match[1])) yield match[2];
+    if (match[3] !== undefined && CHECKED_UNIT_BOX.test(match[3])) yield match[4];
+  }
+}
+
 function detectDeclaredUnits(text: string) {
   const declared = { inch: false, metric: METRIC_TOLERANCE_STANDARD.test(text) };
   const declare = (word: string | undefined) => {
@@ -408,6 +442,7 @@ function detectDeclaredUnits(text: string) {
       declared[/^IN/i.test(word) ? "inch" : "metric"] = true;
     }
   };
+  for (const word of selectedCheckboxUnits(text)) declare(word);
   for (const pattern of DECLARATION_PATTERNS) {
     for (const match of text.matchAll(pattern)) {
       match.slice(1).forEach(declare);
@@ -1397,7 +1432,7 @@ function selectTitleBlockLines(
 }
 
 /**
- * OVD-985 and OVD-989: candidates for the four label-owned fields come from the cell each label owns
+ * OVD-985, OVD-989 and OVD-1009: candidates for the five label-owned fields come from the cell each label owns
  * (titleBlockCells.ts), never from "the next line" or "the whole next line". A label whose cell gave no
  * clean value yields no candidate, so the field is flagged for review rather than filled from a
  * neighbouring cell.
@@ -1739,9 +1774,10 @@ function applyFieldPenalties(
   }
 
   // OVD-985: a title-block label is never a value. "Q.A." (the approvals row label) used to pass as a
-  // revision and a part number at 0.78 because it fits [A-Z0-9.-]{1,8}; no score keeps it now.
+  // revision and a part number at 0.78 because it fits [A-Z0-9.-]{1,8}; no score keeps it now. OVD-1009: nor is
+  // "NOTES:" a description, from any candidate source.
   if (
-    (field === "partNumber" || field === "revision" || field === "material" || field === "finish") &&
+    (field === "partNumber" || field === "revision" || field === "material" || field === "finish" || field === "description") &&
     isLabelLikeToken(value)
   ) {
     score = Math.min(score, 0) - 100;
@@ -1774,10 +1810,10 @@ function pickBestCandidate(
 
   const ranked = [...deduped.values()].sort((left, right) => right.score - left.score);
   const top = ranked[0] ?? null;
-  // Cell fields have a separate agreement proof. Description/process retain main's cross-page
-  // score-delta check even when both sheets print the same value.
+  // Cell fields have a separate agreement proof (finalizeExtractionApproval), the description among them since
+  // OVD-1009. Process retains main's cross-page score-delta check even when both sheets print the same value.
   const second =
-    (field === "description" || field === "process" ? ranked[1] : ranked.find(
+    (field === "process" ? ranked[1] : ranked.find(
       (candidate, index) =>
         index > 0 && candidate.value.trim().toUpperCase() !== (top?.value ?? "").trim().toUpperCase(),
     )) ?? null;
@@ -2494,14 +2530,6 @@ export function inferDrawingSignalsFromPdf(input: {
   const warnings: string[] = [];
   const debugCandidates: ExtractedDrawingSignals["debugCandidates"] = {};
 
-  const descriptionCandidate = pickBestCandidate(
-    "description",
-    [
-      ...buildAnchoredCandidates(findLabelAnchors(lines, DESCRIPTION_LABELS, bounds), titleBlockLines, lineAnchors, "description"),
-      ...collectFallbackDescriptionCandidates(lines, bounds),
-    ],
-    fallbackTitle,
-  );
   // OVD-985, OVD-989: the part number, revision, material and finish are the values of the cells their
   // labels own. When a label is present but its cell gives no clean value, nothing is filled from
   // neighbouring text (no fallback for revision, material or finish): the field stays empty and flagged.
@@ -2536,6 +2564,22 @@ export function inferDrawingSignalsFromPdf(input: {
     ...readTitleBlockPages(lines.filter((line) => !pagesWithCells.has(line.page))).reads,
   ]);
   const hasCellLabel = (field: CellField) => candidateReads.some((read) => read.field === field);
+  // OVD-1009: the description is the value of the TITLE (or DESCRIPTION) cell, read like the other four. On a sheet
+  // that prints the label nothing else is a candidate: not "the next line", which the old anchors dropped whenever the
+  // title held a label word ("SAMPLE PART"), and not any other line of the block, which then supplied "NOTES:". A cell
+  // that gives no clean value leaves the field empty and flagged. The anchors and the line candidates remain for a sheet
+  // without the label; a label token is refused from every source (applyFieldPenalties).
+  const hasDescriptionCell = hasCellLabel("description");
+  const descriptionCandidate = pickBestCandidate(
+    "description",
+    hasDescriptionCell
+      ? buildCellCandidates(candidateReads, "description")
+      : [
+          ...buildAnchoredCandidates(findLabelAnchors(lines, DESCRIPTION_LABELS, bounds), titleBlockLines, lineAnchors, "description"),
+          ...collectFallbackDescriptionCandidates(lines, bounds),
+        ],
+    hasDescriptionCell ? null : fallbackTitle,
+  );
   const partNumberCandidate = pickBestCandidate(
     "partNumber",
     [...buildCellCandidates(candidateReads, "partNumber"), ...collectFallbackPartNumberCandidates(lines, bounds)],

@@ -5,30 +5,27 @@ import { test, expect } from "../test";
 // verified origin. A package selection may already exist from the package journey.
 const PART_ROUTE = "/parts/00000000-0000-4000-8000-000000000103";
 const OPTION_IDS = [910, 911, 912].map((id) => `published:00000000-0000-4000-8000-${String(id).padStart(12, "0")}`);
-const HIDDEN_SELECTION_REASON = "Switch to All sourcing to see your selected quote";
-const NO_SELECTION_REASON = "Choose a package option to continue";
 
 test.describe("quote comparison sourcing scope", () => {
   test.use({ storageState: "playwright/.auth/client.json" });
 
   test("reveals unknown-origin options without changing the saved selection", async ({ page }, testInfo) => {
     await page.addInitScript(() => localStorage.setItem("theme", "light"));
+    // A saved selection (0 or 1, from the package journey) must read the same after every load.
+    let savedSelections: number | undefined;
     for (const width of [1280, 375]) {
       await page.setViewportSize({ width, height: 900 });
       await page.goto(PART_ROUTE);
       const comparison = page.getByRole("region", { name: "Quote comparison", exact: true });
       const emptyHeading = comparison.getByText("No US-sourced options", { exact: true });
-      const review = page.getByRole("button", { name: "Review order", exact: true });
-      const reason = page.locator("#review-order-disabled-reason");
+      // The default build has no Review order handoff (OVD-1011).
+      const review = page.getByRole("button", { name: "Review order", includeHidden: true });
       const rows = comparison.locator("tr[data-quote-key]");
       await expect(emptyHeading).toBeVisible({ timeout: 30_000 });
       await expect(page.getByText("No quote options yet", { exact: true })).toHaveCount(0);
       await expect(comparison.getByRole("button", { name: "US-only sourcing", exact: true })).toHaveAttribute("aria-pressed", "true");
       await expect(rows).toHaveCount(0);
-      await expect(review).toBeDisabled();
-      await expect(reason).toHaveText(new RegExp(`^(${HIDDEN_SELECTION_REASON}|${NO_SELECTION_REASON})$`));
-      const initialReason = (await reason.innerText()).trim();
-      await expect(review).toHaveAccessibleDescription(initialReason);
+      await expect(review).toHaveCount(0);
       await testInfo.attach(`quote-comparison-us-only-${width}px`, { body: await page.screenshot({ fullPage: true }), contentType: "image/png" });
 
       await comparison.getByRole("button", { name: "Show all sourcing", exact: true }).click();
@@ -52,23 +49,19 @@ test.describe("quote comparison sourcing scope", () => {
         ));
 
         const selectedRows = comparison.locator('tr[data-quote-key][aria-selected="true"]');
-        if (initialReason === HIDDEN_SELECTION_REASON) {
-          await expect(selectedRows).toHaveCount(1);
-          await expect(selectedRows).toBeVisible();
-          await expect(review).toBeEnabled();
-        } else {
-          await expect(selectedRows).toHaveCount(0);
-          await expect(review).toBeDisabled();
-          await expect(review).toHaveAccessibleDescription(NO_SELECTION_REASON);
-        }
+        const selections = await selectedRows.count();
+        expect(selections).toBeLessThanOrEqual(1);
+        expect(selections).toBe(savedSelections ?? selections);
+        savedSelections = selections;
+        if (selections === 1) await expect(selectedRows).toBeVisible();
+        await expect(review).toHaveCount(0);
         await testInfo.attach(`quote-comparison-all-sourcing-${width}px`, { body: await page.screenshot({ fullPage: true }), contentType: "image/png" });
       } finally {
         // Only view state changes: never click an option, save a date, or review an order.
         await allScope.click();
         await expect(comparison.getByRole("button", { name: "US-only sourcing", exact: true })).toHaveAttribute("aria-pressed", "true");
         await expect(emptyHeading).toBeVisible();
-        await expect(review).toBeDisabled();
-        await expect(review).toHaveAccessibleDescription(initialReason);
+        await expect(review).toHaveCount(0);
       }
     }
   });

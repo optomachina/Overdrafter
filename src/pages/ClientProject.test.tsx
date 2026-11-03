@@ -608,7 +608,13 @@ function buildWorkspaceItemWithQuoteStatus(status: InspectorQuoteStatus) {
 }
 
 describe("ClientProject", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   beforeEach(() => {
+    // The legacy Review order handoff is off by default (OVD-1011); these cases keep covering it.
+    vi.stubEnv("VITE_ENABLE_ORDER_REVIEW", "1");
     lastAccountMenuProps = null;
     lastComposerSubmit = null;
     vi.clearAllMocks();
@@ -1171,6 +1177,14 @@ describe("ClientProject", () => {
       "https://www.xometry.com/quoting/home/",
     );
     expect(officialRfqLink.closest("li")?.parentElement).not.toHaveClass("lg:grid-cols-3");
+  });
+
+  it("shows no Review order handoff in the default build (OVD-1011)", async () => {
+    vi.stubEnv("VITE_ENABLE_ORDER_REVIEW", "");
+    renderWithClient("/projects/project-1");
+    await screen.findByRole("region", { name: "Project summary" });
+    expect(screen.queryByRole("button", { name: /review order/i })).not.toBeInTheDocument();
+    expect(document.getElementById("project-review-order-reason")).toBeNull();
   });
 
   it.each([false, true])("asks for a quote without a published package (quotes present: %s)", async (hasQuotes) => {

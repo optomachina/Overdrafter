@@ -1,7 +1,8 @@
 # OVD-987 slice P3: controlled beta user quantity (notes)
 
-**NEEDS BLAINE MIGRATION WINDOW - not applied anywhere hosted.** Staging first
-(`docs/runbooks/staging.md`); production only with Blaine's approval card.
+**Current status (2026-11-02): applied in production; the switch is OFF.**
+Historical pre-apply instructions required staging first
+(`docs/runbooks/staging.md`) and Blaine's approval card for production.
 Turning the switch on in production is a separate Blaine approval, after the
 separately authorized quantity-10 live run.
 
@@ -444,35 +445,27 @@ orphaned. Re-applying re-seeds the control at revision 0.
   `grant execute ... to postgres` lines (migration around lines 650 and
   1328-1329), which closed the earlier report-mode `grant` finding. The rollback
   does not revoke those grants; with postgres as the owner they change nothing.
-- **Consumers that pin exactly four rollout controls (review round 1, finding 1).**
-  Once this migration is applied in production,
+- **Rollout-control consumer inventory (updated after PR #891).**
+  The migration was applied in production on 2026-11-02 with the switch OFF;
   `public.api_get_commercial_rollout_controls()` returns five controls and
-  `private.commercial_rollout_controls` has five rows. Nothing below is changed by
-  this PR; each consumer either fails closed (it blocks, it never allows) or
-  reports five rows where its text says four. The first group is live, not frozen:
+  `private.commercial_rollout_controls` has five rows. The original review's
+  prediction that the OVD-410 collector and its OVD-419 callers would stop was
+  historical and was superseded by PR #891 (commit `af33c44c`).
 
-  | Consumer | What it assumes | After the production apply |
+  | Consumer | Current contract | Current behaviour |
   | --- | --- | --- |
-  | `scripts/collect-ovd410-operational-envelope.mjs` (`OVD410_COMMERCIAL_CONTROLS`, `validateControls`) | The response has exactly four controls, the four names, all off | Rejects with `Invalid rollout-control response.` |
-  | `docs/workflows/ovd410-stable-egress.md` (the baseline and after reads of the containment step call the collector) | The collector succeeds | The containment step stops at the collector |
-  | `scripts/run-ovd419-live-release.mjs` (imports the collector) | Same | An OVD-419 run stops at its envelope read |
-  | `scripts/ovd419-diagnostic-adapter.mjs` (`controlsDisabled` needs `length === 4`) and `scripts/ovd419-acquisition-compatibility.mjs` (`CONTROLS`, `length === 4`) | Four controls | Report the controls as not disabled, or reject the packet |
-  | `docs/release/ovd-206-window-kit.md` section 1, query 1 ("Expect enabled = false for all four") | Four rows | Five rows; wording only |
-  | `scripts/verify-ovd373-rollout-preconditions.sql`, `scripts/verify-ovd373-production-postconditions.sql`, `scripts/verify-ovd418-production-quiescence.sql` (run by `scripts/verify-ovd418-production-preconditions.sql` and `scripts/hold-ovd418-production-locks.sql`), `scripts/verify-ovd418-production-postconditions.sql` and `scripts/run-ovd418-production-release.sh` (both read `rollout_control_count`), `scripts/ovd570-minimal-rehearsal.mjs` (`count(*)=4`) | `count(*) = 4` | Refuse (`<> 4`); frozen or held release packages |
+  | `scripts/collect-ovd410-operational-envelope.mjs` (`OVD410_OUT_OF_SCOPE_CONTROLS`, `validateControls`) | Four commercial controls, all off; the named quantity control may appear once as a well-formed row | Updated by #891: tolerates, but does not certify, `controlled_beta_user_quantity`; sets it aside and returns only the four commercial controls |
+  | `docs/workflows/ovd410-stable-egress.md` (containment calls the collector) | Collector certifies four commercial controls | Continues on a valid five-control response; does not certify the quantity switch |
+  | `scripts/run-ovd419-live-release.mjs` (imports the collector) | Collector envelope | Does not stop merely because the API returns five controls |
+  | `scripts/ovd419-diagnostic-adapter.mjs` (`controlsDisabled`) | Four disabled controls in the collector's filtered envelope | Reads the collector envelope; its length check does not reject the API's fifth control |
+  | `scripts/ovd419-acquisition-compatibility.mjs` (`containment`) | Exactly four controls in the hash-pinned SQL containment packet (`v.controls.length === 4`) | Still rejects a five-control containment packet; separate from the collector envelope |
+  | `docs/release/ovd-206-window-kit.md` section 1, query 1 | Every returned control is off | Expects five rows after the production apply; wording updated in OVD-999 |
+  | `scripts/verify-ovd373-rollout-preconditions.sql`, `scripts/verify-ovd373-production-postconditions.sql`, `scripts/verify-ovd418-production-quiescence.sql` (run by `scripts/verify-ovd418-production-preconditions.sql` and `scripts/hold-ovd418-production-locks.sql`), `scripts/verify-ovd418-production-postconditions.sql` and `scripts/run-ovd418-production-release.sh` (both read `rollout_control_count`), `scripts/ovd570-minimal-rehearsal.mjs` | Total control count of four | Refuse a total of five; frozen or held release packages |
 
-  The collector file itself was last changed on 2026-08-24; its OVD-419 caller
-  on 2026-10-14. Neither is pinned in a manifest, and the OVD-206 window kit relies
-  on the stable-egress runbook, so the next recovery procedure or OVD-419 run
-  after the production apply would stop there.
-  **Before Blaine's production card, one of two things must happen, and the card
-  must name these consumers:** (A) a separate PR updates the collector, the
-  OVD-419 adapter and compatibility pin (with their tests) and the OVD-206 kit
-  wording to accept `controlled_beta_user_quantity` as a fifth control that must
-  also be off, and lands first; or (B) the production apply is scheduled after
-  the OVD-206 and OVD-410 work. This PR does not choose. Any reuse of the frozen
-  scripts against a database with this migration must allow the fifth control.
-  `docs/workflows/commercial-rollout-controls.md` says the read API returns five
-  controls and points here.
+  Reusing the acquisition containment packet or frozen release scripts against
+  the five-control registry requires a separately reviewed update; the
+  collector's tolerance does not update those contracts or certify the quantity
+  switch. Historical four-control evidence is not evidence of its current state.
 - SonarCloud: the migration and the rollback are excluded from copy-paste
   detection (`.sonarcloud.properties`), like the OVD-628, OVD-722, OVD-723 and
   OVD-762 restatements; `plsql:S1192` (repeated literals) findings are

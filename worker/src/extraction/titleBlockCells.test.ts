@@ -10,6 +10,7 @@
 import { describe, expect, it } from "vitest";
 import { box, phrase } from "../../test-support/pdfWordBoxes";
 import { layoutLine, layoutSheet, pdfTextOf, type Piece } from "../../test-support/titleBlockSheet";
+import { titleBlockTemplateSheet } from "../../test-support/titleBlockTemplateSheet";
 import { inferDrawingSignalsFromPdf } from "./pdfDrawing";
 import { buildWordLines, type PdfWord } from "./pdfWords";
 import { isLabelLikeToken, readTitleBlockCells, type CellField, type CellRead } from "./titleBlockCells";
@@ -1902,6 +1903,133 @@ describe("title block cells", () => {
       // Word boxes give true positions, so a long line just above a label is not where its value can be.
       const above = [...phrase(`NOTE ${"X".repeat(2_000)}`, 330, 700, 6), ...phrase("MATERIAL", 330, 720, 6), ...phrase("AL 6061-T6", 340, 730, 9)];
       expect(wordRead(above, "material")).toMatchObject({ status: "value", value: "AL 6061-T6" });
+    });
+  });
+
+  // OVD-1009: the description is the TITLE (or DESCRIPTION) cell's value, read by the same rules as the other cells.
+  describe("the TITLE cell (OVD-1009)", () => {
+    /** The owner's template shape: a small TITLE label at the cell's left edge, the title centred under it, the company
+     * block above, the notes to the left, and the SIZE / DWG. NO. / REV row under it (worker/test-support). */
+    const template = (title: string | null) => titleBlockTemplateSheet({ title });
+
+    it.each(["SAMPLE PART", "PART", "SAMPLE PLATE", "BRACKET, PART OF WELDMENT"])("reads the title %s under TITLE:", (title) => {
+      expect(cell(template(title), "description")).toMatchObject({ status: "value", value: title, reason: null, label: "TITLE" });
+    });
+
+    it("is not doubtful for the company block printed above the TITLE label", () => {
+      // ORG NAME, ORG ADDRESS and ORG PHONE sit in the cell above TITLE, text no label owns, in every template.
+      const sheet = template("SAMPLE PART");
+      expect(sheet).toMatch(/ORG ADDRESS/);
+      expect(cell(sheet, "description").reason).toBeNull();
+    });
+
+    it("leaves an empty TITLE cell empty, taking nothing from the lines around it", () => {
+      expect(cell(template(null), "description")).toMatchObject({ status: "empty", value: null, reason: "no_value" });
+    });
+
+    it.each(["NOTES:", "NOTES: SEE SHEET 2", "TITLE", "DESCRIPTION", "Q.A."])("never reads the label %s printed in the cell as the title", (printed) => {
+      // TITLE or DESCRIPTION printed there is a second description label, with an empty cell of its own.
+      const reads = read(template(printed)).filter((candidate) => candidate.field === "description");
+      expect(reads.length).toBeGreaterThan(0);
+      for (const candidate of reads) {
+        expect(candidate.value).toBeNull();
+      }
+    });
+
+    it("rejects a title that is a label spelled with look-alike letters", () => {
+      // Cyrillic О: not a label to the pattern, so it is a run, and a label token to the fold.
+      expect(cell(layoutSheet([[20, "TITLE:"]], [[24, "N\u041eTES:"]], [[20, "SIZE"], [30, "DWG. NO."]]), "description")).toMatchObject({
+        status: "rejected",
+        reason: "label_token",
+      });
+    });
+
+    it("reads a title of two lines, and the value printed on the label's own line", () => {
+      const twoLines = layoutSheet(
+        [[58, "ACME Mfg Co."]],
+        [[58, "TITLE:"]],
+        [[58, "ROUND, CARBON FIBER END ATTACHMENTS"]],
+        [[58, "BONDED"]],
+        [[48, "SIZE"], [58, "B"], [64, "DWG. NO."], [86, "REV"]],
+      );
+      expect(cell(twoLines, "description")).toMatchObject({ status: "value", value: "ROUND, CARBON FIBER END ATTACHMENTS BONDED", valueLines: [3, 4] });
+      expect(cell(layoutSheet([[58, "TITLE:   MOUNT PLATE"]], [[48, "SIZE"], [64, "DWG. NO."]]), "description")).toMatchObject({
+        status: "value",
+        value: "MOUNT PLATE",
+      });
+    });
+
+    it("fails closed: four lines, a date, a pointer, a value cut short, another field's label in the value", () => {
+      const under = (...lines: string[]) => layoutSheet([[58, "TITLE:"]], ...lines.map((line) => [[58, line]] as Piece[]), [[48, "SIZE"], [64, "DWG. NO."]]);
+      expect(cell(under("ONE", "TWO", "THREE", "FOUR"), "description")).toMatchObject({ status: "ambiguous", reason: "multiple_values" });
+      expect(cell(under("ACM 10/29/2013"), "description")).toMatchObject({ status: "rejected", reason: "bad_shape" });
+      expect(cell(under("SEE NOTE 1"), "description")).toMatchObject({ status: "rejected", reason: "pointer" });
+      expect(cell(under("BRACKET, MOUNTING,"), "description")).toMatchObject({ status: "rejected", reason: "cut_short" });
+      expect(cell(under("COVER PLATE FINISH BLACK"), "description")).toMatchObject({ status: "rejected", reason: "label_in_value" });
+    });
+
+    it("reads a DESCRIPTION label that heads the title cell, not one that heads a column of the revision table", () => {
+      const titleCell = layoutSheet([[40, "DESCRIPTION"]], [[42, "SAMPLE PART"]], [[40, "PART NO."], [70, "REV"]]);
+      expect(cell(titleCell, "description")).toMatchObject({ status: "value", value: "SAMPLE PART", label: "DESCRIPTION" });
+      const revisionTable = layoutSheet(
+        [[60, "REVISIONS"]],
+        [[0, "REV."], [10, "DESCRIPTION"], [50, "DATE"], [70, "APPROVED"]],
+        [[0, "A"], [10, "FIRST ISSUE (SAMPLE)"], [50, "01/01/2026"], [70, "ABC"]],
+      );
+      expect(read(revisionTable).filter((candidate) => candidate.field === "description")).toEqual([]);
+      // The table's header is still a label: its text is never a value of the cells around it.
+      expect(read(revisionTable).map((candidate) => candidate.value)).not.toContain("DESCRIPTION");
+    });
+
+    describe("from word boxes", () => {
+      /** The title block of a sheet whose title is set at 14 pt under a 7 pt TITLE label, as the owner's template prints it. */
+      const block = (title: PdfWord[]): PdfWord[] => [
+        ...phrase("UNLESS OTHERWISE SPECIFIED:", 500, 640, 7),
+        ...phrase("DIMENSIONS ARE IN INCHES", 500, 650, 7),
+        ...phrase("TWO PLACE DECIMAL ±.01", 500, 680, 7),
+        ...phrase("THREE PLACE DECIMAL ±.005", 500, 690, 7),
+        box("NAME", 600, 640, 7),
+        box("DATE", 640, 640, 7),
+        box("DRAWN", 560, 655, 7),
+        box("CHECKED", 560, 668, 7),
+        ...phrase("ENG APPR.", 560, 681, 7),
+        ...phrase("ORG NAME", 760, 625, 7),
+        ...phrase("ORG ADDRESS", 745, 635, 7),
+        box("TITLE:", 700, 650, 7),
+        ...title,
+        box("MATERIAL", 330, 720, 6),
+        ...phrase("AL 6061-T6", 340, 732, 9),
+        box("SIZE", 700, 720, 6),
+        ...phrase("DWG. NO.", 725, 720, 6),
+        box("REV", 900, 720, 6),
+        box("B", 705, 735, 24),
+        box("ABC-1001", 760, 735, 24),
+        box("B", 900, 735, 24),
+        ...phrase("SCALE: 1:1", 700, 768, 7),
+        ...phrase("SHEET 1 OF 1", 880, 768, 7),
+      ];
+
+      it("reads a 14 pt title centred under a 7 pt TITLE label, well past the label's end", () => {
+        // 37 pt past the label's end (about 12 columns on this sheet) for the longer title, 70 pt for the short one.
+        expect(wordRead(block(phrase("SAMPLE PART", 760, 665, 14)), "description")).toMatchObject({ status: "value", value: "SAMPLE PART" });
+        expect(wordRead(block(phrase("PART", 793, 665, 14)), "description")).toMatchObject({ status: "value", value: "PART" });
+        expect(wordRead(block([]), "description")).toMatchObject({ status: "empty", value: null });
+      });
+
+      it("does not read the company block above the label, and is not doubtful for it", () => {
+        const read = wordRead(block(phrase("SAMPLE PART", 760, 665, 14)), "description");
+        expect(read.reason).toBeNull();
+        expect(read.valueLines).toHaveLength(1);
+      });
+
+      it("never reads a label printed where the title would be", () => {
+        expect(wordRead(block(phrase("NOTES:", 760, 665, 14)), "description").value).toBeNull();
+      });
+
+      it("reads a two-line title whose second line is a few text heights under the first", () => {
+        const title = [...phrase("ROUND, CARBON FIBER END", 740, 660, 10), ...phrase("ATTACHMENTS BONDED", 755, 672, 10)];
+        expect(wordRead(block(title), "description")).toMatchObject({ status: "value", value: "ROUND, CARBON FIBER END ATTACHMENTS BONDED" });
+      });
     });
   });
 

@@ -72,3 +72,31 @@ export function subscribeToQuoteReferenceChanges(
   window.addEventListener(QUOTE_REFERENCE_CHANGED_EVENT, handleChange);
   return () => window.removeEventListener(QUOTE_REFERENCE_CHANGED_EVENT, handleChange);
 }
+
+export function clearAllQuoteReferences(): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  try {
+    const storage = window.localStorage;
+    const keys: string[] = [];
+    for (let index = 0; index < storage.length; index += 1) {
+      const key = storage.key(index);
+      if (key?.startsWith(QUOTE_REFERENCE_PREFIX)) {
+        keys.push(key);
+      }
+    }
+
+    for (const key of keys) {
+      storage.removeItem(key);
+      window.dispatchEvent(
+        new CustomEvent<QuoteReferenceChangeDetail>(QUOTE_REFERENCE_CHANGED_EVENT, {
+          detail: { jobId: key.slice(QUOTE_REFERENCE_PREFIX.length), reference: null },
+        }),
+      );
+    }
+  } catch {
+    // Unavailable browser storage must not prevent logout.
+  }
+}

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   MAX_QUOTE_REFERENCE_LENGTH,
+  clearAllQuoteReferences,
   normalizeQuoteReference,
   readQuoteReference,
   subscribeToQuoteReferenceChanges,
@@ -44,4 +45,30 @@ describe("quote local reference", () => {
 
     unsubscribe();
   });
+  it("clears all references, preserves unrelated storage, and notifies listeners", () => {
+    writeQuoteReference("job-1", "Customer 1");
+    writeQuoteReference("job-2", "Customer 2");
+    window.localStorage.setItem("unrelated", "keep");
+    const listener = vi.fn();
+    const unsubscribe = subscribeToQuoteReferenceChanges(listener);
+
+    clearAllQuoteReferences();
+
+    expect(readQuoteReference("job-1")).toBeNull();
+    expect(readQuoteReference("job-2")).toBeNull();
+    expect(window.localStorage.getItem("unrelated")).toBe("keep");
+    expect(listener).toHaveBeenCalledTimes(2);
+    expect(listener).toHaveBeenCalledWith({ jobId: "job-1", reference: null });
+    expect(listener).toHaveBeenCalledWith({ jobId: "job-2", reference: null });
+    unsubscribe();
+  });
+
+  it("does not block logout when browser storage is unavailable", () => {
+    vi.spyOn(window, "localStorage", "get").mockImplementation(() => {
+      throw new Error("Storage unavailable");
+    });
+    expect(() => clearAllQuoteReferences()).not.toThrow();
+    vi.restoreAllMocks();
+  });
+
 });

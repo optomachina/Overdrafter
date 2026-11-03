@@ -1,3 +1,4 @@
+import { useId } from "react";
 import { formatCivilDate, type DeadlineStatusCounts } from "@/features/quotes/delivered-comparison";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -101,6 +102,7 @@ export function QuoteSelectionFunctionBar({
   globalAriaLabel = "All sourcing",
   className,
 }: QuoteSelectionFunctionBarProps) {
+  const helpId = useId();
   const showDeadlineChip =
     Boolean(viewDeadline) &&
     deadlineCounts !== null;
@@ -163,6 +165,7 @@ export function QuoteSelectionFunctionBar({
                 disabled={disabled}
                 onChange={(event) => onRequestedByDateChange(event.target.value || null)}
                 aria-label="Need by date"
+                aria-describedby={helpId}
                 className="h-8 w-[7.6rem] appearance-none rounded-full border-border bg-accent px-2 text-center text-sm text-foreground focus-visible:ring-white/20 [&::-webkit-calendar-picker-indicator]:cursor-pointer [&::-webkit-calendar-picker-indicator]:opacity-70 [&::-webkit-date-and-time-value]:text-center [&::-webkit-datetime-edit]:flex [&::-webkit-datetime-edit]:w-full [&::-webkit-datetime-edit]:items-center [&::-webkit-datetime-edit]:justify-center [&::-webkit-datetime-edit]:text-center [&::-webkit-datetime-edit-fields-wrapper]:flex [&::-webkit-datetime-edit-fields-wrapper]:w-full [&::-webkit-datetime-edit-fields-wrapper]:justify-center"
               />
               {requestedByDate ? (
@@ -180,6 +183,7 @@ export function QuoteSelectionFunctionBar({
             </div>
           </div>
         </div>
+        <p id={helpId} className="text-sm text-muted-foreground">{dueDateHelpText}</p>
         {showDeadlineChip ? (
           <div className="flex justify-end">
             <div className="rounded-surface-sm border border-border bg-muted px-3 py-1 font-mono text-xs text-foreground">

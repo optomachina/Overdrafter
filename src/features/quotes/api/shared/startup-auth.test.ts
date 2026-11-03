@@ -2,6 +2,7 @@ import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   getSupabaseAuthStorageKey,
+  isStartupBootstrapPending,
   readLiveSupabaseBootstrap,
   readStartupSupabaseBootstrap,
   resetStartupAuthBootstrapForTests,
@@ -293,5 +294,18 @@ describe("startup auth helpers", () => {
         email: "client@example.com",
       }),
     });
+  });
+
+  it("drops a thrown startup read so a later fetch (Retry) reads again instead of reusing the failure", async () => {
+    authGetSessionMock
+      .mockRejectedValueOnce(new TypeError("Failed to fetch"))
+      .mockResolvedValueOnce({ data: { session: null }, error: null });
+
+    await expect(readStartupSupabaseBootstrap()).rejects.toThrow("Failed to fetch");
+    expect(isStartupBootstrapPending()).toBe(false);
+
+    await expect(readStartupSupabaseBootstrap()).resolves.toMatchObject({ authState: "anonymous" });
+    expect(authGetSessionMock).toHaveBeenCalledTimes(2);
+    expect(isStartupBootstrapPending()).toBe(false);
   });
 });

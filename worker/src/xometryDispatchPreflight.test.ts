@@ -225,3 +225,11 @@ describe("quoteWithDispatchPreflight", () => {
     expect(quote.mock.calls[0]?.[0].xometryDispatchAuthorization).toBeUndefined();
   });
 });
+
+it("preserves a terminal quantity refusal before adapter launch", async () => {
+  const { client } = makeSupabase({ authorized: false, reasonCode: "dispatch_quantity_not_admitted" });
+  const quote = vi.fn();
+  await expect(quoteWithDispatchPreflight(makeInvocation(client, quote)))
+    .rejects.toMatchObject({ reasonCode: "dispatch_quantity_not_admitted" });
+  expect(quote).not.toHaveBeenCalled();
+});
