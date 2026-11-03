@@ -95,6 +95,13 @@ export function seedFriendsReleasePart(jobId) {
         -- Friends-release accounts quote inside the controlled envelope, where quote access is
         -- eligible and Need by is display-only (OVD-991). Seed-dev's org has Founding Beta but no
         -- quote source, so give it a short run-scoped trial; revokeFriendsReleaseAccess ends it.
+        -- A killed run can leave its grant unrevoked; the current-type unique index ignores
+        -- expiry, so revoke any earlier journey grant before granting this run's.
+        UPDATE private.organization_entitlement_grants
+          SET revoked_at = now(), revoked_by_user_id = granted_by_user_id,
+            revocation_reason = 'OVD-1011 stale journey grant'
+          WHERE organization_id = '${uuid(1)}' AND grant_type = 'trial' AND revoked_at IS NULL
+            AND grant_reason LIKE 'OVD-1011 friends-release journey %';
         INSERT INTO private.organization_entitlement_grants
           (organization_id, grant_type, starts_at, expires_at, grant_reason, granted_by_user_id)
           SELECT '${uuid(1)}', 'trial', now() - interval '1 minute', now() + interval '10 minutes',

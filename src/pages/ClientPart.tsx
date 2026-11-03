@@ -1040,6 +1040,11 @@ const ClientPart = () => {
                           </span>
                         ) : null}
                       </div>
+                    ) : reviewOrderDisabledForScope ? (
+                      // OVD-1011: without the Review order handoff, still say why the saved selection is hidden.
+                      <span id="selection-scope-hint" className="text-sm text-muted-foreground">
+                        Switch to All sourcing to see your selected quote
+                      </span>
                     ) : undefined}
                     controls={(deadlineCounts, viewDeadline) => (
                       <>

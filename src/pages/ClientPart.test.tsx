@@ -1210,6 +1210,19 @@ describe("ClientPart", () => {
     expect(document.getElementById("review-order-disabled-reason")).toBeNull();
   });
 
+  it("still says how to see a saved selection hidden by the sourcing filter without the handoff (OVD-1011)", async () => {
+    vi.stubEnv("VITE_ENABLE_ORDER_REVIEW", "");
+    const detail = createLiveOfferPartDetail(new Date().toISOString(), "offer-1");
+    Object.assign(detail.part!.vendorQuotes[0].offers[0], { geographic_origin: "unknown" });
+    api.fetchPartDetailByJobId.mockResolvedValue(detail);
+    renderWithClient("/parts/job-1");
+
+    expect(await screen.findByText("Switch to All sourcing to see your selected quote")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /review order/i })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "US-only sourcing" }));
+    await waitFor(() => expect(screen.queryByText("Switch to All sourcing to see your selected quote")).not.toBeInTheDocument());
+  });
+
   it("keeps the part evidence and quote comparison in one ordered workspace", async () => {
     renderWithClient("/parts/job-1");
 
