@@ -293,3 +293,11 @@ test('OVD-1011 pgTAP fixture is a byte copy of the rollback it drills', () => {
   const suite = readFileSync(join(source, 'ovd1011_client_part_metadata_defaults.sql'), 'utf8');
   assert.match(suite, /\\ir fixtures\/ovd1011_client_part_metadata_defaults_rollback\.inc\n/);
 });
+
+test('OVD-994 pgTAP rollback fixture is byte identical and used by the historical ACL drill', () => {
+  assert.deepEqual(readFileSync(join(source, 'fixtures/ovd994_rollback.inc')),
+    readFileSync(fileURLToPath(new URL('../docs/migration-drafts/ovd-994.rollback.sql', import.meta.url))));
+  for (const file of ['ovd994_clear_need_by_and_threads.sql', 'ovd736_anon_definer_privileges.sql']) {
+    assert.match(readFileSync(join(source, file), 'utf8'), /\\ir fixtures\/ovd994_rollback\.inc\n/);
+  }
+});

@@ -5,11 +5,6 @@ type SavedNeedByNoticeProps = {
   requestedByDate: string;
   onRemove: () => void;
   disabled?: boolean;
-  /**
-   * Removing the date saves the whole request, and a save records the thread
-   * callouts read from the drawing as Threads (OVD-991).
-   */
-  savesDrawingThreads?: boolean;
 };
 
 /**
@@ -21,7 +16,6 @@ export function SavedNeedByNotice({
   requestedByDate,
   onRemove,
   disabled = false,
-  savesDrawingThreads = false,
 }: Readonly<SavedNeedByNoticeProps>) {
   const label = formatRequestedByDateLabel(requestedByDate) ?? requestedByDate;
 
@@ -32,12 +26,7 @@ export function SavedNeedByNotice({
         not support a Need by date, so quote requests are denied until it is removed.
       </p>
       <p className="mt-1 text-sm text-paper-muted">The Need by filter changes this view only.</p>
-      {savesDrawingThreads ? (
-        <p className="mt-1 text-sm text-paper-muted">
-          Removing it saves the request, which records the thread callouts read from the drawing as Threads. The
-          controlled beta does not support Threads either, so a part with thread callouts stays outside it.
-        </p>
-      ) : null}
+      <p className="mt-1 text-sm text-paper-muted">Removing it changes only the saved Need by date.</p>
       <Button type="button" variant="outline" size="sm" className="mt-3 rounded-[2px]" disabled={disabled} onClick={onRemove}>
         Remove Need by from request
       </Button>

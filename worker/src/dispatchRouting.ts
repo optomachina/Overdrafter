@@ -310,6 +310,13 @@ export function dispatchAuthorizationFailure(error: unknown): DispatchAuthorizat
   return null;
 }
 
+/** Quantity refusal happens before browser launch; keep its cause visible on the lane. */
+export function xometryDispatchDenialNote(failure: DispatchAuthorizationFailure): string | null {
+  return failure.boundary === "xometry" && !failure.retryable && failure.reasonCode === "dispatch_quantity_not_admitted"
+    ? "Xometry quote not started: quantities above 1 are not enabled for this request in the controlled beta. Nothing was sent to Xometry. Manual follow-up is required."
+    : null;
+}
+
 /** Customer-safe note on a held lane. It names the hold and the way out, never the files' content. */
 export const EXPORT_CONTROL_HOLD_NOTE =
   "Held by export control. These files were not sent to this supplier and must not be quoted manually. "

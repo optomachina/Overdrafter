@@ -27,6 +27,7 @@ const BOUNDED_DENIAL_REASON_CODES = new Set([
   "dispatch_provider_configuration_changed",
   "dispatch_staged_scope_changed",
   "dispatch_current_scope_changed",
+  "dispatch_quantity_not_admitted",
   // OVD-723: export-control gate applied by the preflight wrapper.
   ...EXPORT_CONTROL_DENIAL_CODES,
   // OVD-722: the Xometry or global kill switch is engaged. Terminal.
