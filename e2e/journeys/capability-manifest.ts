@@ -102,6 +102,7 @@ export const capabilityManifest: readonly CapabilitySurface[] = [
   ),
   channelSurface("imessage", "Jarvis in iMessage", "OVD-809", "No iMessage bridge exists yet."),
   {
+    // OVD-1011: friends-release-golden.spec.ts exercises this existing surface on the local stack.
     id: "overdrafter-quote-flow",
     name: "OverDrafter quote flow",
     linearIssue: "OVD-825",

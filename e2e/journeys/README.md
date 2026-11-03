@@ -43,3 +43,39 @@ PLAYWRIGHT_SKIP_AUTH_SETUP=1 npx playwright test e2e/journeys/jarvis-front-door.
 Also open: run the front-door spec against preview and nightly against the
 production domain, and decide whether the ChatGPT app (`server/chatgpt`, local
 demo only today) belongs in the manifest.
+
+## Friends release (OVD-1011)
+
+| Journey | Mode / config | Coverage |
+| --- | --- | --- |
+| `friends-release-golden.spec.ts` | Authenticated local Supabase / `playwright.config.ts` | STEP + PDF upload and CAD canvas; extracted-property edits across reload; quantity; display-only Need by; US/INTL filter; price/delivery chart; quote details; absence of purchasing controls |
+
+Run after `npm run db:start`, `npm run db:reset`, and `npm run seed:dev`:
+
+```bash
+npx playwright test e2e/journeys/friends-release-golden.spec.ts --config playwright.config.ts
+```
+
+The journey uses the scrubbed repository STEP/PDF only. `friends-release-seed.mjs`
+reuses seed-dev's psql discovery and copies its synthetic extraction, requirements,
+and published quote package onto the newly uploaded part in the standard loopback
+database. IDs and timestamps are fresh; offers are marked simulate and given explicit
+domestic/foreign origins. No worker, live vendor, remote backend, or quote dispatch
+is allowed. The browser uses real Supabase auth, storage, reads, and saves. Run-owned
+records remain in the disposable database until its next reset; no existing seed rows
+are changed. No screenshots are written to tracked source.
+
+Friends-release accounts quote inside the controlled envelope, where quote access is
+eligible and the Need by filter is view state (OVD-991). Seed-dev's organization has
+Founding Beta but no quote source, so the helper adds a ten-minute trial entitlement
+for the run and the spec revokes it afterwards. Outside the envelope (blocked quote
+access) Need by is a saved request field by design, so the default seed alone cannot
+show the display-only behaviour.
+
+There are no skipped steps. The no-order assertions include disabled and hidden
+controls and the account menu. The legacy `Review order` handoff is off in the default
+build (`VITE_ENABLE_ORDER_REVIEW` unset; owner decision for the friends release, OVD-968
+step 7). The chart presents expected delivered cost against delivered date, derived from
+the seeded lead time (OVD-571). Quote detail must show the quoted total and ready-to-ship
+lead time, no provider notes (OVD-996), and no buttons or links; its other summary facts
+are read-only context. The offers are simulated, so this does not prove a live quote.

@@ -27,10 +27,6 @@ const ORDER_CHECKOUT_OR_PAYMENT_NAME =
 const PURCHASE_ORDER_NAME = /\bPO\b/;
 const ORDER_CHECKOUT_OR_PAYMENT_PATTERNS = [ORDER_CHECKOUT_OR_PAYMENT_NAME, PURCHASE_ORDER_NAME];
 const CONTROL_ROLES = ["button", "link", "menuitem", "checkbox", "radio"] as const;
-// The panel header's "Review order" action opens the legacy procurement
-// handoff (Q21). Only that exact accessible name is dropped, and nothing is
-// asserted about the handoff itself.
-const LEGACY_HANDOFF_NAME = "Review order";
 
 function quoteInformation(page: Page) {
   return page.getByRole("region", { name: "Quote information" });
@@ -182,18 +178,15 @@ async function tabUntilFocused(page: Page, target: Locator, maxPresses: number) 
 
 /**
  * Lists every control in scope, hidden ones included, whose accessible name
- * mentions ordering, checkout or payment, apart from the exact legacy handoff.
+ * mentions ordering, checkout or payment. The legacy "Review order" handoff is
+ * off in the default build (OVD-1011), so it is not exempt.
  */
 async function orderCheckoutOrPaymentControls(scope: Locator) {
   const found: string[] = [];
   for (const role of CONTROL_ROLES) {
-    const handoff = scope.getByRole(role, { name: LEGACY_HANDOFF_NAME, exact: true, includeHidden: true });
     for (const pattern of ORDER_CHECKOUT_OR_PAYMENT_PATTERNS) {
       const matches = scope.getByRole(role, { name: pattern, includeHidden: true });
       for (const control of await matches.all()) {
-        if ((await control.and(handoff).count()) > 0) {
-          continue;
-        }
         const label = await control.evaluate(
           (element) => element.getAttribute("aria-label") ?? element.textContent ?? "",
         );
@@ -439,7 +432,7 @@ test.describe("client quote comparison decisions", { tag: "@fixture" }, () => {
     }
   });
 
-  test("(h) has no order, checkout, or payment control in the decision panel apart from the excluded Q21 handoff", async ({ page }) => {
+  test("(h) has no order, checkout, or payment control in the decision panel", async ({ page }) => {
     // Positive control for the pattern: it matches ordinary order and payment
     // labels, including ones a narrower pattern would miss.
     for (const name of ["Place your order", "Order from Xometry", "Reorder", "Ordered", "Add to cart", "Pay now"]) {
@@ -508,20 +501,8 @@ test.describe("client quote comparison after the stored choice lapses", { tag: "
 
   test("shows no substitute as selected and lets the client choose again", async ({ page }) => {
     const panel = await openComparison(page, LAPSED_SELECTION_ROUTE);
-    const reviewButton = panel.getByRole("button", { name: "Review order" });
-    const reason = panel.getByText("Choose a quote to continue", { exact: true });
-    await expect(reviewButton).toBeDisabled();
-    await expect(reason).toBeVisible();
-    await expect(reviewButton).toHaveAccessibleDescription("Choose a quote to continue");
-    const buttonBox = await reviewButton.boundingBox();
-    const reasonBox = await reason.boundingBox();
-    const headerBox = await reviewButton.locator("..").locator("..").boundingBox();
-    expect(buttonBox).not.toBeNull();
-    expect(reasonBox).not.toBeNull();
-    expect(headerBox).not.toBeNull();
-    expect(Math.abs(buttonBox!.x + buttonBox!.width - headerBox!.x - headerBox!.width)).toBeLessThan(2);
-    expect(Math.abs(buttonBox!.x + buttonBox!.width - reasonBox!.x - reasonBox!.width)).toBeLessThan(2);
-    expect(reasonBox!.y).toBeGreaterThanOrEqual(buttonBox!.y + buttonBox!.height);
+    // The default build has no Review order handoff (OVD-1011); its unit tests cover it behind the flag.
+    await expect(panel.getByRole("button", { name: "Review order", includeHidden: true })).toHaveCount(0);
 
     const notice = panel.getByRole("status").filter({ hasText: PREVIOUS_CHOICE_GONE });
 
