@@ -96,6 +96,24 @@ describe("workspace navigation prefetch", () => {
     expect(fetchClientQuoteWorkspaceByJobIds).toHaveBeenCalledWith(["job-2"]);
   });
 
+  it("sends one project request for overlapping prefetches of the same project", async () => {
+    const pendingProjects: Array<(value: unknown) => void> = [];
+    fetchProject.mockImplementation(() => new Promise((resolve) => pendingProjects.push(resolve)));
+    fetchJobsByProject.mockResolvedValue([]);
+
+    const first = prefetchProjectPage(queryClient, "project-1", { accessScope: ACCESS_SCOPE });
+    const second = prefetchProjectPage(queryClient, "project-1", { accessScope: ACCESS_SCOPE });
+    await waitFor(() => expect(fetchProject).toHaveBeenCalled());
+    pendingProjects.forEach((resolve) => resolve({ id: "project-1", name: "Project One" }));
+    await Promise.all([first, second]);
+
+    expect(fetchProject).toHaveBeenCalledTimes(1);
+    expect(queryClient.getQueryData(workspaceQueryKeys.project("project-1", ACCESS_SCOPE))).toEqual({
+      id: "project-1",
+      name: "Project One",
+    });
+  });
+
   it("prefetches part detail with the route query key", async () => {
     const detail = { job: { id: "job-1" } };
     resolveClientPartDetailRoute.mockResolvedValue({
