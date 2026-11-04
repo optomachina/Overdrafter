@@ -16,7 +16,13 @@ import { ClientDrawingPreviewPanel } from "@/components/quotes/ClientQuoteAssetP
 import { ManualQuoteIntakeCard } from "@/components/quotes/ManualQuoteIntakeCard";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import type { ClientExtractionDiagnostics, DrawingPreviewData, PartAggregate } from "@/features/quotes/types";
+import { resolveClientExtractionReview } from "@/features/quotes/client-extraction-review";
+import type {
+  ClientExtractionDiagnostics,
+  ClientPartPropertyState,
+  DrawingPreviewData,
+  PartAggregate,
+} from "@/features/quotes/types";
 import {
   CLIENT_WORKSPACE_FIXTURE_SCENARIOS,
   isFixtureModeAvailable,
@@ -150,6 +156,31 @@ const EXTRACTION_PARTIAL: ClientExtractionDiagnostics = {
   pageCount: 3,
   hasCadFile: true,
   hasDrawingFile: true,
+};
+
+// OVD-1165: a drawing re-read after the customer's save. Fields the customer entered
+// stay off the banner; the part number and revision they kept are flagged again.
+const EXTRACTION_REREAD_AFTER_SAVE: ClientExtractionDiagnostics = {
+  lifecycle: "partial",
+  warningCount: 0,
+  warnings: [],
+  missingFields: [],
+  reviewFields: ["description", "partNumber", "revision", "material", "finish"],
+  lastFailureCode: null,
+  lastFailureMessage: null,
+  extractedAt: "2026-03-16T09:40:00.000+00:00",
+  failedAt: null,
+  updatedAt: "2026-03-16T09:40:00.000+00:00",
+  pageCount: 2,
+  hasCadFile: true,
+  hasDrawingFile: true,
+};
+
+const SAVED_PROPERTIES_BEFORE_REREAD: ClientPartPropertyState = {
+  defaults: { partNumber: "1093-05589-02", revision: "B" },
+  overrides: { description: "Mounting bracket", material: "6061-T6", finish: "Clear anodize" },
+  createdAt: "2026-03-16 09:10:00+00",
+  updatedAt: "2026-03-16 09:25:00+00",
 };
 
 const EXTRACTION_FAILED: ClientExtractionDiagnostics = {
@@ -561,11 +592,17 @@ const StateGallery = () => {
           <div className="grid gap-6 xl:grid-cols-2">
             <GalleryPanelCard
               title="Extraction lifecycle"
-              description="Queued, partial, and failed extraction notices from the client part workflow."
+              description="Queued, partial, partial after a drawing re-read that keeps the customer's entered fields off the list, and failed extraction notices from the client part workflow."
             >
               <div className="space-y-4">
                 <ClientExtractionStatusNotice diagnostics={EXTRACTION_QUEUED} />
                 <ClientExtractionStatusNotice diagnostics={EXTRACTION_PARTIAL} />
+                <ClientExtractionStatusNotice
+                  diagnostics={resolveClientExtractionReview(
+                    EXTRACTION_REREAD_AFTER_SAVE,
+                    SAVED_PROPERTIES_BEFORE_REREAD,
+                  )}
+                />
                 <ClientExtractionStatusNotice diagnostics={EXTRACTION_FAILED} />
               </div>
             </GalleryPanelCard>
