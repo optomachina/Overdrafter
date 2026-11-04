@@ -3575,6 +3575,26 @@ describe("quotes api helpers", () => {
     else expect(supabaseMock.membershipsEq).not.toHaveBeenCalled();
   });
 
+  it("re-checks the user over the network when Retry follows a failed startup read inside the reuse window", async () => {
+    storageMock.setItem(getSupabaseAuthStorageKey(), JSON.stringify({ access_token: "token-1" }));
+    supabaseMock.authGetUser.mockResolvedValueOnce({
+      data: { user: null },
+      error: { name: "AuthRetryableFetchError", message: "Failed to fetch", status: 0 },
+    });
+    await expect(readStartupSupabaseBootstrap()).resolves.toMatchObject({ authState: "session_error" });
+    expect(supabaseMock.authGetUser).toHaveBeenCalledTimes(1);
+
+    // Retry lands well inside the 2 s startup reuse window.
+    vi.advanceTimersByTime(500);
+    supabaseMock.membershipsOrder.mockResolvedValue({ data: [], error: null });
+    await expect(fetchAppSessionData()).resolves.toMatchObject({
+      user: { id: "user-1" },
+      authState: "authenticated",
+    });
+    // The failed snapshot does not answer Retry: the user is read again.
+    expect(supabaseMock.authGetUser).toHaveBeenCalledTimes(2);
+  });
+
   it("reads live auth state on later app-session fetches instead of reusing the startup snapshot", async () => {
     supabaseMock.authGetSession
       .mockResolvedValueOnce({
