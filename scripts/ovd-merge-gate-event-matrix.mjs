@@ -9,9 +9,10 @@
  * check, an issue_comment trigger, or a push that scans open PRs drops the
  * safeguard that fixed that path.
  *
- * Fail closed: a workflow whose `on:` this parser cannot read (inline list or
- * scalar, tabs, an indent other than two spaces, no event keys) is an error,
- * never a workflow with no triggers.
+ * Fail closed: a workflow whose `on:` this parser cannot read (no top-level
+ * `on:`, inline list or scalar, tabs, an indent other than two spaces, no event
+ * keys, a merge_group value it cannot read) is an error, never a workflow with no
+ * triggers. A leading UTF-8 BOM and CRLF line endings are normalised first.
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -27,6 +28,10 @@ export const MERGE_QUEUE_WORKFLOW_TEST = "scripts/merge-queue-workflows.test.mjs
 const SCOPED_EVENTS = new Set(["merge_group", "issue_comment", "pull_request_target", "push"]);
 const ON_KEY = /^["']?on["']?[ \t]*:/;
 const EVENT_KEY = /^ {2}["']?([A-Za-z0-9_-]+)["']?[ \t]*:/gm;
+const MERGE_GROUP_KEY = /^ {2}["']?merge_group["']?[ \t]*:(.*)$/m;
+const NEXT_EVENT_KEY = /\n {2}["']?[A-Za-z0-9_-]+["']?[ \t]*:/;
+const PATHS_KEY = /^ {4}["']?paths(?:-ignore)?["']?[ \t]*:/m;
+const INLINE_PATHS_KEY = /(?:^|[{,\s])["']?paths(?:-ignore)?["']?\s*:/;
 
 /** Code-unit order, the order Array#sort uses without a compare function. */
 export function byCodeUnit(left, right) {
@@ -35,15 +40,33 @@ export function byCodeUnit(left, right) {
   return 0;
 }
 
+/** Workflow text with a leading UTF-8 BOM removed and CRLF read as LF. */
+export function normalizeWorkflowText(text) {
+  return text.replace(/^\uFEFF/, "").replaceAll("\r\n", "\n");
+}
+
+/** A YAML value with a trailing `# comment` and surrounding whitespace removed. */
+function withoutComment(value) {
+  return value.replace(/(?:^|\s)#.*$/, "").trim();
+}
+
+function unquote(value) {
+  return value.replace(/^(["'])(.*)\1$/, "$2");
+}
+
+function listItems(value) {
+  return value.split(",").map((item) => unquote(item.trim())).filter(Boolean);
+}
+
 /**
  * The top-level `on:` of a workflow. `form` is "block" (the only form the
  * matrix can check), "inline" (`on: push`, `on: [push]`), or "absent".
  */
 export function parseWorkflowOn(text) {
-  const lines = text.replaceAll("\r\n", "\n").split("\n");
+  const lines = normalizeWorkflowText(text).split("\n");
   const start = lines.findIndex((line) => ON_KEY.test(line));
   if (start < 0) return { form: "absent", block: null };
-  const rest = lines[start].replace(ON_KEY, "").replace(/(?:^|\s)#.*$/, "").trim();
+  const rest = withoutComment(lines[start].replace(ON_KEY, ""));
   if (rest !== "") return { form: "inline", block: null };
   const body = [];
   for (const line of lines.slice(start + 1)) {
@@ -73,23 +96,63 @@ function onBlockShapeError(block) {
   return null;
 }
 
+/**
+ * The merge_group entry of an `on:` block: `value` is what follows the key on
+ * its own line (comment removed; "" for the block form), `section` the key's
+ * line and its nested lines. null when the block has no merge_group key.
+ */
 function mergeGroupSection(block) {
-  const start = block.search(/^ {2}merge_group:\n/m);
-  if (start < 0) return null;
-  const rest = block.slice(start);
-  const next = rest.slice(1).search(/\n {2}[A-Za-z0-9_-]+:/);
-  return next === -1 ? rest : rest.slice(0, next + 1);
+  const match = MERGE_GROUP_KEY.exec(block);
+  if (!match) return null;
+  const rest = block.slice(match.index);
+  // Keep the newline that ends the section's last line: the nested types list
+  // reads every item up to its newline.
+  const next = rest.slice(1).search(NEXT_EVENT_KEY);
+  const section = next === -1 ? rest : rest.slice(0, next + 2);
+  return { value: withoutComment(match[1]), section };
 }
 
-/** merge_group activity types, null when the key exists with no types, or "absent". */
+function isEmptyValue(value) {
+  return value === "" || value === "null" || value === "~";
+}
+
+/** Types from an inline map value: `{ types: [checks_requested] }`. */
+function inlineMapTypes(value) {
+  const map = value.match(/^\{(.*)\}$/);
+  if (!map) return "unreadable";
+  if (map[1].trim() === "") return null;
+  const types = map[1].match(/(?:^|[{,\s])["']?types["']?\s*:\s*\[([^\]]*)\]/);
+  if (types) return listItems(types[1]);
+  return /(?:^|[{,\s])["']?types["']?\s*:/.test(map[1]) ? "unreadable" : null;
+}
+
+/**
+ * merge_group activity types, null when the key exists with no types, "absent"
+ * when there is no merge_group key, or "unreadable" when its value is in a form
+ * this module does not read (parseWorkflow reports that as a parse error).
+ */
 export function mergeGroupTypes(block) {
-  const section = mergeGroupSection(block);
-  if (section === null) return "absent";
-  const inline = section.match(/^ {4}types:\s*\[([^\]]+)\]/m);
-  if (inline) return inline[1].split(",").map((item) => item.trim()).filter(Boolean);
-  const nested = section.match(/^ {4}types:\n((?: {6}- .+\n)+)/m);
+  const entry = mergeGroupSection(block);
+  if (entry === null) return "absent";
+  const { value, section } = entry;
+  if (!isEmptyValue(value)) return inlineMapTypes(value);
+  const types = section.match(/^ {4}["']?types["']?[ \t]*:(.*)\n/m);
+  if (!types) return null;
+  const inline = withoutComment(types[1]);
+  if (inline !== "") {
+    const list = inline.match(/^\[([^\]]*)\]$/);
+    return list ? listItems(list[1]) : "unreadable";
+  }
+  const nested = section.slice(types.index + types[0].length).match(/^(?: {6}- .+\n)+/);
   if (!nested) return null;
-  return [...nested[1].matchAll(/^ {6}- (.+)\n/gm)].map((match) => match[1].trim());
+  return [...nested[0].matchAll(/^ {6}- (.+)\n/gm)].map((item) => unquote(withoutComment(item[1])));
+}
+
+/** True when merge_group carries a paths or paths-ignore filter, in either form. */
+function mergeGroupFiltersPaths(block) {
+  const entry = mergeGroupSection(block);
+  if (entry === null) return false;
+  return PATHS_KEY.test(entry.section) || INLINE_PATHS_KEY.test(entry.value);
 }
 
 /**
@@ -99,19 +162,25 @@ export function mergeGroupTypes(block) {
 export function parseWorkflow(file, text) {
   const { form, block } = parseWorkflowOn(text);
   let parseError = null;
-  if (form === "inline") parseError = "writes on: inline (on: push or on: [push])";
-  else if (form === "block") parseError = onBlockShapeError(block);
+  if (form === "absent") parseError = "has no top-level on: key";
+  else if (form === "inline") parseError = "writes on: inline (on: push or on: [push])";
+  else parseError = onBlockShapeError(block);
+  let types = block && !parseError ? mergeGroupTypes(block) : "absent";
+  if (types === "unreadable") {
+    parseError = "writes merge_group: or its types: in a form the event matrix cannot read";
+    types = "absent";
+  }
   return {
     file,
     events: block && !parseError ? workflowEventKeys(block) : [],
-    mergeGroupTypes: block && !parseError ? mergeGroupTypes(block) : "absent",
+    mergeGroupTypes: types,
     text,
     parseError,
   };
 }
 
 function concurrencyBlock(text) {
-  return text.match(/^concurrency:\n((?: {2}.*\n)+)/m)?.[1] ?? "";
+  return normalizeWorkflowText(text).match(/^concurrency:\n((?: {2}.*\n)+)/m)?.[1] ?? "";
 }
 
 function sameSet(left, right) {
@@ -140,8 +209,7 @@ function mergeGroupErrors(row, actual) {
   if (JSON.stringify(expected) !== JSON.stringify(got)) {
     errors.push(`${row.file} merge_group types are ${JSON.stringify(got)}; the event matrix says ${JSON.stringify(expected)}`);
   }
-  const section = mergeGroupSection(workflowOnBlock(actual.text) ?? "") ?? "";
-  if (/^ {4}paths(?:-ignore)?:/m.test(section)) {
+  if (mergeGroupFiltersPaths(workflowOnBlock(actual.text) ?? "")) {
     errors.push(`${row.file} filters merge_group with paths; a queue run would not see every required check`);
   }
   return errors;
