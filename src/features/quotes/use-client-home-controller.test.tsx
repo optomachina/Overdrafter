@@ -323,6 +323,56 @@ describe("useClientHomeController membership recovery", () => {
     unmount();
   });
 
+  // OVD-1033 P2-11: the parts list prefetches on row hover, so it opts out of eager warming.
+  it("keeps eager navigation warming off when a page opts out", async () => {
+    const membership = {
+      id: "membership-1",
+      role: "client" as const,
+      organizationId: "org-1",
+      organizationName: "Client Org",
+      organizationSlug: "client-org",
+    };
+    fetchAppSessionDataMock.mockResolvedValue(createSessionData({ memberships: [membership] }));
+
+    const optedIn = renderHook(() => useClientHomeController(), { wrapper: createWrapper() });
+    emitSignedInAuthEvent();
+    await waitFor(() =>
+      expect(useWarmClientWorkspaceNavigationMock).toHaveBeenLastCalledWith(expect.objectContaining({ enabled: true })),
+    );
+    optedIn.unmount();
+    useWarmClientWorkspaceNavigationMock.mockClear();
+
+    const optedOut = renderHook(() => useClientHomeController({ warmWorkspaceNavigation: false }), {
+      wrapper: createWrapper(),
+    });
+    emitSignedInAuthEvent();
+    await waitFor(() => expect(optedOut.result.current.activeMembership?.organizationId).toBe("org-1"));
+
+    expect(useWarmClientWorkspaceNavigationMock).toHaveBeenCalled();
+    expect(useWarmClientWorkspaceNavigationMock).not.toHaveBeenCalledWith(expect.objectContaining({ enabled: true }));
+    optedOut.unmount();
+  });
+
+  // OVD-1033 P2-11: new callback or array identities on every render re-armed the warm timer.
+  it("passes stable warm-navigation inputs across re-renders", async () => {
+    const workspace = { ...createWorkspaceDataResult(), sidebarPinsQuery: { data: undefined, isLoading: true } };
+    useClientWorkspaceDataMock.mockReturnValue(workspace);
+    fetchAppSessionDataMock.mockResolvedValue(createSessionData({}));
+
+    const { result, rerender, unmount } = renderHook(() => useClientHomeController(), { wrapper: createWrapper() });
+    emitSignedInAuthEvent();
+    await waitFor(() => expect(result.current.user).toBeTruthy());
+    const before = useWarmClientWorkspaceNavigationMock.mock.lastCall?.[0];
+    rerender();
+    const after = useWarmClientWorkspaceNavigationMock.mock.lastCall?.[0];
+
+    expect(after).not.toBe(before);
+    expect(after.resolveProjectIdsForJob).toBe(before.resolveProjectIdsForJob);
+    expect(after.pinnedJobIds).toBe(before.pinnedJobIds);
+    expect(after.pinnedProjectIds).toBe(before.pinnedProjectIds);
+    unmount();
+  });
+
   it("allows uploads after delayed membership recovery for an existing user", async () => {
     const recoveredSession = createSessionData({
       memberships: [

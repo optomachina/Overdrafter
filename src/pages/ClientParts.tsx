@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { Box, FolderKanban, PlusSquare, Search } from "lucide-react";
 import { AuthBootstrapScreen } from "@/components/auth/AuthBootstrapScreen";
@@ -60,6 +60,49 @@ function PartPreview({
   );
 }
 
+// Matches the sidebar's hover intent, so sweeping the pointer across the list does not
+// prefetch every row it passes over.
+const ROW_PREFETCH_DELAY_MS = 75;
+
+/**
+ * Prefetches one row's detail page when the pointer rests on it or it takes focus, instead of
+ * warming several part and project pages on landing (OVD-1033 P2-11).
+ */
+function useRowPrefetch(prefetch: (kind: "part" | "project_group", id: string) => void) {
+  const pendingRef = useRef<{ key: string; timeoutId: number } | null>(null);
+  const prefetchRef = useRef(prefetch);
+  prefetchRef.current = prefetch;
+
+  const cancel = useCallback(() => {
+    if (pendingRef.current) {
+      window.clearTimeout(pendingRef.current.timeoutId);
+      pendingRef.current = null;
+    }
+  }, []);
+
+  const schedule = useCallback(
+    (kind: "part" | "project_group", id: string) => {
+      const key = `${kind}:${id}`;
+
+      if (pendingRef.current?.key === key) {
+        return;
+      }
+
+      cancel();
+      const timeoutId = window.setTimeout(() => {
+        pendingRef.current = null;
+        prefetchRef.current(kind, id);
+      }, ROW_PREFETCH_DELAY_MS);
+      pendingRef.current = { key, timeoutId };
+    },
+    [cancel],
+  );
+
+  useEffect(() => cancel, [cancel]);
+
+  return { schedule, cancel };
+}
+
 function formatUpdatedAt(value: string | null): string {
   if (!value) {
     return "Update unavailable";
@@ -72,7 +115,10 @@ function formatUpdatedAt(value: string | null): string {
 }
 
 export default function ClientParts() {
-  const controller = useClientHomeController();
+  const controller = useClientHomeController({ warmWorkspaceNavigation: false });
+  const rowPrefetch = useRowPrefetch((kind, id) =>
+    kind === "part" ? controller.prefetchPart(id) : controller.prefetchProject(id),
+  );
   const [searchParams] = useSearchParams();
   const appMode = searchParams.get("app") === "ios" ? "ios" : null;
   const [query, setQuery] = useState("");
@@ -257,6 +303,10 @@ export default function ClientParts() {
             <Link
               key={`${row.kind}:${row.id}`}
               to={withLocalFixtureContext(row.href)}
+              onMouseEnter={() => rowPrefetch.schedule(row.kind, row.id)}
+              onMouseLeave={rowPrefetch.cancel}
+              onFocus={() => rowPrefetch.schedule(row.kind, row.id)}
+              onBlur={rowPrefetch.cancel}
               className="group grid min-h-[92px] grid-cols-[64px_minmax(0,1fr)] gap-4 border-t border-paper-hairline py-4 transition-colors hover:bg-paper-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-paper-red sm:grid-cols-[72px_minmax(0,1fr)_auto]"
             >
               <span className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-[2px] border border-paper-hairline bg-paper-surface text-paper-muted sm:h-[72px] sm:w-[72px]">
