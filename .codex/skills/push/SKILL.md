@@ -20,7 +20,7 @@ Push the current issue branch to `origin`, keep it in sync safely, and ensure a 
 3. Confirm the working tree is clean or intentionally staged.
 4. Determine the current branch with `git branch --show-current`.
 5. Refuse to continue on `main`.
-6. Confirm one independent Codex review (CLI `/review` or a separately dispatched reviewer with the required actual model/effort) has covered the current change and that any material findings were either fixed or are ready to be explained in the PR handoff.
+6. Confirm one independent Codex review (CLI `/review` or a separately dispatched reviewer with the required actual model/effort) has covered the current change and that any material findings were fixed on this head. Fix actionable CodeRabbit, Opus and QA findings before publishing. Do not leave them for a follow-up PR. A vendor-adapter split required by the one-open-PR rule is a separate PR, opened before either merges.
 7. Push with upstream tracking:
 
 ```bash

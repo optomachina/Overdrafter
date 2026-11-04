@@ -1,0 +1,45 @@
+{
+  "version": 1,
+  "note": "GitHub responses the merge-gate client must handle. A 403 or 429 with retry-after is retried. A 403 that is only an authorization failure is not.",
+  "cases": [
+    {
+      "name": "rate-limited 403 is retried",
+      "responses": [
+        {
+          "status": 403,
+          "headers": { "retry-after": "1", "x-ratelimit-remaining": "10", "x-ratelimit-reset": "1790003600" },
+          "body": { "message": "You have exceeded a secondary rate limit" }
+        },
+        { "status": 200, "body": { "ok": true } }
+      ],
+      "calls": 2,
+      "ok": true
+    },
+    {
+      "name": "rate-limited 429 is retried",
+      "responses": [
+        {
+          "status": 429,
+          "headers": { "retry-after": "1", "x-ratelimit-remaining": "10", "x-ratelimit-reset": "1790003600" },
+          "body": { "message": "You have exceeded a secondary rate limit" }
+        },
+        { "status": 200, "body": { "ok": true } }
+      ],
+      "calls": 2,
+      "ok": true
+    },
+    {
+      "name": "plain 403 is not retried",
+      "responses": [
+        {
+          "status": 403,
+          "headers": { "x-ratelimit-remaining": "10", "x-ratelimit-reset": "1790003600" },
+          "body": { "message": "Resource not accessible by integration" }
+        },
+        { "status": 200, "body": { "ok": true } }
+      ],
+      "calls": 1,
+      "ok": false
+    }
+  ]
+}

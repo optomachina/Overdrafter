@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "note": "issue_comment bodies. triggers true means the comment starts ovd-merge-gate. Chatter and the sticky status comment must not.",
+  "cases": [
+    { "name": "review chatter", "body": "looks good to me", "triggers": false },
+    { "name": "verdict fence", "body": "Architect\n```overdrafter-verdict\nverdict: pass\n", "triggers": true },
+    { "name": "approval fence", "body": "```overdrafter-approval\n", "triggers": true },
+    { "name": "qa fail line", "body": "QA FAIL\nboot stalled", "triggers": true },
+    { "name": "verdict removed on edit", "body": "withdrawn", "previousBody": "VERDICT: PASS\nnotes", "triggers": true },
+    { "name": "sticky status comment", "body": "<!-- ovd-merge-gate-status -->\nneutral", "triggers": false }
+  ]
+}
