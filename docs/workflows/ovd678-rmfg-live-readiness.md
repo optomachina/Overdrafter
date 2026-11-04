@@ -109,8 +109,9 @@ Then run `npm run provider:sync`. Never edit the generated files by hand.
 - **Egress.** RMFG is an HTTP API with a key, not a stable address allow list
   case. Whether RMFG needs a stable address is unknown.
 - **Per provider cap: merge and deploy gate.** The durable per supplier cap
-  (OVD-829) needs a migration; the draft is
-  `docs/migration-drafts/ovd-828-s1.sql` (not applied). The worker flag
+  (OVD-829) needs the migration
+  `supabase/migrations/20261104032100_ovd829_provider_daily_quote_cap.sql`
+  (runbook: `docs/migration-drafts/ovd-829-notes.md`). The worker flag
   `WORKER_PROVIDER_DURABLE_DISPATCH_CAP` gates it:
   - Off (default). Required until the migration is applied. The kill switch
     still fails closed, and each worker process (and each operator run) counts
@@ -124,7 +125,7 @@ Then run `npm run provider:sync`. Never edit the generated files by hand.
     an uncapped supplier, or one whose cap cannot be read, dispatches uncounted.
     The kill switch fails closed in every case.
   - Rollback. Turn the flag off first, then run
-    `docs/migration-drafts/ovd-828-s1.rollback.sql`.
+    `docs/migration-drafts/ovd-829.rollback.sql`.
 - **Wiring.** The kill switch and export control seams are read from the
   adapter input; they take effect once OVD-722 and OVD-723 set them.
 - **Stock selection.** RMFG needs a catalog stock ID per analyzed part. The

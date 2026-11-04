@@ -1,3 +1,4 @@
+-- SUPERSEDED by supabase/migrations/20261104032100_ovd829_provider_daily_quote_cap.sql (promoted and rebased onto the deployed OVD-767/OVD-722 bodies; adds the audited service-role cap setter). Do not apply this draft; it is kept as history only.
 -- =====================================================================
 -- NEEDS BLAINE MIGRATION WINDOW - not applied
 -- =====================================================================

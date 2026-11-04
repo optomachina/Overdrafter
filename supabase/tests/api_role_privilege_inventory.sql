@@ -61,6 +61,7 @@ insert into api_priv_definer_allowlist (sig, grantee, guard_class, issue) values
   ('public.api_admin_set_founding_beta_enrollment(uuid,boolean,text,text)', 'authenticated', 'admin-aal2', 'OVD-602'),
   ('public.api_admin_set_global_kill_switch(boolean,text,bigint)', 'authenticated', 'admin-aal2', 'OVD-767'),
   ('public.api_admin_set_provider_kill_switch(public.vendor_name,boolean,text,bigint)', 'authenticated', 'admin-aal2', 'OVD-767'),
+  ('public.api_admin_set_provider_settings(public.vendor_name,boolean,integer,text,bigint)', 'authenticated', 'admin-aal2', 'OVD-829'),
   ('public.api_approve_job_requirements(uuid,jsonb)', 'authenticated', 'internal-role', 'OVD-602'),
   ('public.api_archive_job(uuid)', 'authenticated', 'verified-auth+membership', 'OVD-602'),
   ('public.api_archive_project(uuid)', 'authenticated', 'verified-auth+membership', 'OVD-602'),

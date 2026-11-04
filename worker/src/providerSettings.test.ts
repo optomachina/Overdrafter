@@ -29,7 +29,7 @@ import type { VendorName, VendorQuoteAdapterInput } from "./types";
 
 /**
  * OVD-829 (OVD-828 S1): the universal per-supplier settings gate. The store
- * below mirrors docs/migration-drafts/ovd-828-s1.sql: the settings row
+ * below mirrors supabase/migrations/20261104032100_ovd829_provider_daily_quote_cap.sql: the settings row
  * (engaged, daily_quote_cap; a missing row is engaged), the global switch, and
  * the durable per UTC day counter behind api_worker_reserve_provider_dispatch.
  * Its state lives outside the guard, the way the database does: nothing is

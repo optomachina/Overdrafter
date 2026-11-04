@@ -492,7 +492,7 @@ export function parseProviderDispatchReservation(data: unknown, provider: Vendor
  *     each worker process and each operator run has its own daily allowance
  *     and a restart resets it.
  * `WORKER_PROVIDER_DURABLE_DISPATCH_CAP=on` selects "durable". It must stay
- * off (the default) until docs/migration-drafts/ovd-828-s1.sql is applied, and
+ * off (the default) until supabase/migrations/20261104032100_ovd829_provider_daily_quote_cap.sql is applied, and
  * must be turned on in the same window once it is.
  */
 export const PROVIDER_DURABLE_DISPATCH_CAP_ENV = "WORKER_PROVIDER_DURABLE_DISPATCH_CAP";

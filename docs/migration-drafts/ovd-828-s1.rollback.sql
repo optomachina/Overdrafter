@@ -1,3 +1,4 @@
+-- SUPERSEDED by docs/migration-drafts/ovd-829.rollback.sql, the rollback for supabase/migrations/20261104032100_ovd829_provider_daily_quote_cap.sql. Do not apply this draft; it is kept as history only.
 -- =====================================================================
 -- NEEDS BLAINE MIGRATION WINDOW - not applied
 -- =====================================================================
