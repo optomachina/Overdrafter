@@ -1216,6 +1216,12 @@ describe("drawing tolerance units through the stored extraction (OVD-976)", () =
     ["R15 ticked INCH box fails closed", 0.005, null, [["UNITS: INCH ✓ / MM", ".XX ±.01", ".XXX ±.005"]]],
     ["R16 IN after a comma is a preposition", mm(0.1), 0.0039, [["ALL DIMENSIONS IN MM, IN ACCORDANCE WITH ISO 129-1", "TOLERANCES ±0.1"]]],
     ["R17 digit after the mark ends the field", 0.005, 0.005, [["UNITS: INCH; 6 MM DOWEL", "TOLERANCES ±.005"]]],
+    // OVD-990 item 4: bare bracket pairs on a drawing that declares both systems (MET-R4-1).
+    ["D01 dual drawing, inch-first bare pair", 0.005, 0.005, [["DIMENSIONS IN INCHES [MILLIMETERS]", "TOLERANCES ±.005 [±0.13]"]]],
+    ["D02 dual drawing, metric-first bare pair", mm(0.1), 0.0039, [["DIMENSIONS IN MILLIMETERS [INCHES]", "TOLERANCES ±0.1 [±.004]"]]],
+    ["D03 dual drawing, table rows in pairs", 0.005, 0.005, [["DIMENSIONS IN INCHES [MILLIMETERS]", ".XX ±.01 [±0.25]", ".XXX ±.005 [±0.13]"]]],
+    ["D04 dual drawing, pair that does not agree", "amb", null, [["DIMENSIONS IN INCHES [MILLIMETERS]", "TOLERANCES ±.005 [±0.5]"]]],
+    ["D05 dual drawing, unpaired bare value", "amb", null, [["DIMENSIONS IN INCHES [MILLIMETERS]", "BORE ±.002", "TOLERANCES ±.005 [±0.13]"]]],
   ];
 
   it("covers the whole review corpus", () => {
@@ -1223,6 +1229,7 @@ describe("drawing tolerance units through the stored extraction (OVD-976)", () =
     expect(corpus.filter(([id]) => id.startsWith("X"))).toHaveLength(13);
     expect(corpus.filter(([id]) => id.startsWith("N"))).toHaveLength(103);
     expect(corpus.filter(([id]) => id.startsWith("R"))).toHaveLength(17);
+    expect(corpus.filter(([id]) => id.startsWith("D"))).toHaveLength(5);
   });
 
   it.each(corpus)("%s", async (_id, truth, expected, pages, oos) => {

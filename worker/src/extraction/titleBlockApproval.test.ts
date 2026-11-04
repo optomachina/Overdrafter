@@ -52,6 +52,66 @@ describe("final extraction approval invariants", () => {
     expect(result.reviewFields).not.toContain("description");
   });
 
+  // OVD-1009 follow-ups (PR #1020 review): a smaller unruled line under the title is no longer proven as part of it. A
+  // title whose first word is a fence label (SHEET) stays flagged, as on main.
+  it("flags a title joined with a smaller line under it, and never reads a label word as the title", () => {
+    const sheet = (title: PdfWord[], text: string) =>
+      pdf([box("TITLE:", 100, 100, 7), ...title, box("SIZE", 100, 150, 6), ...phrase("DWG. NO.", 130, 150, 6)], text);
+    const subLine = infer(sheet([...phrase("SAMPLE PART", 130, 115, 14), ...phrase("QTY 4", 130, 132, 9)],
+      "TITLE:\n      SAMPLE PART\n      QTY 4\nSIZE  DWG. NO.")).description;
+    expect(subLine).toMatchObject({ reviewNeeded: true });
+    expect(subLine.value).not.toBe("SAMPLE PART QTY 4");
+    // A label word in the TITLE cell is a label, as on main: the description is never this text (PR #1042 review).
+    const labelFirst = infer(sheet(phrase("SHEET METAL BRACKET", 130, 115, 14), "TITLE:\n      SHEET METAL BRACKET\nSIZE  DWG. NO.")).description;
+    expect(labelFirst.value).not.toBe("SHEET METAL BRACKET");
+    expect(labelFirst.reviewNeeded).toBe(true);
+  });
+
+  // PR #1042 review (BLOCKING, round 3): a fence label on the TITLE label's row, far to the right, under an empty MATERIAL,
+  // is that cell's fence. Taking it out of the labels uncapped MATERIAL and approved "SHEET COVER" as the material.
+  it.each(["SHEET COVER", "NAME SMITH"])("never reads %s on the TITLE row as the empty MATERIAL above it", (printed) => {
+    const words = [box("MATERIAL", 1060, 600, 6), box("TITLE:", 700, 650, 7), ...phrase("SAMPLE PART", 760, 665, 14),
+      ...phrase(printed, 1060, 648, 10), box("SIZE", 700, 720, 6), ...phrase("DWG. NO.", 725, 720, 6)];
+    const signals = infer(pdf(words));
+    expect(signals.material.value).not.toBe(printed);
+    expect(signals.material.reasons).not.toContain("title_block_cell_proven");
+  });
+
+  // PR #1042 reviews: a fence label and its own value ("NAME SMITH", "SCALE FULL-SIZE"), or a title that starts with a
+  // label word, is never proven or approved as the description, from the cell or from a model that agrees.
+  it.each([
+    ["SCALE FULL-SIZE", 7, 10], ["NAME SMITH", 6, 8], ["PROJECT ALPHA", 6, 9], ["WEIGHT APPROX 2 LB", 6, 9], ["SHEET COVER", 6, 9],
+    ["SIZE LARGE", 6, 9], ["SIZE ANSI B", 6, 9], ["SIZE LETTER", 6, 9], ["DATE TODAY", 6, 9], ["SHEET ELEVEN", 6, 9],
+    ["PAGE TWENTY", 6, 9], ["ZONE ALPHA", 6, 9], ["SCALE TWICE", 6, 9], ["WEIGHT NOMINAL", 6, 9],
+    ["SHEET METAL BRACKET", 7, 14], ["SCALE MOUNT", 7, 14], ["NAME PLATE", 7, 14], ["SIZE ADAPTER", 7, 14], ["DATE CODE STAMP", 7, 14],
+  ] as const)("never proves %s under TITLE as the description", async (printed, labelSize, size) => {
+    const words = [box("TITLE", 100, 100, labelSize), ...phrase(printed, 100, 118, size), box("SIZE", 100, 150, 6), ...phrase("DWG. NO.", 130, 150, 6)];
+    const signal = infer(pdf(words)).description;
+    expect(signal.reviewNeeded).toBe(true);
+    expect(signal.reasons).not.toContain("title_block_cell_proven");
+    // Nor through model merging: a model that agrees does not approve it.
+    const result = await hybrid(pdf(words), model({ description: printed }));
+    expect(result.reviewFields).toContain("description");
+    expect(result.extractedDescriptionRaw).toMatchObject({ reviewNeeded: true });
+  });
+
+  // PR #1042 review (BLOCKING): a label beside its own value is never approved as the description. (a) an empty TITLE
+  // cell with a 7 pt SCALE NTS or SHEET ONE OF ONE under a 6 pt TITLE label stays empty and flagged, as on main; (b) a
+  // title over a SCALE NONE cell in its columns is the title alone, as on main.
+  it("never proves a label and its own value under TITLE as the description", () => {
+    const sheet = (title: PdfWord[]) => pdf([box("TITLE", 100, 100, 6), ...title, box("SIZE", 100, 150, 6), ...phrase("DWG. NO.", 130, 150, 6)]);
+    for (const pair of ["SCALE NTS", "SHEET ONE OF ONE", "SCALE NONE", "DATE JAN 2024", "DATE JANUARY 2024", "WEIGHT LBS 2", "APPROVED BY JS"]) {
+      const read = infer(sheet(phrase(pair, 100, 118, 7))).description;
+      expect(read.value, pair).not.toBe(pair);
+      expect(read.reviewNeeded, pair).toBe(true);
+    }
+    const titled = (under: PdfWord[]) =>
+      pdf([box("TITLE:", 100, 100, 7), box("BRACKET", 110, 112, 9), ...under, box("SIZE", 100, 150, 6), ...phrase("DWG. NO.", 130, 150, 6)]);
+    expect(infer(titled(phrase("SCALE NONE", 110, 124, 9))).description).toMatchObject({ value: "BRACKET" });
+    // Not even a word that could start a title: a label under the title's first line is a label.
+    expect(infer(titled(phrase("SCALE MOUNT", 110, 124, 9))).description.value).toBe("BRACKET");
+  });
+
   it("model agreement at 0.99 cannot approve an incomplete 6061-T cell", async () => {
     const input = pdf([box("MATERIAL", 100, 100), box("6061-T", 100, 120), box("6", 100, 150)], "MATERIAL\n6061-T\n6");
     expect(infer(input).material).toMatchObject({ value: "6061-T", reviewNeeded: true });

@@ -2030,6 +2030,68 @@ describe("title block cells", () => {
         const title = [...phrase("ROUND, CARBON FIBER END", 740, 660, 10), ...phrase("ATTACHMENTS BONDED", 755, 672, 10)];
         expect(wordRead(block(title), "description")).toMatchObject({ status: "value", value: "ROUND, CARBON FIBER END ATTACHMENTS BONDED" });
       });
+
+      // PR #1020 review note 1: an unruled line in the title's columns, set smaller than the title, was joined into it and
+      // proven ("SAMPLE PART QTY 4"). A title is printed at one size; a line at another may be an unlisted cell's.
+      it("does not join a smaller line under the title into it, and leaves the field empty and flagged", () => {
+        const subLine = wordRead(block([...phrase("SAMPLE PART", 760, 665, 14), ...phrase("QTY 4", 760, 684, 9)]), "description");
+        expect(subLine).toMatchObject({ status: "ambiguous", value: null, reason: "unlisted_label" });
+        expect(subLine.observations).toEqual([{ value: "SAMPLE PART QTY 4", binding: "unresolved" }]);
+        // A taller line under a small first line is the same doubt the other way round.
+        expect(wordRead(block([...phrase("SAMPLE", 760, 665, 9), ...phrase("PART", 760, 680, 14)]), "description")).toMatchObject({
+          status: "ambiguous",
+          value: null,
+        });
+        // A second line at the title's size is its wrapped line, as before; a little jitter in the box heights is one size.
+        expect(wordRead(block([...phrase("SAMPLE", 760, 665, 14), ...phrase("PART", 760, 684, 14)]), "description")).toMatchObject({
+          status: "value",
+          value: "SAMPLE PART",
+        });
+        expect(wordRead(block([...phrase("SAMPLE", 760, 665, 14), ...phrase("PART", 760, 684, 13.9)]), "description").value).toBe("SAMPLE PART");
+      });
+
+      // PR #1042 review (minor): a sub-line one size step smaller (12.5 pt under 14 pt) is not the title's size either, and
+      // lines that drift smaller step by step are measured against the title's first line, not each against the one above.
+      it("measures every line against the title's first line, with a tight tolerance", () => {
+        const step = wordRead(block([...phrase("SAMPLE PART", 760, 665, 14), ...phrase("QTY 4", 760, 684, 12.5)]), "description");
+        expect(step).toMatchObject({ status: "ambiguous", value: null });
+        const drift = [...phrase("SAMPLE", 760, 665, 14), ...phrase("PART", 760, 682, 12.5), ...phrase("QTY 4", 760, 697, 11)];
+        expect(wordRead(block(drift), "description")).toMatchObject({ status: "ambiguous", value: null });
+        // Each step is within the jitter of the line above, the last line is not within it of the first.
+        const slow = [...phrase("SAMPLE", 760, 665, 14), ...phrase("PART", 760, 683, 13.5), ...phrase("PLATE", 760, 700, 13)];
+        expect(wordRead(block(slow), "description")).toMatchObject({ status: "ambiguous", value: null });
+        // 13 pt under 14 pt is a step, not jitter (7 percent).
+        expect(wordRead(block([...phrase("SAMPLE", 760, 665, 14), ...phrase("PART", 760, 684, 13)]), "description").value).toBeNull();
+      });
+
+      // PR #1042 review: every word of a line that would continue the title is measured against the title's first line, not
+      // only the tallest word of the line: a 9 pt word beside 14 pt words is another cell's text.
+      it("measures every word of a continuation line, not only its tallest", () => {
+        const under = (words: PdfWord[]) => wordRead(block([...phrase("BRACKET", 760, 665, 14), ...words]), "description");
+        expect(under([box("QTY", 760, 684, 9), box("FOUR", 782, 684, 14)])).toMatchObject({ status: "ambiguous", value: null });
+        expect(under([box("QTY", 760, 684, 14), box("4", 795, 684, 9)])).toMatchObject({ status: "ambiguous", value: null });
+        // 5 percent of the first line's size, inclusive: 13.3 pt under 14 pt is the same size.
+        expect(under(phrase("MOUNT", 760, 684, 13.3)).value).toBe("BRACKET MOUNT");
+        expect(under(phrase("MOUNT", 760, 684, 13.2)).value).toBeNull();
+      });
+
+      // PR #1042 review: a label word in the TITLE cell is a label, as on main ("SHEET METAL BRACKET" is flagged and left
+      // empty). Reading such a title opened a new hole in every round, so it is not attempted (docs/drawing-extraction.md).
+      it.each(["SHEET METAL BRACKET", "SCALE MOUNT", "NAME PLATE", "SCALE NTS", "SHEET ONE OF ONE", "NAME SMITH", "SHEET COVER", "FINISH PLATE"])(
+        "never reads %s, which starts with a label word, as the title",
+        (printed) => {
+          expect(wordRead(block(phrase(printed, 760, 665, 14)), "description").value).toBeNull();
+        },
+      );
+
+      it("reads the title above a label word in its columns, and nothing of the label's cell", () => {
+        const title = [...phrase("BRACKET", 760, 665, 14), ...phrase("SCALE MOUNT", 760, 684, 14)];
+        expect(wordRead(block(title), "description")).toMatchObject({ status: "value", value: "BRACKET" });
+      });
+    });
+
+    it("on layout text a title that starts with a label word is left empty and flagged", () => {
+      expect(cell(template("SHEET METAL BRACKET"), "description")).toMatchObject({ status: "empty", value: null });
     });
   });
 

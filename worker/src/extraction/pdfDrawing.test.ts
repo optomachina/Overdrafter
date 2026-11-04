@@ -1548,6 +1548,45 @@ describe("pdfDrawing tightest tolerance units (OVD-976)", () => {
       expect(tolerance([METRIC, "BORE ±0.02 mm (±0.1 BEFORE PLATING)"]).valueInch).toBe(0.0007);
     });
 
+    // OVD-990 item 4 (MET-R4-1): a dual-dimension drawing declares both systems, so each bare value of a pair was
+    // unresolved and nothing was stored. A pair whose two readings agree (one side in inches, the other in mm, within
+    // the dual-dimension tolerance) is the same tolerance printed twice: each side takes the unit that makes them agree,
+    // and the smaller reading is stored.
+    it("resolves a bare bracket pair on a dual-dimension drawing to its smaller reading", () => {
+      const DUAL_INCH = "DIMENSIONS IN INCHES [MILLIMETERS]";
+      expect(tolerance([DUAL_INCH, "TOLERANCES ±.005 [±0.13]"])).toMatchObject({ valueInch: 0.005, unit: "in", drawingUnits: "mixed" });
+      expect(tolerance(["UNITS: INCH [MM]", "TOLERANCES ±.005 [±0.13]"])).toMatchObject({ valueInch: 0.005, unit: "in" });
+      expect(tolerance([DUAL_INCH, "THREE PLACE DECIMAL ±.005 [±0.13]"])).toMatchObject({ valueInch: 0.005, unit: "in" });
+      // Metric first: 0.1 mm (0.0039 in) is the smaller reading of ±0.1 [±.004].
+      expect(tolerance(["DIMENSIONS IN MILLIMETERS [INCHES]", "TOLERANCES ±0.1 [±.004]"])).toMatchObject({ valueInch: 0.0039, unit: "mm" });
+      expect(tolerance([DUAL_INCH, "BORE ±.0020 [±0.051]", "GENERAL ±.010 [±0.25]"])).toMatchObject({ valueInch: 0.002, unit: "in" });
+      // A pair whose readings agree in neither order stays unresolved, and so does a bare value with no pair.
+      expect(tolerance([DUAL_INCH, "TOLERANCES ±.005 [±0.5]"])).toMatchObject({ valueInch: null, unit: "unknown" });
+      expect(tolerance([DUAL_INCH, "TOLERANCES ±.005"])).toMatchObject({ valueInch: null, unit: "unknown" });
+      expect(tolerance([DUAL_INCH, "BORE ±.002", "TOLERANCES ±.005 [±0.13]"])).toMatchObject({ valueInch: null, unit: "unknown" });
+      // A pair set apart from each other on the line (another callout's bracket) is not one.
+      expect(tolerance([DUAL_INCH, `TOLERANCES ±.005 ${"X".repeat(48)} [±0.13]`]).valueInch).toBeNull();
+      // On a single-system or undeclared drawing nothing changes: on an inch drawing both bare sides are inches.
+      expect(tolerance([INCH, "TOLERANCES ±.005 [±0.13]"])).toMatchObject({ valueInch: 0.005, unit: "in" });
+      expect(tolerance([INCH, "TOLERANCES ±0.1 [±.004]"])).toMatchObject({ valueInch: 0.004, unit: "in" });
+      expect(tolerance(["TOLERANCES ±.005 [±0.13]"])).toMatchObject({ valueInch: 0.005, unit: "in" });
+    });
+
+    // PR #1042 review: the printed (primary, not bracketed) side of a bare pair is the tolerance; the bracketed side is a
+    // conversion whose rounding must not win (±.01 [±0.25] is .01, not 0.25 mm = 0.0098).
+    it("stores the primary side of a bare dual pair, not the converted one", () => {
+      const DUAL_INCH = "DIMENSIONS IN INCHES [MILLIMETERS]";
+      expect(tolerance([DUAL_INCH, "TOLERANCES ±.01 [±0.25]"])).toMatchObject({ valueInch: 0.01, unit: "in" });
+      expect(tolerance([DUAL_INCH, "BORE ±.0005 [±0.01]"])).toMatchObject({ valueInch: 0.0005, unit: "in" });
+      expect(tolerance(["DIMENSIONS IN MILLIMETERS [INCHES]", "TOLERANCES ±0.25 [±.01]"])).toMatchObject({ valueInch: 0.0098, unit: "mm" });
+      // PR #1042 review: a bracket on the next line is not the other side of the value above it. ±.010 is unresolved on a
+      // drawing that declares both systems, as on main, and the bracketed value of the next line stays bare too.
+      expect(tolerance([DUAL_INCH, "BORE ±.010", "[±0.25] FEATURE"])).toMatchObject({ valueInch: null, unit: "unknown" });
+      expect(tolerance([DUAL_INCH, "BORE ±.010 [±0.25]"])).toMatchObject({ valueInch: 0.01, unit: "in" });
+      // Both sides bracketed: which one is primary is not known, so the smaller reading is stored.
+      expect(tolerance([DUAL_INCH, "TOLERANCES [±.01] [±0.25]"])).toMatchObject({ valueInch: 0.0098, unit: "mm" });
+    });
+
     it("leaves a decimal comma, zero or a non-finite value unresolved, never 0", () => {
       for (const lines of [
         [METRIC, "TOLERANCES ±0,05"],
