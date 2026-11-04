@@ -320,14 +320,14 @@ test('OVD-829 md5 guards name the deployed bodies they replace and the bodies th
   for (const [name, baseline] of Object.entries(deployed)) {
     const before = md5(body(baseline, name));
     const after = md5(body(migration, name));
-    const pair = new RegExp(`'${name.replace('.', '\\.')}\\([^']*\\)',\\s*array\\['([0-9a-f]{32})', '([0-9a-f]{32})'\\]`);
+    const pair = new RegExp(String.raw`'${name.replace('.', String.raw`\.`)}\([^']*\)',\s*array\['([0-9a-f]{32})', '([0-9a-f]{32})'\]`);
     assert.deepEqual(migration.match(pair)?.slice(1), [before, after], `migration guard for ${name}`);
     assert.deepEqual(rollback.match(pair)?.slice(1), [after, before], `rollback guard for ${name}`);
     assert.equal(md5(body(rollback, name)), before, `rollback restores ${name} byte for byte`);
   }
   for (const name of ['public.api_worker_reserve_provider_dispatch', 'public.api_worker_provider_settings_state',
     'private.write_provider_settings', 'public.api_admin_set_provider_settings', 'public.api_service_set_provider_daily_quote_cap']) {
-    const single = new RegExp(`'${name.replace('.', '\\.')}\\([^']*\\)',\\s*array\\['([0-9a-f]{32})'\\], true`);
+    const single = new RegExp(String.raw`'${name.replace('.', String.raw`\.`)}\([^']*\)',\s*array\['([0-9a-f]{32})'\], true`);
     assert.equal(migration.match(single)?.[1], md5(body(migration, name)), `migration guard for new ${name}`);
   }
 });

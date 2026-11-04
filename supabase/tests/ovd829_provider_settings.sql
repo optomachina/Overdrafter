@@ -82,7 +82,7 @@ select ok(
 update private.provider_kill_switches set engaged = false, daily_quote_cap = null
 where provider in ('fictiv', 'rmfg', 'quickparts');
 update private.provider_global_kill_switch set engaged = false where singleton;
-delete from private.provider_daily_quote_usage;
+delete from private.provider_daily_quote_usage where usage_date is not null;
 
 -- ---------------------------------------------------------------------
 -- Shape and grants
@@ -399,7 +399,8 @@ select is(
 
 -- Released through the existing switch path, the counter enforces the cap the service role set.
 update private.provider_kill_switches set engaged = false where provider = 'xometry';
-update ovd829_xometry set version = (select version from private.provider_kill_switches where provider = 'xometry');
+update ovd829_xometry set version = (select version from private.provider_kill_switches where provider = 'xometry')
+where version is not null;
 set local role service_role;
 select is(
   public.api_worker_provider_settings_state('xometry') - 'schema',
