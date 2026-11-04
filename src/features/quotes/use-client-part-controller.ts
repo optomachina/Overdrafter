@@ -1429,7 +1429,9 @@ export function useClientPartController(
   const handleRenamePart = async (targetJobId: string, name: string) => {
     const baseDraft = requestDraft ?? fallbackRequestDraft;
 
-    if (!baseDraft || targetJobId !== canonicalJobId) {
+    // The rename resends the whole draft, which still holds the override a pending reset
+    // removes; queued behind the reset it would put that override back (OVD-1155).
+    if (!baseDraft || targetJobId !== canonicalJobId || resetFieldMutation.isPending) {
       return;
     }
 
@@ -1644,7 +1646,8 @@ export function useClientPartController(
   };
 
   const handleSaveRequest = () => {
-    if (!effectiveRequestDraft) {
+    // The draft still holds the override a pending reset removes; saving it would put it back (OVD-1155).
+    if (!effectiveRequestDraft || resetFieldMutation.isPending) {
       return;
     }
 
@@ -1684,7 +1687,8 @@ export function useClientPartController(
   };
 
   const handleSaveRequestPatch = (next: Partial<ClientPartRequestUpdateInput>) => {
-    if (!fallbackRequestDraft) {
+    // The server draft still holds the override a pending reset removes (OVD-1155).
+    if (!fallbackRequestDraft || resetFieldMutation.isPending) {
       return;
     }
 

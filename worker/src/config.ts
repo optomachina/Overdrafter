@@ -87,7 +87,7 @@ const schema = z.object({
   WORKER_BUILD_VERSION: z.string().default("dev-local"),
   WORKER_PROVIDER_SESSION_LEASE: z.enum(["off", "on"]).default("off"),
   WORKER_PROVIDER_SESSION_NAMESPACE_KEY: optionalSetting(),
-  // OVD-829: on only after docs/migration-drafts/ovd-828-s1.sql is applied.
+  // OVD-829: on only after supabase/migrations/20261104032100_ovd829_provider_daily_quote_cap.sql is applied.
   WORKER_PROVIDER_DURABLE_DISPATCH_CAP: z.enum(["off", "on"]).default("off"),
   DRAWING_EXTRACTION_TITLE_BLOCK_APPROVAL: z.string().optional(),
   DRAWING_EXTRACTION_MODEL: z.string().default("gpt-5.4"),

@@ -497,12 +497,14 @@ vi.mock("@/components/workspace/PartInfoPanel", () => ({
     onDraftChange,
     statusContent,
     onSave,
+    isSaving,
     onResetField,
   }: {
     effectiveRequestDraft?: ClientPartRequestUpdateInput | null;
     onDraftChange?: (next: Partial<ClientPartRequestUpdateInput>) => void;
     statusContent?: ReactNode;
     onSave?: () => void;
+    isSaving?: boolean;
     onResetField?: (field: "description") => void;
   }) => {
 
@@ -525,7 +527,7 @@ vi.mock("@/components/workspace/PartInfoPanel", () => ({
             shipping: { ...effectiveRequestDraft.shipping, packagingNotes: event.target.value },
           })} />
         <input aria-label="Draft Need by" value={effectiveRequestDraft?.requestedByDate ?? ""} readOnly />
-        <button type="button" onClick={() => onSave?.()}>
+        <button type="button" disabled={isSaving} onClick={() => onSave?.()}>
           Save Request
         </button>
         <button type="button" onClick={() => onResetField?.("description")}>
@@ -4289,6 +4291,208 @@ describe("ClientPart", () => {
       expect(screen.getByLabelText("Description")).toHaveValue("Bracket");
       expect(screen.getByLabelText("Notes")).toHaveValue("Keep this unsaved sourcing note");
     });
+  });
+
+  it("does not resend the pre-reset draft when Save follows a pending field reset (OVD-1155)", async () => {
+    const baseDetail = createPartDetail();
+    let persistedDescription = "Customer override description";
+    const buildPersistedDetail = () =>
+      createPartDetail({
+        part: {
+          ...baseDetail.part,
+          clientRequirement: {
+            description: persistedDescription,
+            partNumber: "BRKT-001",
+            revision: "A",
+            material: "6061-T6 aluminum",
+            finish: null,
+            tightestToleranceInch: null,
+            process: "CNC milling",
+            notes: null,
+            quantity: 10,
+            quoteQuantities: [10],
+            requestedByDate: "2026-04-15",
+          },
+        },
+      });
+    api.fetchPartDetailByJobId.mockImplementation(async () => buildPersistedDetail());
+    const reset = createDeferredPromise<void>();
+    api.resetClientPartPropertyOverrides.mockImplementationOnce(async () => {
+      await reset.promise;
+      persistedDescription = "Extracted bracket description";
+    });
+
+    renderWithClient("/parts/job-1");
+    await waitFor(() => {
+      expect(screen.getByLabelText("Description")).toHaveValue("Customer override description");
+    });
+
+    // The QA click sequence: Reset to extracted, then Save request details at once.
+    fireEvent.click(screen.getByRole("button", { name: "Reset description" }));
+    await waitFor(() => expect(api.resetClientPartPropertyOverrides).toHaveBeenCalled());
+    expect(screen.getByRole("button", { name: "Save Request" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Save Request" }));
+
+    await act(async () => {
+      reset.resolve();
+    });
+    await waitFor(() => {
+      expect(toastMock.success).toHaveBeenCalledWith("Field reset to extracted value.");
+    });
+    await waitFor(() => {
+      expect(screen.getByLabelText("Description")).toHaveValue("Extracted bracket description");
+    });
+    // Nothing queued behind the reset re-applies the override it removed.
+    expect(api.updateClientPartRequest).not.toHaveBeenCalled();
+    expect(persistedDescription).toBe("Extracted bracket description");
+
+    fireEvent.click(screen.getByRole("button", { name: "Save Request" }));
+    await waitFor(() => {
+      expect(api.updateClientPartRequest).toHaveBeenCalledWith(
+        expect.objectContaining({ description: "Extracted bracket description" }),
+      );
+    });
+  });
+
+  it("ignores a full save called while a field reset is pending (OVD-1155)", async () => {
+    const reset = createDeferredPromise<void>();
+    api.resetClientPartPropertyOverrides.mockImplementationOnce(() => reset.promise);
+    const { result } = renderPartControllerHook();
+    await waitFor(() => expect(result.current.effectiveRequestDraft).not.toBeNull());
+
+    act(() => result.current.handleResetField("description"));
+    await waitFor(() => expect(result.current.resetFieldMutation.isPending).toBe(true));
+    act(() => result.current.handleSaveRequest());
+    act(() => result.current.handleSaveRequestPatch({ process: "CNC milling" }));
+    await act(async () => {
+      reset.resolve();
+    });
+    await waitFor(() => expect(result.current.resetFieldMutation.isSuccess).toBe(true));
+    expect(api.updateClientPartRequest).not.toHaveBeenCalled();
+  });
+
+  it("does not restore the override a pending field reset removes when Rename is submitted (OVD-1155)", async () => {
+    const baseDetail = createPartDetail();
+    let persistedDescription = "Customer override description";
+    let persistedPartNumber = "BRKT-001";
+    api.fetchPartDetailByJobId.mockImplementation(async () =>
+      createPartDetail({
+        part: {
+          ...baseDetail.part,
+          clientRequirement: {
+            description: persistedDescription,
+            partNumber: persistedPartNumber,
+            revision: "A",
+            material: "6061-T6 aluminum",
+            finish: null,
+            tightestToleranceInch: null,
+            process: "CNC milling",
+            notes: null,
+            quantity: 10,
+            quoteQuantities: [10],
+            requestedByDate: "2026-04-15",
+          },
+        },
+      }));
+    const reset = createDeferredPromise<void>();
+    api.resetClientPartPropertyOverrides.mockImplementationOnce(async () => {
+      await reset.promise;
+      persistedDescription = "Extracted bracket description";
+    });
+    api.updateClientPartRequest.mockImplementation(async (input: ClientPartRequestUpdateInput) => {
+      persistedDescription = input.description ?? persistedDescription;
+      persistedPartNumber = input.partNumber ?? persistedPartNumber;
+    });
+    const { result } = renderPartControllerHook();
+    await waitFor(() => expect(result.current.effectiveRequestDraft?.description).toBe("Customer override description"));
+
+    act(() => result.current.handleResetField("description"));
+    await waitFor(() => expect(result.current.resetFieldMutation.isPending).toBe(true));
+    let rename: Promise<void> | undefined;
+    act(() => {
+      rename = result.current.handleRenamePart("job-1", "BRKT-002");
+    });
+    await act(async () => {
+      reset.resolve();
+      await rename;
+    });
+    await waitFor(() => expect(result.current.resetFieldMutation.isSuccess).toBe(true));
+    await waitFor(() => expect(result.current.effectiveRequestDraft?.description).toBe("Extracted bracket description"));
+    // The rename built from the pre-reset draft must not put the removed override back.
+    expect(api.updateClientPartRequest).not.toHaveBeenCalledWith(
+      expect.objectContaining({ description: "Customer override description" }),
+    );
+    expect(persistedDescription).toBe("Extracted bracket description");
+
+    // Once the reset lands, the rename goes through on the reset draft.
+    await act(async () => {
+      await result.current.handleRenamePart("job-1", "BRKT-002");
+    });
+    expect(api.updateClientPartRequest).toHaveBeenCalledWith(
+      expect.objectContaining({ partNumber: "BRKT-002", description: "Extracted bracket description" }),
+    );
+    expect(persistedDescription).toBe("Extracted bracket description");
+  });
+
+  it("keeps saved packaging notes and other RFQ details when Save follows an unrelated edit (OVD-1151)", async () => {
+    const baseDetail = createPartDetail();
+    const savedRequestMetadata = {
+      shipping: { requestedByDateOverride: null, packagingNotes: "Bag and tag each part", shippingNotes: "Ship by ground" },
+      certifications: {
+        requiredCertifications: ["AS9100"],
+        materialCertificationRequired: true,
+        certificateOfConformanceRequired: true,
+        inspectionLevel: "fai" as const,
+        notes: "First article per lot",
+      },
+      sourcing: {
+        regionPreferenceOverride: "domestic_only" as const,
+        preferredSuppliers: ["Acme Machining"],
+        materialProvisioning: "customer_supplied" as const,
+        notes: "Customer ships stock",
+      },
+      release: { releaseStatus: "prototype" as const, reviewDisposition: null, quoteBlockedUntilRelease: null, notes: "Rev A prototype" },
+    };
+    api.fetchPartDetailByJobId.mockResolvedValue(
+      createPartDetail({
+        part: {
+          ...baseDetail.part,
+          clientRequirement: {
+            description: "Bracket",
+            partNumber: "BRKT-001",
+            revision: "A",
+            material: "6061-T6 aluminum",
+            finish: null,
+            tightestToleranceInch: null,
+            process: "CNC milling",
+            notes: null,
+            quantity: 10,
+            quoteQuantities: [10],
+            requestedByDate: "2026-04-15",
+            requestMetadata: savedRequestMetadata,
+          },
+        },
+      }),
+    );
+
+    renderWithClient("/parts/job-1");
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("Packaging notes")).toHaveValue("Bag and tag each part");
+    });
+    fireEvent.change(screen.getByLabelText("Notes"), { target: { value: "Deburr all edges" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save Request" }));
+
+    await waitFor(() => expect(api.updateClientPartRequest).toHaveBeenCalledTimes(1));
+    expect(api.updateClientPartRequest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        notes: "Deburr all edges",
+        shipping: savedRequestMetadata.shipping,
+        certifications: savedRequestMetadata.certifications,
+        sourcing: savedRequestMetadata.sourcing,
+        release: savedRequestMetadata.release,
+      }),
+    );
   });
 
   it("logs structured archived delete failures through the account menu callback", async () => {

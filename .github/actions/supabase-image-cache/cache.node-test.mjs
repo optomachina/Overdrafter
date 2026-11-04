@@ -109,7 +109,7 @@ test('throttling retries with bounded exponential backoff; permanent errors stop
 });
 
 test('all consumers use the cache, pinned external actions and explicit read permissions', () => {
-  const workflows = ['ci', 'verify', 'ephemeral-db', ...[707, 797, 829, 831].map(n => `ovd${n}-pending-pgtap`)];
+  const workflows = ['ci', 'verify', 'ephemeral-db', ...[707, 797, 831].map(n => `ovd${n}-pending-pgtap`)];
   for (const file of workflows) {
     const text = readFileSync(new URL(`../../workflows/${file}.yml`, import.meta.url), 'utf8');
     assert(text.includes('/supabase-image-cache'));
@@ -304,10 +304,10 @@ test('fork PRs cannot save image archives or dependency archives through shared 
   }
 });
 
-test('OVD-828 rollback preserves the current kill-switch authorization body exactly', () => {
+test('OVD-829 rollback preserves the current kill-switch authorization body exactly', () => {
   const definition = text => text.match(/create or replace function public\.api_admin_set_provider_kill_switch\([\s\S]*?\n\$\$;/i)?.[0];
   const baseline = readFileSync(new URL('../../../supabase/migrations/20261016000156_ovd767_admin_write_aal2_guards.sql', import.meta.url), 'utf8');
-  const rollback = readFileSync(new URL('../../../docs/migration-drafts/ovd-828-s1.rollback.sql', import.meta.url), 'utf8');
+  const rollback = readFileSync(new URL('../../../docs/migration-drafts/ovd-829.rollback.sql', import.meta.url), 'utf8');
   assert(definition(baseline));
   assert.equal(definition(rollback), definition(baseline));
 });

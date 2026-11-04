@@ -285,6 +285,12 @@ export type ClientPartRequirementView = {
   quoteQuantities: number[];
   requestedByDate: string | null;
   projectPartProperties?: ClientPartPropertyState | null;
+  /**
+   * Client-visible RFQ details (shipping, certifications, sourcing, release) the full
+   * request save writes back, so the editor can show and resend them (OVD-1151).
+   * Absent when the server predates the projection.
+   */
+  requestMetadata?: RfqLineItemExtendedMetadata | null;
 };
 
 export type ClientPartMetadataRecord = {
