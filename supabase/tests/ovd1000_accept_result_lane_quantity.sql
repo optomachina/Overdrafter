@@ -9,7 +9,7 @@
 -- which the same quantity-10 result is stale again.
 -- Synthetic rows only; the whole file rolls back.
 begin;
-select plan(25);
+select plan(27);
 
 \set meter_fixture_limit 20
 \ir fixtures/free_quote_meter_setup.inc
@@ -173,8 +173,31 @@ select is(
 -- a byte copy of docs/migration-drafts/ovd-1000.rollback.sql
 -- (scripts/run-supabase-policy-tests.node-test.mjs). Results are captured into
 -- psql variables and asserted after the savepoint is rolled back.
-savepoint ovd1000_rollback;
+-- (a) While the quantity-10 permit is in flight (its task is running), the rollback
+-- refuses and changes nothing. psql keeps going after the guard's exception; the
+-- later statements fail with 25P02 and the savepoint clears that.
+savepoint ovd1000_rollback_refuses;
+\set LAST_ERROR_SQLSTATE none
+\set ON_ERROR_ROLLBACK off
+\set VERBOSITY terse
+\set ON_ERROR_STOP off
 \ir fixtures/ovd1000_accept_result_lane_quantity_rollback.inc
+\set ON_ERROR_STOP on
+\set VERBOSITY default
+rollback to savepoint ovd1000_rollback_refuses;
+select is(:'LAST_ERROR_SQLSTATE'::text, '25P02',
+  'rollback drill: with a quantity-above-1 permit in flight the rollback aborts at its guard');
+select is(ovd1000_fixture.body_md5(), 'c79ef7028326dbe470428af844af1bbd',
+  'rollback drill: the refused rollback left the OVD-1000 body in place');
+
+-- (b) Drained (the lane reads quantity 1 while the rollback runs), the rollback
+-- applies; with the lane back at 10 the restored body settles the result as stale.
+savepoint ovd1000_rollback;
+update public.quote_request_lanes set requested_quantity = 1
+where id = (ovd1000_fixture.permit('ten')).quote_request_lane_id;
+\ir fixtures/ovd1000_accept_result_lane_quantity_rollback.inc
+update public.quote_request_lanes set requested_quantity = 10
+where id = (ovd1000_fixture.permit('ten')).quote_request_lane_id;
 select ovd1000_fixture.body_md5() as rb_md5,
   ovd1000_fixture.accept('ten', 10) ->> 'outcome' as rb_outcome,
   (select pg_catalog.array_to_string(p.proconfig, ',') || '|' || p.prosecdef::text

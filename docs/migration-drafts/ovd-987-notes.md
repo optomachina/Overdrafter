@@ -431,8 +431,8 @@ orphaned. Re-applying re-seeds the control at revision 0.
   `requested_quantity`. With the switch OFF nothing changes. With it ON, a
   Xometry beta result above quantity 1 that goes through this fenced acceptance
   would get `{"outcome":"stale"}` and never reach `finalize_free_quote_job`.
-  Nothing calls `accept_vendor_quote_result` yet (only its SQL, pgTAP and text
-  pin). This migration does not restate it, so its bytes and the reviewed md5s
+  The worker calls `accept_vendor_quote_result` (see the status below). This
+  migration does not restate it, so its bytes and the reviewed md5s
   stay as they are. **Hard prerequisite for switch-on (OVD-1000):** a follow-up
   migration must take that quantity from the permit's lane
   (`quote_request_lanes.requested_quantity`) instead of the literal, with an md5

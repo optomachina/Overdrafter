@@ -19,6 +19,25 @@ begin
     raise exception 'OVD-1000 rollback refused: public.accept_vendor_quote_result has an unexpected body (md5 %)', coalesce(v_md5, 'missing')
       using errcode = '55000';
   end if;
+  -- Drain rule (docs/migration-drafts/ovd-987-notes.md): the restored body settles a
+  -- quantity-above-1 Xometry beta result as stale, so refuse while one is in flight.
+  -- The SHARE lock holds new permits back until this transaction ends.
+  lock table private.xometry_beta_dispatch_permits in share mode;
+  if exists (
+    select 1
+    from private.xometry_beta_dispatch_permits permit
+    join public.quote_request_lanes lane on lane.id = permit.quote_request_lane_id
+    left join public.quote_requests request_row on request_row.id = permit.quote_request_id
+    left join public.work_queue task on task.id = permit.work_queue_task_id
+    left join private.quote_access_admissions admission on admission.permit_id = permit.id
+    where lane.requested_quantity <> 1
+      and (admission.state = 'reserved'
+        or request_row.status::text in ('queued', 'requesting')
+        or task.status::text in ('queued', 'running'))
+  ) then
+    raise exception 'OVD-1000 rollback refused: a quantity-above-1 Xometry beta permit is in flight'
+      using errcode = '55000';
+  end if;
 end;
 $ovd1000_guard$;
 
