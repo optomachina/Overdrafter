@@ -9,7 +9,7 @@
 -- chosen as-machined finish again, and the new RPC is gone.
 -- Synthetic rows only; the whole file rolls back.
 begin;
-select plan(59);
+select plan(64);
 
 \set meter_fixture_limit 20
 \ir fixtures/free_quote_meter_setup.inc
@@ -151,17 +151,27 @@ select ok((ovd1163_fixture.requirement()).spec_snapshot -> 'quoteAsMachined' is 
 update public.approved_part_requirements set finish = :drawing_finish
 where part_id = (select part_id from free_meter_fixture.context);
 select is(ovd1163_fixture.choose((select user_id from free_meter_fixture.context), true), 'true', 'choice stored before the rollback');
+-- Results are captured into psql variables and asserted after the savepoint is
+-- rolled back, so pgTAP's own count keeps every assertion.
 savepoint rollback_drill;
 \ir fixtures/ovd1163_rollback.inc
+select (select pg_catalog.md5(prosrc) from pg_catalog.pg_proc
+    where oid = 'private.resolve_xometry_beta_dispatch_scope_with_access(uuid,text,uuid)'::regprocedure) as rb_resolver_md5,
+  (to_regprocedure('public.api_set_client_part_quote_as_machined(uuid,boolean)') is null)::text as rb_rpc_dropped,
+  ovd1163_fixture.scope_check('6061 Alloy', 'As machined') as rb_material,
+  ovd1163_fixture.scope_check('6061-T6 Aluminum', :drawing_finish) as rb_finish \gset
+rollback to savepoint rollback_drill;
+release savepoint rollback_drill;
+select is(:'rb_resolver_md5'::text, '1d482bb5747127128e041549291eae6e'::text,
+  'the rollback restores the OVD-1007 resolver byte for byte');
+select ok(:'rb_rpc_dropped'::boolean, 'the rollback drops the RPC');
+select is(:'rb_material'::text, 'xometry_beta_6061_t6_required'::text,
+  'after the rollback 6061 without a temper is refused again');
+select is(:'rb_finish'::text, 'xometry_beta_as_machined_required'::text,
+  'after the rollback the chosen finish is refused again');
 select is((select pg_catalog.md5(prosrc) from pg_catalog.pg_proc
   where oid = 'private.resolve_xometry_beta_dispatch_scope_with_access(uuid,text,uuid)'::regprocedure),
-  '1d482bb5747127128e041549291eae6e', 'the rollback restores the OVD-1007 resolver byte for byte');
-select ok(to_regprocedure('public.api_set_client_part_quote_as_machined(uuid,boolean)') is null, 'the rollback drops the RPC');
-select is(ovd1163_fixture.scope_check('6061 Alloy', 'As machined'), 'xometry_beta_6061_t6_required',
-  'after the rollback 6061 without a temper is refused again');
-select is(ovd1163_fixture.scope_check('6061-T6 Aluminum', :drawing_finish), 'xometry_beta_as_machined_required',
-  'after the rollback the chosen finish is refused again');
-rollback to savepoint rollback_drill;
+  '4fd2484f5bfe9b524f5916b7e99ec88e', 'rolled back to the savepoint, the OVD-1163 resolver is live again');
 
 select * from finish();
 rollback;
