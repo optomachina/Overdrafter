@@ -2,10 +2,15 @@
 -- Restores the OVD-1007 body (20261101130100) of
 -- private.resolve_xometry_beta_dispatch_scope_with_access byte for byte (md5
 -- 1d482bb5747127128e041549291eae6e) and drops
--- public.api_set_client_part_quote_as_machined. While it is live, only
--- "6061-T6", "6061-T6 Aluminum" and "Aluminum 6061-T6" pass the Material
--- check and a finished part is refused again; the client's "Quote as
--- machined" button then fails and the popup shows the plain refusal.
+-- public.api_set_client_part_quote_as_machined. While it is live, the
+-- Material check lowercases the name and drops every character outside a-z
+-- and 0-9, then accepts only 6061t6, 6061t6aluminum and aluminum6061t6: so
+-- "6061-T6", "6061 T6", "6061T6", "6061-T6 Aluminum" and "Aluminum 6061-T6"
+-- pass, while "6061", "6061 Alloy" and "Al 6061" are refused again. A
+-- finished part is refused again too, and the OVD-1163 client still offers
+-- "Quote as machined": that click fails (the RPC is gone) and the popup says
+-- "That change didn't save. Try again." Roll the client back first, or in the
+-- same window, so customers are not offered a fix that cannot work.
 -- Stored spec_snapshot.quoteAsMachined values are kept (the restored body
 -- never reads them), so no data is deleted and re-applying the migration
 -- honours them again. A permit already issued is not revoked; the worker's

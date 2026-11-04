@@ -233,7 +233,7 @@ for (const denialCode of ["xometry_beta_scope_changed", "free_allowance_unavaila
     backend.nextReply = "denied";
     backend.denialCode = denialCode;
     await confirm(page).click();
-    await expect(dialog(page).getByRole("alert").filter({ hasText: "request was not sent" })).toContainText("request was not sent");
+    await expect(dialog(page).getByRole("alert").filter({ hasText: "request was refused" })).toContainText("request was refused");
     await expect.poll(() => backend.scopes.length).toBeGreaterThan(oldScopeReads);
     await expect(consent(page)).not.toBeChecked();
     await expect(confirm(page)).toBeDisabled();
@@ -267,7 +267,7 @@ test("denied recovery after blocked refresh cannot become a fresh confirmation",
   backend.nextReply = "denied";
   backend.denialCode = "free_allowance_unavailable";
   await confirm(page).click();
-  await expect(dialog(page).getByRole("alert").filter({ hasText: "request was not sent" })).toContainText("request was not sent");
+  await expect(dialog(page).getByRole("alert").filter({ hasText: "request was refused" })).toContainText("request was refused");
   await expect(confirm(page)).toBeDisabled();
   await expect(dialog(page).getByRole("checkbox")).toHaveCount(0);
   expect(backend.dispatches).toHaveLength(2);

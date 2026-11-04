@@ -20,3 +20,29 @@ export function isQuotedAsMachined(finish: string | null | undefined, specSnapsh
   const choice = isRecord(specSnapshot) ? specSnapshot.quoteAsMachined : null;
   return isRecord(choice) && typeof choice.finish === "string" && normalizeFinish(choice.finish) === normalized;
 }
+
+/** A finish that changes the price: not blank and not as machined. */
+export function hasPricedFinish(finish: string | null | undefined): boolean {
+  const normalized = normalizeFinish(finish ?? "");
+  return normalized !== "" && normalized !== "asmachined";
+}
+
+/**
+ * OVD-1163: how the part page labels its quotes. The label follows what each
+ * quote was priced for (the finish its offer recorded), not the current
+ * choice, so quotes priced with the finish before the choice are never
+ * labelled as machined, and as-machined quotes keep their label if the choice
+ * is later withdrawn.
+ */
+export function asMachinedQuoteLabel(
+  drawingFinish: string | null | undefined,
+  options: ReadonlyArray<{ finish?: string | null }>,
+): string | null {
+  if (!hasPricedFinish(drawingFinish)) return null;
+  const asMachined = options.filter((option) => normalizeFinish(option.finish ?? "") === "asmachined").length;
+  if (asMachined === 0) return null;
+  const finish = (drawingFinish ?? "").trim();
+  return asMachined === options.length
+    ? `Quoted as machined. Prices don't include the finish (${finish}).`
+    : `Some quotes are as machined. Their prices don't include the finish (${finish}).`;
+}

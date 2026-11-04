@@ -264,13 +264,14 @@ describe("busy admission denial", () => {
     });
   });
 
-  // OVD-1163: plain copy, no "package" or "scope".
-  it("keeps the not-sent message for every other denial", () => {
+  // OVD-1163: plain copy, no "package" or "scope", and no claim that nothing was sent:
+  // an exact replay of a request that did commit can still be refused.
+  it("keeps the neutral refused message for every other denial", () => {
     expect(getXometryBetaDispatchDenialMessage({ message: "xometry_beta_scope_changed" })).toBe(
-      "The request was not sent. Review the part and try again.",
+      "The request was refused. Check this part's quote requests before trying again.",
     );
     expect(getXometryBetaDispatchDenialMessage(new Error("xometry_beta_job_busy_other"))).toBe(
-      "The request was not sent. Review the part and try again.",
+      "The request was refused. Check this part's quote requests before trying again.",
     );
   });
 });

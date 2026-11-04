@@ -410,7 +410,7 @@ export function XometryBetaDispatchConfirmationDialog({
       if (!result?.accepted) {
         setConsented(false);
         setApprovalReference(null);
-        setSubmissionError("The request was not sent. We checked the part again; review it and try again.");
+        setSubmissionError("The request was refused. We checked the part again; review it before trying again.");
         void onRetryScope?.();
         return;
       }

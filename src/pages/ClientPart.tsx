@@ -24,7 +24,7 @@ import { ClientQuoteDecisionPanel } from "@/components/quotes/ClientQuoteDecisio
 import { ClientSourcingResultPanel } from "@/components/quotes/ClientSourcingResultPanel";
 import { XometryBetaDispatchConfirmationDialog } from "@/components/quotes/XometryBetaDispatchConfirmationDialog";
 import { getQuoteSelectionPrompt, hasPublishedQuotePackage } from "@/features/quotes/sourcing-result";
-import { isQuotedAsMachined } from "@/features/quotes/quote-as-machined";
+import { asMachinedQuoteLabel } from "@/features/quotes/quote-as-machined";
 import { requestAccountSettingsPanel } from "@/components/chat/account-settings-request";
 import { QuoteIntelligenceShell } from "@/components/quote-intelligence/QuoteIntelligenceShell";
 import { PartProductDataBar } from "@/components/quotes/PartProductDataBar";
@@ -434,10 +434,8 @@ const ClientPart = () => {
   const partPresetScope = getPresetScope(activePreset);
   const partPresetMode = getPresetMode(activePreset);
   const scopedOptions = filterQuoteOptionsForScope(rankedQuoteOptions, partPresetScope);
-  // OVD-1163: the customer chose to quote this finished part as machined.
-  const approvedRequirement = partDetail?.part?.approvedRequirement ?? null;
-  const partFinish = approvedRequirement?.finish?.trim() ?? "";
-  const quotedAsMachined = isQuotedAsMachined(approvedRequirement?.finish, approvedRequirement?.spec_snapshot);
+  // OVD-1163: label quotes that were priced as machined for a finished part.
+  const asMachinedLabel = asMachinedQuoteLabel(partDetail?.part?.approvedRequirement?.finish, rankedQuoteOptions);
   const reviewOrderDisabledForScope = Boolean(reviewQuoteOption) &&
     (scopedOptions.length === 0 || !scopedOptions.some((option) => option.key === reviewQuoteOption?.key));
   const reviewOrderDisabledReason = reviewOrderDisabledForScope
@@ -998,10 +996,8 @@ const ClientPart = () => {
                     onProcessSelect={(process) => handleSaveRequestPatch({ process })}
                   />
                 ) : null}
-                {quotedAsMachined ? (
-                  <p role="note" className="text-sm text-muted-foreground">
-                    Quoted as machined. Prices don't include the finish ({partFinish}).
-                  </p>
+                {asMachinedLabel ? (
+                  <p role="note" className="text-sm text-muted-foreground">{asMachinedLabel}</p>
                 ) : null}
                 <ClientQuoteDecisionPanel
                     className="rounded-[12px]"

@@ -3,6 +3,13 @@
 -- temper as 6061-T6, and a customer can quote a finished part as machined.
 -- Apply only in an approved migration window, as one transaction, after
 -- every earlier migration (none of the open ones touches these functions).
+--
+-- Deploy order: the worker build that contains worker/src/quoteAsMachined.ts
+-- must be deployed BEFORE this migration is applied. Once this migration is
+-- live, a part with a drawing finish passes the scope check after the
+-- customer chooses "Quote as machined"; an older worker ignores that choice
+-- and would send the drawing finish to the supplier. Order: worker, then this
+-- migration, then the client (the client's fix button needs the RPC below).
 -- Rollback: docs/migration-drafts/ovd-1163.rollback.sql.
 -- pgTAP: supabase/tests/ovd1163_beta_6061_and_quote_as_machined.sql.
 --

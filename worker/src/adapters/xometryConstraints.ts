@@ -303,12 +303,13 @@ export const XOMETRY_AS_MACHINED_FINISH_TERMS = ["As Machined", "Standard"];
  * other stated temper (O, F, T4, T451, T62 ...) is a different material and is
  * refused rather than quoted as 6061-T6.
  */
-const ALUMINUM_6061_TEMPER = /6061[\s-]*(t\d+|[of])(?![a-z0-9])/;
+// Every temper stated after "6061" ("6061-T6/T4", "6061-T6 (T4)"), not only the first.
+const ALUMINUM_6061_TEMPER = /(?:^|[^a-z0-9])[\s-]*(t\d+|[of])(?![a-z0-9])/g;
 const ALUMINUM_6061_T6_TEMPERS = new Set(["t6", "t651", "t6511"]);
 
 function hasNonT6Temper6061(source: string) {
-  const temper = ALUMINUM_6061_TEMPER.exec(source)?.[1];
-  return temper !== undefined && !ALUMINUM_6061_T6_TEMPERS.has(temper);
+  const afterAlloy = source.slice(source.indexOf("6061") + "6061".length);
+  return [...afterAlloy.matchAll(ALUMINUM_6061_TEMPER)].some(([, temper]) => !ALUMINUM_6061_T6_TEMPERS.has(temper));
 }
 
 export function buildMaterialSearchTerms(material: string) {

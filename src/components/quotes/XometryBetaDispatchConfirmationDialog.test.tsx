@@ -329,7 +329,7 @@ describe("XometryBetaDispatchConfirmationDialog", () => {
     fireEvent.click(screen.getByRole("checkbox", { name: consentLabel }));
     fireEvent.click(screen.getByRole("button", { name: submitName }));
 
-    expect(await screen.findByText(/request was not sent/i)).toBeInTheDocument();
+    expect(await screen.findByText(/request was refused/i)).toBeInTheDocument();
     expect(screen.queryByText("Quote request queued")).not.toBeInTheDocument();
     expect(onRetryScope).toHaveBeenCalledTimes(1);
   });
@@ -377,7 +377,7 @@ describe("XometryBetaDispatchConfirmationDialog", () => {
     fireEvent.click(screen.getByRole("button", { name: submitName }));
     await waitFor(() => expect(onConfirm).toHaveBeenCalledTimes(2));
     expect(onConfirm.mock.calls[1][0]).toEqual(attempted);
-    expect(await screen.findByText(/request was not sent/i)).toBeInTheDocument();
+    expect(await screen.findByText(/request was refused/i)).toBeInTheDocument();
     await waitFor(() => expect(screen.getByRole("button", { name: submitName })).toBeDisabled());
     expect(onConfirm).toHaveBeenCalledTimes(2);
   });

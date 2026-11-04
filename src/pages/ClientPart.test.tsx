@@ -2857,8 +2857,8 @@ describe("ClientPart", () => {
   });
 
   it.each([
-    ["xometry_beta_scope_changed", "The request was not sent. Review the part and try again."],
-    ["free_allowance_unavailable", "The request was not sent. Review the part and try again."],
+    ["xometry_beta_scope_changed", "The request was refused. Check this part's quote requests before trying again."],
+    ["free_allowance_unavailable", "The request was refused. Check this part's quote requests before trying again."],
     ["xometry_beta_job_busy", "This part is being updated in another session. Try again in a moment."],
   ])("fails closed and refreshes scope when dispatch is denied: %s", async (reason, expectedToast) => {
     api.requestXometryBetaDispatch.mockRejectedValue(new Error(reason));
@@ -2875,7 +2875,7 @@ describe("ClientPart", () => {
     await waitFor(() => {
       expect(toastMock.error).toHaveBeenCalledWith(expectedToast);
     });
-    await screen.findByText(/request was not sent/i);
+    await screen.findByText(/request was refused/i);
     fireEvent.click(screen.getAllByRole("button", { name: "Close" })[0]);
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /request (manual )?quote/i })).not.toBeInTheDocument();
@@ -3587,8 +3587,22 @@ describe("ClientPart", () => {
       expect(within(alert).getAllByRole("button").map((button) => button.textContent)).toEqual(["Check again"]);
     });
 
-    it("labels the quotes as excluding the finish while the part is quoted as machined", async () => {
-      api.fetchPartDetailByJobId.mockResolvedValue(finishedPartDetail({ quoteAsMachined: { finish: drawingFinish } }));
+    // The label follows what each quote was priced for, never the current choice alone.
+    function quotedDetail(offerFinishes: string[], specSnapshot: Record<string, unknown> = {}) {
+      const detail = createLiveOfferPartDetail(new Date().toISOString());
+      const quote = detail.part!.vendorQuotes[0];
+      quote.offers = offerFinishes.map((finish, index) => ({
+        ...quote.offers[0], id: `offer-${index + 1}`, offer_key: `xometry-${index + 1}`, finish,
+      }));
+      detail.part!.approvedRequirement = {
+        ...detail.part!.approvedRequirement!, finish: drawingFinish,
+        spec_snapshot: { ...(detail.part!.approvedRequirement!.spec_snapshot as object), ...specSnapshot },
+      };
+      return detail;
+    }
+
+    it("labels quotes priced as machined as excluding the finish", async () => {
+      api.fetchPartDetailByJobId.mockResolvedValue(quotedDetail(["As machined"], { quoteAsMachined: { finish: drawingFinish } }));
       renderWithClient("/parts/job-1");
 
       const note = await screen.findByRole("note");
@@ -3596,12 +3610,28 @@ describe("ClientPart", () => {
       expect(within(screen.getByRole("region", { name: "Quote information" })).getByRole("note")).toBe(note);
     });
 
-    it("drops the label once the finish changes", async () => {
-      api.fetchPartDetailByJobId.mockResolvedValue(finishedPartDetail({ quoteAsMachined: { finish: "Bead blast" } }));
+    it("says only some quotes are as machined when older quotes include the finish", async () => {
+      api.fetchPartDetailByJobId.mockResolvedValue(quotedDetail([drawingFinish, "As machined"], { quoteAsMachined: { finish: drawingFinish } }));
+      renderWithClient("/parts/job-1");
+
+      expect(await screen.findByRole("note")).toHaveTextContent(
+        `Some quotes are as machined. Their prices don't include the finish (${drawingFinish}).`,
+      );
+    });
+
+    it("never labels quotes priced with the finish, even after the as-machined choice", async () => {
+      api.fetchPartDetailByJobId.mockResolvedValue(quotedDetail([drawingFinish], { quoteAsMachined: { finish: drawingFinish } }));
       renderWithClient("/parts/job-1");
 
       await screen.findByTestId("part-info-panel");
-      expect(screen.queryByText(/Quoted as machined/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/as machined/i)).not.toBeInTheDocument();
+    });
+
+    it("keeps the label on as-machined quotes after the choice is withdrawn", async () => {
+      api.fetchPartDetailByJobId.mockResolvedValue(quotedDetail(["As machined"]));
+      renderWithClient("/parts/job-1");
+
+      expect(await screen.findByRole("note")).toHaveTextContent("Quoted as machined.");
     });
   });
 

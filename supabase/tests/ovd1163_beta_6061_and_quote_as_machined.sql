@@ -9,7 +9,7 @@
 -- chosen as-machined finish again, and the new RPC is gone.
 -- Synthetic rows only; the whole file rolls back.
 begin;
-select plan(64);
+select plan(66);
 
 \set meter_fixture_limit 20
 \ir fixtures/free_quote_meter_setup.inc
@@ -151,7 +151,32 @@ select ok((ovd1163_fixture.requirement()).spec_snapshot -> 'quoteAsMachined' is 
 update public.approved_part_requirements set finish = :drawing_finish
 where part_id = (select part_id from free_meter_fixture.context);
 select is(ovd1163_fixture.choose((select user_id from free_meter_fixture.context), true), 'true', 'choice stored before the rollback');
--- Results are captured into psql variables and asserted after the savepoint is
+-- (a) The rollback refuses an unexpected resolver body: its guard raises before
+-- any change. psql keeps going after the guard's exception; the later
+-- statements fail with 25P02 and the savepoint clears that (OVD-1000 pattern).
+savepoint ovd1163_rollback_refuses;
+create or replace function private.resolve_xometry_beta_dispatch_scope_with_access(
+  p_job_id uuid, p_declared_model_units text, p_existing_permit_id uuid
+) returns jsonb language plpgsql security definer set search_path = pg_catalog
+as $$ begin return '{}'::jsonb; end; $$;
+select pg_catalog.md5(prosrc) as rb_injected_md5 from pg_catalog.pg_proc
+where oid = 'private.resolve_xometry_beta_dispatch_scope_with_access(uuid,text,uuid)'::regprocedure \gset
+\set LAST_ERROR_SQLSTATE none
+\set ON_ERROR_ROLLBACK off
+\set VERBOSITY terse
+\set ON_ERROR_STOP off
+\ir fixtures/ovd1163_rollback.inc
+\set ON_ERROR_STOP on
+rollback to savepoint ovd1163_rollback_refuses;
+release savepoint ovd1163_rollback_refuses;
+select ok(:'rb_injected_md5'::text not in ('4fd2484f5bfe9b524f5916b7e99ec88e', '1d482bb5747127128e041549291eae6e')
+    and :'LAST_ERROR_SQLSTATE'::text = '25P02',
+  'rollback drill: an unexpected resolver body makes the rollback abort at its guard');
+select is((select pg_catalog.md5(prosrc) from pg_catalog.pg_proc
+  where oid = 'private.resolve_xometry_beta_dispatch_scope_with_access(uuid,text,uuid)'::regprocedure),
+  '4fd2484f5bfe9b524f5916b7e99ec88e', 'rollback drill: the refused rollback changed nothing');
+
+-- (b) Results are captured into psql variables and asserted after the savepoint is
 -- rolled back, so pgTAP's own count keeps every assertion.
 savepoint rollback_drill;
 \ir fixtures/ovd1163_rollback.inc

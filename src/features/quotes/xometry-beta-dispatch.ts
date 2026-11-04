@@ -495,7 +495,7 @@ export function getXometryBetaDispatchDenialMessage(error: unknown): string {
   }
   return isDispatchJobBusy(error)
     ? "This part is being updated in another session. Try again in a moment."
-    : "The request was not sent. Review the part and try again.";
+    : "The request was refused. Check this part's quote requests before trying again.";
 }
 
 /** Returns bounded operator evidence without forwarding server messages or request data. */
