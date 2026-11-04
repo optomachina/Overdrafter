@@ -1124,6 +1124,28 @@ function tallestOf(runs: readonly Run[]): number | undefined {
 }
 
 /**
+ * How far a word of a title's later line may be from the size of the title's first line, as a share of that size,
+ * inclusive (PR #1042 review): the jitter of word boxes set at one size (13.3 pt under 14 pt), not the step to the next
+ * size (12.5 pt) and not a small word beside the title's size ("QTY" at 9 pt by "FOUR" at 14 pt).
+ */
+const TITLE_SIZE_JITTER = 0.05;
+
+/**
+ * Whether every word of `runs` is set at the size of the title's first line (`first`): no word is more than
+ * TITLE_SIZE_JITTER of the first line's tallest word away from it. True when the sizes are not known (layout text), so
+ * only word boxes can tell two sizes apart.
+ */
+function atTitleSize(first: readonly Run[], runs: readonly Run[]): boolean {
+  const size = tallestOf(first);
+  if (size === undefined) {
+    return true;
+  }
+  // A tiny allowance so 5 percent exactly is inside the band despite binary rounding.
+  const band = TITLE_SIZE_JITTER * size * (1 + 1e-9);
+  return runs.every((run) => run.height === undefined || Math.abs(run.height - size) <= band);
+}
+
+/**
  * Whether a line of a cell opens the next cell of the stack (HEAT TREAT, HARDNESS, ... under MATERIAL or FINISH): it
  * holds a colon, or starts with a word that heads another cell of a title block (NEIGHBOUR_CELL_LABELS).
  * Neither is the label of the vocabulary, so the text is owned by the cell above it; it is that cell's own label
@@ -1323,8 +1345,14 @@ function wrapColumnOf(stackOf: Label, line: number, runs: readonly Run[]): numbe
  * Word boxes: a line that would continue the value, within MAX_LINE_GAP lines of it in order but farther than that down
  * the page, is not joined and there is no value (`far`): it may be the rest of the value set far under it or the text of
  * another cell, and which one is not known. The value is not read without it either, which would cut it short.
+ *
+ * With `title` (the TITLE or DESCRIPTION cell, OVD-1009): a title is printed at one size, so a line that would continue it
+ * with any word set at another size than the title's first line, by more than TITLE_SIZE_JITTER (a 9 or 12.5 pt "QTY 4"
+ * under a 14 pt "SAMPLE PART", a 9 pt "QTY" by a 14 pt "FOUR"), may as well be an unlisted cell stacked under the title
+ * as the title's own second line, and there is no value (`stackedLabel`). Every line is measured against the first, so
+ * sizes that drift a step per line are caught too. Layout text has no sizes and is read as before.
  */
-function chooseValueLines(byLine: ReadonlyMap<number, Run[]>, stackOf: Label | null): ValueChoice {
+function chooseValueLines(byLine: ReadonlyMap<number, Run[]>, stackOf: Label | null, title = false): ValueChoice {
   const lines = [...byLine.keys()].sort((left, right) => left - right);
   const chosen: ValueLine[] = [];
   const stopped = (line: number): ValueChoice => ({ lines: chosen, stackedLabel: false, far: false, stoppedAt: line });
@@ -1353,6 +1381,10 @@ function chooseValueLines(byLine: ReadonlyMap<number, Run[]>, stackOf: Label | n
     const joins = runs.some((run) => alphanumericCount(run.text) >= 2);
     if (previous !== undefined && joins && lineRuns[0]!.y - previous.runs[0]!.y > MAX_LINE_GAP) {
       return { lines: chosen, stackedLabel: false, far: true, stoppedAt: Number.POSITIVE_INFINITY };
+    }
+    // Every word of the line, not only the ones that overlap the title: a small word beside it is another cell's.
+    if (title && previous !== undefined && joins && !atTitleSize(chosen[0]!.runs, lineRuns)) {
+      return flagged();
     }
     if (previous === undefined || joins) {
       chosen.push({ line, runs });
@@ -1578,7 +1610,7 @@ function readOne(
   // labels under it (SIZE, DWG. NO., CAGE CODE), and no shape of words tells a title from a label ("COVER PLATE"), so it
   // is asked neither that question nor the identifiers' (identifierIsStackedLabel).
   const describes = label.field === "material" || label.field === "finish";
-  const choice = chooseValueLines(groupByLine(owned), describes ? label : null);
+  const choice = chooseValueLines(groupByLine(owned), describes ? label : null, label.field === "description");
   const chosen = choice.lines;
   const valueLines = chosen.map((entry) => entry.line);
   // The cell under this one is an unlisted cell of its own ("HEAT TREAT" over "RC 40-45" under an empty MATERIAL):
@@ -2246,7 +2278,7 @@ function readPage(page: number, pageText: readonly TitleBlockTextLine[]): CellRe
     const read = readOne({ ...label, field: label.field }, page, ownedRuns, ownership.inlineRuns, fenced, pageLines, doubt);
     if (read.status === "ambiguous" || read.status === "rejected") {
       const describes = label.field === "material" || label.field === "finish";
-      const choice = chooseValueLines(groupByLine(ownedRuns), describes ? label : null);
+      const choice = chooseValueLines(groupByLine(ownedRuns), describes ? label : null, label.field === "description");
       const considered = ownedRuns.filter((run) => run.line < choice.stoppedAt);
       // Keep every owned identifier, including later rows that made the suggestion ambiguous.
       // A material, finish or title is one phrase: its wrapped line is not a competing value.
