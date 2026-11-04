@@ -297,6 +297,13 @@ test('OVD-1012 pgTAP fixtures are byte copies of the migration and rollback they
   assert.match(suite, /\\ir fixtures\/ovd1012_legacy_tolerance_unit_unknown_rollback\.inc\n/);
 });
 
+test('OVD-1000 pgTAP fixture is a byte copy of the rollback it drills', () => {
+  assert.deepEqual(readFileSync(join(source, 'fixtures/ovd1000_accept_result_lane_quantity_rollback.inc')),
+    readFileSync(fileURLToPath(new URL('../docs/migration-drafts/ovd-1000.rollback.sql', import.meta.url))));
+  const suite = readFileSync(join(source, 'ovd1000_accept_result_lane_quantity.sql'), 'utf8');
+  assert.match(suite, /\\ir fixtures\/ovd1000_accept_result_lane_quantity_rollback\.inc\n/);
+});
+
 test('OVD-1011 pgTAP fixture is a byte copy of the rollback it drills', () => {
   assert.deepEqual(readFileSync(join(source, 'fixtures/ovd1011_client_part_metadata_defaults_rollback.inc')),
     readFileSync(fileURLToPath(new URL('../docs/migration-drafts/ovd-1011.rollback.sql', import.meta.url))));

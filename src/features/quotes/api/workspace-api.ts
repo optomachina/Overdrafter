@@ -40,14 +40,17 @@ import {
 } from "./shared/schema-runtime";
 import { buildClientPartAggregateFromMetadata } from "./shared/normalizers";
 import {
+  buildJobPartSummaries,
+  buildJobSelectionState,
+  emptyJobSelectionState,
   fetchAccessibleJobs,
   fetchAllAccessibleJobs,
   fetchClientPartMetadataByJobIds,
   fetchClientQuoteWorkspaceProjectionByJobIds,
-  fetchDrawingPreviewAssetsByPartId,
   fetchJobPartSummariesByJobIds,
-  fetchJobPartSummariesByOrganization,
   fetchJobsByIds,
+  latestPublishedPackageByJobId,
+  type JobFileSummaryRow,
 } from "./jobs-api";
 import { fetchProjectJobMembershipsByJobIds } from "./projects-api";
 import { fetchPublishedPackagesByJobIds } from "./packages-api";
@@ -327,7 +330,7 @@ export async function fetchClientQuoteWorkspaceByJobIds(
     jobs,
     filesResult,
     partsResult,
-    summaries,
+    metadataRows,
     projectMemberships,
     latestQuoteRequestsByJobId,
     serviceRequestLineItemsByJobId,
@@ -339,7 +342,7 @@ export async function fetchClientQuoteWorkspaceByJobIds(
     }),
     supabase.from("job_files").select("*").in("job_id", jobIds).order("created_at", { ascending: true }),
     supabase.from("parts").select("*").in("job_id", jobIds).order("created_at", { ascending: true }),
-    fetchJobPartSummariesByJobIds(jobIds),
+    fetchClientPartMetadataByJobIds(jobIds),
     fetchProjectJobMembershipsByJobIds(jobIds),
     fetchLatestQuoteRequestsByJobIds(jobIds),
     fetchManufacturingQuoteLineItemsByJobIds(jobIds),
@@ -349,14 +352,10 @@ export async function fetchClientQuoteWorkspaceByJobIds(
 
   const files = ensureData(filesResult.data, filesResult.error) as JobFileRecord[];
   const parts = ensureData(partsResult.data, partsResult.error) as PartRecord[];
-  const latestPublishedPackageByJobId = new Map<string, (typeof publishedPackages)[number]>();
-  publishedPackages.forEach((pkg) => {
-    if (!latestPublishedPackageByJobId.has(pkg.job_id)) {
-      latestPublishedPackageByJobId.set(pkg.job_id, pkg);
-    }
-  });
-  const publishedPackageIds = [...latestPublishedPackageByJobId.values()].map((pkg) => pkg.id);
-  const [publishedOptionsResult, publishedSelectionsResult] = await Promise.all([
+  const latestPackageByJobId = latestPublishedPackageByJobId(publishedPackages);
+  const publishedPackageIds = [...latestPackageByJobId.values()].map((pkg) => pkg.id);
+  const previewPartIds = [...new Set([...parts.map((part) => part.id), ...metadataRows.map((item) => item.partId)])];
+  const [publishedOptionsResult, publishedSelectionsResult, previewResult, cadPreviewResult] = await Promise.all([
     publishedPackageIds.length > 0
       ? supabase
           .from("published_quote_options")
@@ -371,6 +370,21 @@ export async function fetchClientQuoteWorkspaceByJobIds(
           .in("package_id", publishedPackageIds)
           .order("created_at", { ascending: false })
       : emptyResponse<ClientSelectionRecord>(),
+    previewPartIds.length > 0
+      ? supabase
+          .from("drawing_preview_assets")
+          .select("*")
+          .in("part_id", previewPartIds)
+          .order("page_number", { ascending: true })
+      : emptyResponse<DrawingPreviewAssetRecord>(),
+    previewPartIds.length > 0
+      ? supabase
+          .from("cad_preview_assets")
+          .select("*")
+          .in("part_id", previewPartIds)
+          .eq("display_style", "sketch")
+          .eq("view_orientation", "isometric")
+      : emptyResponse<CadPreviewAssetRecord>(),
   ]);
   const publishedOptions =
     (ensureData(
@@ -394,25 +408,20 @@ export async function fetchClientQuoteWorkspaceByJobIds(
       latestPublishedSelectionByPackageId.set(selection.package_id, selection);
     }
   });
-  const metadataRows = await fetchClientPartMetadataByJobIds(jobIds);
-  const previewPartIds = [...new Set([...parts.map((part) => part.id), ...metadataRows.map((item) => item.partId)])];
-  const [previewResult, cadPreviewResult] = await Promise.all([
-    previewPartIds.length > 0
-      ? supabase
-          .from("drawing_preview_assets")
-          .select("*")
-          .in("part_id", previewPartIds)
-          .order("page_number", { ascending: true })
-      : emptyResponse<DrawingPreviewAssetRecord>(),
-    previewPartIds.length > 0
-      ? supabase
-          .from("cad_preview_assets")
-          .select("*")
-          .in("part_id", previewPartIds)
-          .eq("display_style", "sketch")
-          .eq("view_orientation", "isometric")
-      : emptyResponse<CadPreviewAssetRecord>(),
-  ]);
+  // The summary reuses the rows read above instead of fetching jobs, parts, files, metadata,
+  // packages and the workspace projection a second time (OVD-1033 P2-11).
+  const summaries = buildJobPartSummaries({
+    parts,
+    fileRows: files,
+    metadataRows,
+    jobSelectionState: buildJobSelectionState({
+      jobsWithSelection: jobs,
+      packages: publishedPackages,
+      options: publishedOptions,
+      selections: publishedSelections,
+      quoteWorkspaceByJobId,
+    }),
+  });
 
   const previewAssets = isMissingDrawingPreviewSchemaError(previewResult.error)
     ? []
@@ -484,7 +493,7 @@ export async function fetchClientQuoteWorkspaceByJobIds(
       quoteDataMessage: null,
     };
     const primaryPart = jobParts[0] ?? null;
-    const publishedPackage = latestPublishedPackageByJobId.get(jobId) ?? null;
+    const publishedPackage = latestPackageByJobId.get(jobId) ?? null;
     const fallbackMetadata = metadataRows.find((item) => item.jobId === jobId) ?? null;
     const basePartWithRelations =
       primaryPart === null
@@ -604,6 +613,51 @@ export async function fetchArchivedJobs(): Promise<ArchivedJobSummary[]> {
   }));
 }
 
+type RevisionSibling = PartDetailAggregate["revisionSiblings"][number];
+
+/**
+ * Other active, accessible jobs in the same organization that carry the same part number.
+ * Reads only what a part number and revision come from (metadata and file names) for those
+ * jobs, instead of building full summaries for the whole organization (OVD-1033 P2-11).
+ */
+async function fetchRevisionSiblings(input: {
+  jobId: string;
+  organizationId: string;
+  partNumber: string;
+}): Promise<RevisionSibling[]> {
+  const candidateJobIds = (await fetchAccessibleJobs())
+    .filter((job) => job.organization_id === input.organizationId && job.id !== input.jobId)
+    .map((job) => job.id);
+
+  if (candidateJobIds.length === 0) {
+    return [];
+  }
+
+  const [metadataRows, filesResult] = await Promise.all([
+    fetchClientPartMetadataByJobIds(candidateJobIds),
+    supabase
+      .from("job_files")
+      .select("job_id, normalized_name, original_name, file_kind")
+      .in("job_id", candidateJobIds)
+      .order("created_at", { ascending: true }),
+  ]);
+  const summaries = buildJobPartSummaries({
+    parts: [],
+    fileRows: ensureData(filesResult.data as unknown as JobFileSummaryRow[] | null, filesResult.error),
+    metadataRows,
+    jobSelectionState: emptyJobSelectionState(),
+  });
+
+  return summaries
+    .filter((candidate) => candidate.partNumber === input.partNumber)
+    .map((candidate) => ({
+      jobId: candidate.jobId,
+      revision: candidate.revision,
+      title: `${candidate.partNumber}${candidate.revision ? ` rev ${candidate.revision}` : ""}`,
+    }))
+    .sort((left, right) => (left.revision ?? "").localeCompare(right.revision ?? ""));
+}
+
 export async function fetchPartDetailByJobId(jobId: string): Promise<PartDetailAggregate> {
   const fixtureGateway = getActiveClientWorkspaceGateway();
 
@@ -611,11 +665,7 @@ export async function fetchPartDetailByJobId(jobId: string): Promise<PartDetailA
     return fixtureGateway.fetchPartDetail(jobId);
   }
 
-  const [workspaceItems, projectMemberships] = await Promise.all([
-    fetchClientQuoteWorkspaceByJobIds([jobId]),
-    fetchProjectJobMembershipsByJobIds([jobId]),
-  ]);
-  const workspaceItem = workspaceItems[0] ?? null;
+  const [workspaceItem = null] = await fetchClientQuoteWorkspaceByJobIds([jobId]);
 
   if (!workspaceItem) {
     throw new Error("Part not found.");
@@ -625,31 +675,17 @@ export async function fetchPartDetailByJobId(jobId: string): Promise<PartDetailA
     throw new Error("Archived parts are only available from the Archive panel.");
   }
 
-  const part = workspaceItem.part ?? null;
-  const previewAssets = part !== null ? await fetchDrawingPreviewAssetsByPartId(part.id) : [];
   const summary = workspaceItem.summary ?? null;
-  const [allSummaries, activeJobs] = await Promise.all([
-    fetchJobPartSummariesByOrganization(workspaceItem.job.organization_id),
-    fetchAccessibleJobs(),
-  ]);
-  const activeJobIdSet = new Set(activeJobs.map((job) => job.id));
-  const revisionSiblings =
-    summary?.partNumber
-      ? allSummaries
-          .filter(
-            (candidate) =>
-              candidate.partNumber === summary.partNumber &&
-              candidate.jobId !== jobId &&
-              activeJobIdSet.has(candidate.jobId),
-          )
-          .map((candidate) => ({
-            jobId: candidate.jobId,
-            revision: candidate.revision,
-            title: `${candidate.partNumber}${candidate.revision ? ` rev ${candidate.revision}` : ""}`,
-          }))
-          .sort((left, right) => (left.revision ?? "").localeCompare(right.revision ?? ""))
-      : [];
+  const revisionSiblings = summary?.partNumber
+    ? await fetchRevisionSiblings({
+        jobId,
+        organizationId: workspaceItem.job.organization_id,
+        partNumber: summary.partNumber,
+      })
+    : [];
 
+  // The workspace item already carries the project memberships and drawing preview, so
+  // they are not read again here.
   return {
     job: workspaceItem.job,
     files: workspaceItem.files,
@@ -657,12 +693,12 @@ export async function fetchPartDetailByJobId(jobId: string): Promise<PartDetailA
     packages: [],
     publishedQuoteOptions: workspaceItem.publishedQuoteOptions ?? [],
     publishedQuoteSelection: workspaceItem.publishedQuoteSelection ?? null,
-    part,
+    part: workspaceItem.part ?? null,
     quoteDataStatus: workspaceItem.quoteDataStatus,
     quoteDataMessage: workspaceItem.quoteDataMessage,
     quoteDiagnostics: workspaceItem.quoteDiagnostics,
-    projectIds: projectMemberships.map((membership) => membership.project_id),
-    drawingPreview: normalizeDrawingPreview(part?.clientExtraction ?? null, previewAssets),
+    projectIds: workspaceItem.projectIds,
+    drawingPreview: workspaceItem.drawingPreview,
     latestQuoteRequest: workspaceItem.latestQuoteRequest,
     latestQuoteRun: workspaceItem.latestQuoteRun,
     serviceRequestLineItem: workspaceItem.serviceRequestLineItem ?? null,
