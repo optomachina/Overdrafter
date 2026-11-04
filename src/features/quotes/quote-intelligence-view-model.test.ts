@@ -51,12 +51,10 @@ describe("parseEngineeringQuery", () => {
     ['1 1/2"', "measurement", 1.5, "1 1/2 in"],
     ['1-1/2"', "measurement", 1.5, "1-1/2 in"],
     ['Ø1 1/2"', "diameter", 1.5, "Diameter 1 1/2 in"],
-    ["1 1/2 dia", "diameter", 1.5, "Diameter 1 1/2 in"],
     ['Ø1/2"', "diameter", 0.5, "Diameter 1/2 in"],
     ["3/8 in", "measurement", 0.375, "3/8 in"],
     ['.5"', "measurement", 0.5, ".5 in"],
     ["Ø1/4 in", "diameter", 0.25, "Diameter 1/4 in"],
-    ["1/2 dia", "diameter", 0.5, "Diameter 1/2 in"],
     ["1/2 diameter mm", "diameter", 0.5, "Diameter 1/2 mm"],
   ])("parses the whole engineering number in %s", (query, kind, value, label) => {
     expect(parseEngineeringQuery(query).chips).toEqual([
@@ -84,19 +82,36 @@ describe("parseEngineeringQuery", () => {
     expect(parseEngineeringQuery("1/4-20").chips).toEqual([]);
   });
 
-  it.each(["1.00 dia", "1.00 diameter", "Ø1.00", "⌀1.00"])(
-    "normalizes the quoted inch-diameter convention for %s",
-    (query) => {
-      expect(parseEngineeringQuery(query).chips).toEqual([
-        expect.objectContaining({
-          kind: "diameter",
-          label: "Diameter 1 in",
-          value: 1,
-          unit: "in",
-        }),
-      ]);
-    },
-  );
+  // A diameter typed without a unit gets no unit assumed (OVD-1033 P2-9b): no chip, same as a bare number.
+  it.each([
+    ["Ø12", "diameter 12"],
+    ["⌀12", "diameter 12"],
+    ["12 dia", "diameter 12"],
+    ["12 diameter", "diameter 12"],
+    ["1.00 dia", "diameter 1.00"],
+    ["1.00 diameter", "diameter 1.00"],
+    ["Ø1.00", "diameter 1.00"],
+    ["⌀1.00", "diameter 1.00"],
+    ["1/2 dia", "diameter 1/2"],
+    ["1 1/2 dia", "diameter 1 1/2"],
+  ])("assumes no unit for the unitless diameter %s", (query, normalized) => {
+    const parsed = parseEngineeringQuery(query);
+    expect(parsed.normalized).toBe(normalized);
+    expect(parsed.tokens).not.toContain("in");
+    expect(parsed.chips).toEqual([]);
+  });
+
+  it.each([
+    ["Ø12 mm", 12, "mm", "Diameter 12 mm"],
+    ["⌀12mm", 12, "mm", "Diameter 12 mm"],
+    ["12 dia mm", 12, "mm", "Diameter 12 mm"],
+    ['Ø1/2"', 0.5, "in", "Diameter 1/2 in"],
+    ["Ø0.5 in", 0.5, "in", "Diameter 0.5 in"],
+  ])("keeps the typed unit on the diameter %s", (query, value, unit, label) => {
+    expect(parseEngineeringQuery(query).chips).toEqual([
+      expect.objectContaining({ kind: "diameter", value, unit, label }),
+    ]);
+  });
 
   it("keeps an explicit metric diameter unit", () => {
     expect(parseEngineeringQuery("dia 12mm 6061").chips[0]).toMatchObject({
@@ -219,6 +234,42 @@ describe("quote collection", () => {
     expect(
       filterPartCollection(parts, "assemblies", parseEngineeringQuery("")),
     ).toEqual([]);
+  });
+
+  it("finds metric and inch parts for a unitless diameter query", () => {
+    // No service kinds: names like "cnc_machining" contain "in" and would hide a stray inch token.
+    const shaft = makeJob({
+      id: "job-shaft",
+      title: "Turned shaft",
+      description: "Turned shaft, Ø12 mm",
+      tags: ["303"],
+      requested_service_kinds: [],
+      primary_service_kind: null,
+    });
+    const flange = makeJob({
+      id: "job-flange",
+      title: "Pipe flange",
+      description: "Pipe flange, Ø12 in",
+      tags: ["304"],
+      requested_service_kinds: [],
+      primary_service_kind: null,
+    });
+    const noService = { requestedServiceKinds: [], primaryServiceKind: null };
+    const parts = buildPartCollection({
+      jobs: [shaft, flange],
+      summariesByJobId: new Map([
+        [shaft.id, makeSummary({ ...noService, partNumber: "SH-12", revision: "A", description: shaft.description })],
+        [flange.id, makeSummary({ ...noService, partNumber: "FL-12", revision: "A", description: flange.description })],
+      ]),
+    });
+
+    expect(filterPartCollection(parts, "parts", parseEngineeringQuery("Ø12")).map((part) => part.id).sort()).toEqual([
+      "job-flange",
+      "job-shaft",
+    ]);
+    expect(filterPartCollection(parts, "parts", parseEngineeringQuery("Ø12 mm")).map((part) => part.id)).toEqual([
+      "job-shaft",
+    ]);
   });
 
   it("searches part and quote metadata through one global result stream", () => {
