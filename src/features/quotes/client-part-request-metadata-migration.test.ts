@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { buildRequirementDraft, normalizeClientPartMetadata } from "./utils";
 import type { PartAggregate } from "./types";
 
-const filename = "20261104031900_ovd1151_client_part_request_metadata.sql";
+const filename = "20261104032200_ovd1151_client_part_request_metadata.sql";
 const migration = readFileSync(`supabase/migrations/${filename}`, "utf8");
 const previous = readFileSync("supabase/migrations/20261031052436_ovd746_client_rpc_auth_gate.sql", "utf8");
 const rollback = readFileSync("docs/migration-drafts/ovd-1151.rollback.sql", "utf8");
