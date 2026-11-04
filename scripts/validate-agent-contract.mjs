@@ -4,7 +4,7 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 
 import { SENSITIVE_PATHS_FILE, checkAgentsParity, createMatcher, loadSensitivePaths, parseSensitivePaths } from "./lib/sensitive-paths.mjs";
-import { gateEventMatrixErrors } from "./ovd-merge-gate-event-matrix.mjs";
+import { byCodeUnit, gateEventMatrixErrors } from "./ovd-merge-gate-event-matrix.mjs";
 
 export const NON_SENSITIVE_ALLOWLIST = "scripts/fixtures/sensitive-paths/non-sensitive-allowlist.json";
 export const RISKY_ROOTS = Object.freeze(["scripts", ".github/workflows", ".github/actions", "supabase/migrations"]);
@@ -13,8 +13,8 @@ export const RISKY_ROOT_FILES = Object.freeze([".gitleaks.toml", ".gitleaksignor
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 const DIGIT_LIKE = /like\s+'%\d{3,8}%'/i;
-const REAL_SYNC = /\.sync\(|\.datasync\(|\bfsyncSync\b|\bfdatasyncSync\b/;
-const MOCKED_SYNC = /spyOn\([\s\S]{0,180}["'](?:sync|datasync)["']/;
+const REAL_SYNC = /\.sync\(|\.datasync\(|\bf(?:data)?syncSync\b|\bf(?:data)?sync\(/;
+const MOCKED_SYNC = /spyOn\([\s\S]{0,180}["'](?:sync|datasync|f(?:data)?sync(?:Sync)?)["']/;
 
 function walkFiles(repoRoot, relDir, acc, accept) {
   const abs = path.join(repoRoot, relDir);
@@ -33,7 +33,52 @@ function listRiskyFiles(repoRoot) {
   for (const file of RISKY_ROOT_FILES) {
     if (fs.existsSync(path.join(repoRoot, file))) files.push(file);
   }
-  return files.sort();
+  return files.sort(byCodeUnit);
+}
+
+/**
+ * Files under the risky roots must match a sensitive-path glob. scripts/ may
+ * instead be named in the allow-list. Workflows, actions, migrations and the
+ * gitleaks config cannot.
+ */
+function readAllowList(repoRoot) {
+  const allowPath = path.join(repoRoot, NON_SENSITIVE_ALLOWLIST);
+  if (!fs.existsSync(allowPath)) return { fatal: `${NON_SENSITIVE_ALLOWLIST} is missing` };
+  try {
+    return { parsed: JSON.parse(fs.readFileSync(allowPath, "utf8")) };
+  } catch (error) {
+    return { fatal: `${NON_SENSITIVE_ALLOWLIST} is not valid JSON: ${error.message}` };
+  }
+}
+
+function allowListShapeErrors(parsed, listed) {
+  const errors = [];
+  if (parsed.version !== 1 || !Array.isArray(parsed.paths)) {
+    errors.push(`${NON_SENSITIVE_ALLOWLIST} must be {version: 1, paths: [...]}`);
+  }
+  const sorted = [...listed].sort(byCodeUnit);
+  if (listed.some((item, index) => item !== sorted[index]) || new Set(listed).size !== listed.length) {
+    errors.push(`${NON_SENSITIVE_ALLOWLIST} paths must be unique and sorted`);
+  }
+  for (const item of listed) {
+    if (typeof item !== "string" || !item.startsWith("scripts/") || item.includes("..")) {
+      errors.push(`${NON_SENSITIVE_ALLOWLIST} may name only scripts/ files, not ${item}`);
+    }
+  }
+  return errors;
+}
+
+function staleAllowListErrors(listed, present, classify) {
+  const errors = [];
+  for (const file of listed) {
+    if (typeof file !== "string") continue;
+    if (!present.has(file)) {
+      if (file.startsWith("scripts/")) errors.push(`${NON_SENSITIVE_ALLOWLIST} lists missing ${file}`);
+    } else if (classify(file).length > 0) {
+      errors.push(`${file} is classified; remove it from ${NON_SENSITIVE_ALLOWLIST}`);
+    }
+  }
+  return errors;
 }
 
 /**
@@ -43,28 +88,10 @@ function listRiskyFiles(repoRoot) {
  */
 export function riskyRootCoverageErrors(repoRoot = root, options = {}) {
   if (!fs.existsSync(path.join(repoRoot, "scripts"))) return [];
-  const allowPath = path.join(repoRoot, NON_SENSITIVE_ALLOWLIST);
-  if (!fs.existsSync(allowPath)) return [`${NON_SENSITIVE_ALLOWLIST} is missing`];
-  let parsed;
-  try {
-    parsed = JSON.parse(fs.readFileSync(allowPath, "utf8"));
-  } catch (error) {
-    return [`${NON_SENSITIVE_ALLOWLIST} is not valid JSON: ${error.message}`];
-  }
-  const errors = [];
-  if (parsed.version !== 1 || !Array.isArray(parsed.paths)) {
-    errors.push(`${NON_SENSITIVE_ALLOWLIST} must be {version: 1, paths: [...]}`);
-  }
+  const { parsed, fatal } = readAllowList(repoRoot);
+  if (fatal) return [fatal];
   const listed = Array.isArray(parsed.paths) ? parsed.paths : [];
-  const sorted = [...listed].sort();
-  if (listed.some((item, index) => item !== sorted[index]) || new Set(listed).size !== listed.length) {
-    errors.push(`${NON_SENSITIVE_ALLOWLIST} paths must be unique and sorted`);
-  }
-  for (const item of listed) {
-    if (typeof item !== "string" || !item.startsWith("scripts/") || item.includes("..")) {
-      errors.push(`${NON_SENSITIVE_ALLOWLIST} may name only scripts/ files, not ${item}`);
-    }
-  }
+  const errors = allowListShapeErrors(parsed, listed);
   let classify = options.classify;
   if (!classify) {
     try {
@@ -84,13 +111,7 @@ export function riskyRootCoverageErrors(repoRoot = root, options = {}) {
       : "Add a sensitive-path glob. This root has no allow-list";
     errors.push(`${file} matches no sensitive-path glob. ${hint}`);
   }
-  for (const file of listed) {
-    if (typeof file !== "string" || !present.has(file)) {
-      if (typeof file === "string" && file.startsWith("scripts/")) errors.push(`${NON_SENSITIVE_ALLOWLIST} lists missing ${file}`);
-      continue;
-    }
-    if (classify(file).length > 0) errors.push(`${file} is classified; remove it from ${NON_SENSITIVE_ALLOWLIST}`);
-  }
+  errors.push(...staleAllowListErrors(listed, present, classify));
   return errors;
 }
 
@@ -103,6 +124,7 @@ export function testDeterminismErrors(repoRoot = root) {
   walkFiles(repoRoot, "scripts", sql, (rel) => rel.endsWith(".sql"));
   walkFiles(repoRoot, "scripts", tests, (rel) => /\.(?:test|node-test)\.mjs$/.test(rel));
   walkFiles(repoRoot, "src", tests, (rel) => /\.(?:test|spec)\.tsx?$/.test(rel));
+  walkFiles(repoRoot, "worker", tests, (rel) => /\.(?:test|spec)\.(?:tsx?|mjs)$/.test(rel));
   for (const file of sql) {
     const text = fs.readFileSync(path.join(repoRoot, file), "utf8");
     if (DIGIT_LIKE.test(text)) {
@@ -162,9 +184,7 @@ export function validateAgentContract(repoRoot = root) {
     errors.push(error.code === "ENOENT" ? `${SENSITIVE_PATHS_FILE} is missing` : error.message);
   }
   if (sensitivePaths) errors.push(...checkAgentsParity(agents, sensitivePaths));
-  errors.push(...riskyRootCoverageErrors(repoRoot));
-  errors.push(...testDeterminismErrors(repoRoot));
-  errors.push(...gateEventMatrixErrors(repoRoot));
+  errors.push(...riskyRootCoverageErrors(repoRoot), ...testDeterminismErrors(repoRoot), ...gateEventMatrixErrors(repoRoot));
   const turns = Number(workflow.match(/max_turns:\s*(\d+)/)?.[1] ?? 0);
   if (turns < 10) errors.push("WORKFLOW.md does not allow sustained continuation");
   if (!workflow.includes("command: bash ./scripts/symphony-agent.sh")) {

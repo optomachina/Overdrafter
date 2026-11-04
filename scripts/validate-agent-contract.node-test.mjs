@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { exerciseGateFixtures, diffEventMatrix } from "./ovd-merge-gate-event-matrix.mjs";
+import { exerciseGateFixtures, diffEventMatrix, parseWorkflow } from "./ovd-merge-gate-event-matrix.mjs";
 import { riskyRootCoverageErrors, testDeterminismErrors, validateAgentContract, NON_SENSITIVE_ALLOWLIST } from "./validate-agent-contract.mjs";
 
 const repoRoot = path.resolve(import.meta.dirname, "..");
@@ -92,6 +92,43 @@ test("the gate event matrix rejects a push that scans open PRs without report-on
   const matrix = { version: 1, workflows: [{ file: files[0].file, events: ["push"], push: "commit" }] };
   const errors = diffEventMatrix({ files, matrix, requiredWorkflows: [], commentFilter: "issue_comment", doc: files[0].file });
   assert.ok(errors.some((error) => error.includes("report-only")));
+});
+
+test("a workflow on: the matrix cannot read fails closed instead of reading as no triggers", () => {
+  const matrix = { version: 1, workflows: [] };
+  const run = (text) => diffEventMatrix({ files: [parseWorkflow(".github/workflows/w.yml", text)], matrix, requiredWorkflows: [], commentFilter: "unused", doc: "" });
+  for (const text of [
+    "on: [merge_group, pull_request]\njobs: {}\n",
+    "on: push\njobs: {}\n",
+    "on:\n    merge_group:\n      types: [checks_requested]\njobs: {}\n",
+    "on:\n\tpush:\njobs: {}\n",
+    "on:\n\njobs: {}\n",
+  ]) {
+    const errors = run(text);
+    assert.ok(errors.some((error) => error.includes(".github/workflows/w.yml") && error.includes("write on: as a block")), `${JSON.stringify(text)} -> ${JSON.stringify(errors)}`);
+  }
+  // A quoted key, CRLF line endings and comments still parse, so the missing row is reported.
+  for (const text of ["\"on\":\n  merge_group:\n    types: [checks_requested]\n", "on: # triggers\r\n  # queue\r\n  'merge_group':\r\n"]) {
+    const parsed = parseWorkflow(".github/workflows/w.yml", text);
+    assert.equal(parsed.parseError, null, text);
+    assert.deepEqual(parsed.events, ["merge_group"]);
+    assert.ok(run(text).some((error) => error.includes("missing from")), text);
+  }
+  assert.deepEqual(parseWorkflow(".github/workflows/s.yml", "on:\n  schedule:\n    - cron: '0 * * * *'\n").events, ["schedule"]);
+});
+
+test("a callback fsync and a worker test are covered by the fsync lint", () => {
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), "agent-contract-fsync-"));
+  const unit = path.join(temp, "scripts/cb.test.mjs");
+  fs.mkdirSync(path.dirname(unit), { recursive: true });
+  fs.writeFileSync(unit, "fs.fsyn" + "c(fd, done);\n");
+  assert.ok(testDeterminismErrors(temp).some((error) => error.includes("scripts/cb.test.mjs")));
+  fs.writeFileSync(unit, "vi.spyOn(fs, \"fsync\").mockImplementation((fd, cb) => cb());\nfs.fsyn" + "c(fd, done);\n");
+  assert.deepEqual(testDeterminismErrors(temp), []);
+  const worker = path.join(temp, "worker/src/disk.test.ts");
+  fs.mkdirSync(path.dirname(worker), { recursive: true });
+  fs.writeFileSync(worker, "await handle.syn" + "c();\n");
+  assert.ok(testDeterminismErrors(temp).some((error) => error.includes("worker/src/disk.test.ts")));
 });
 
 test("gate event fixtures match the merge-gate client", async () => {

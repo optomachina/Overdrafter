@@ -96,6 +96,7 @@
     { "glob": "scripts/validate-agent-contract*", "class": "infra_ci" },
     { "glob": "docs/agent-graph/**", "class": "infra_ci" },
     { "glob": "docs/ci/gate-event-matrix.md", "class": "infra_ci" },
+    { "glob": "scripts/merge-queue-workflows*", "class": "infra_ci" },
     { "glob": "scripts/validate-agent-graph*", "class": "infra_ci" },
     { "glob": "docs/agent-graph/model-routing.yaml", "class": "infra_ci" },
     { "glob": "scripts/model-routing-drift*", "class": "infra_ci" },
