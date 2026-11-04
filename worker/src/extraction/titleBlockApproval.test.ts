@@ -61,9 +61,30 @@ describe("final extraction approval invariants", () => {
       "TITLE:\n      SAMPLE PART\n      QTY 4\nSIZE  DWG. NO.")).description;
     expect(subLine).toMatchObject({ reviewNeeded: true });
     expect(subLine.value).not.toBe("SAMPLE PART QTY 4");
+    // Read whole as the suggestion, but never proven: it cannot be told from a label beside its own value (PR #1042).
     const labelFirst = infer(sheet(phrase("SHEET METAL BRACKET", 130, 115, 14), "TITLE:\n      SHEET METAL BRACKET\nSIZE  DWG. NO.")).description;
-    expect(labelFirst).toMatchObject({ value: "SHEET METAL BRACKET", reviewNeeded: false });
-    expect(labelFirst.reasons).toContain("title_block_cell_proven");
+    expect(labelFirst).toMatchObject({ value: "SHEET METAL BRACKET", reviewNeeded: true });
+    expect(labelFirst.reasons).toContain("title_starts_with_label_word");
+    expect(labelFirst.reasons).not.toContain("title_block_cell_proven");
+  });
+
+  // PR #1042 re-review: a fence label and its own value of four letters or more reads like a title that starts with a
+  // label word ("NAME SMITH", "SCALE FULL-SIZE"). Such a title may be the suggestion; it is never proven or approved.
+  it.each([
+    ["SCALE FULL-SIZE", 7, 10], ["NAME SMITH", 6, 8], ["PROJECT ALPHA", 6, 9], ["WEIGHT APPROX 2 LB", 6, 9], ["SHEET COVER", 6, 9],
+    ["SIZE LARGE", 6, 9], ["SIZE ANSI B", 6, 9], ["SIZE LETTER", 6, 9], ["DATE TODAY", 6, 9], ["SHEET ELEVEN", 6, 9],
+    ["PAGE TWENTY", 6, 9], ["ZONE ALPHA", 6, 9], ["SCALE TWICE", 6, 9], ["WEIGHT NOMINAL", 6, 9],
+    ["SHEET METAL BRACKET", 7, 14], ["SCALE MOUNT", 7, 14], ["NAME PLATE", 7, 14], ["SIZE ADAPTER", 7, 14], ["DATE CODE STAMP", 7, 14],
+  ] as const)("never proves %s under TITLE as the description", async (printed, labelSize, size) => {
+    const words = [box("TITLE", 100, 100, labelSize), ...phrase(printed, 100, 118, size), box("SIZE", 100, 150, 6), ...phrase("DWG. NO.", 130, 150, 6)];
+    const signal = infer(pdf(words)).description;
+    expect(signal.reviewNeeded).toBe(true);
+    expect(signal.reasons).not.toContain("title_block_cell_proven");
+    if (signal.value === printed) expect(signal.reasons).toContain("title_starts_with_label_word");
+    // Nor through model merging: a model that agrees does not approve it.
+    const result = await hybrid(pdf(words), model({ description: printed }));
+    expect(result.reviewFields).toContain("description");
+    expect(result.extractedDescriptionRaw).toMatchObject({ reviewNeeded: true });
   });
 
   // PR #1042 review (BLOCKING): a label beside its own value is never approved as the description. (a) an empty TITLE

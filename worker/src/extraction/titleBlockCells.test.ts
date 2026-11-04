@@ -2057,6 +2057,11 @@ describe("title block cells", () => {
         expect(step).toMatchObject({ status: "ambiguous", value: null });
         const drift = [...phrase("SAMPLE", 760, 665, 14), ...phrase("PART", 760, 682, 12.5), ...phrase("QTY 4", 760, 697, 11)];
         expect(wordRead(block(drift), "description")).toMatchObject({ status: "ambiguous", value: null });
+        // Each step is within the jitter of the line above, the last line is not within it of the first.
+        const slow = [...phrase("SAMPLE", 760, 665, 14), ...phrase("PART", 760, 683, 13.5), ...phrase("PLATE", 760, 700, 13)];
+        expect(wordRead(block(slow), "description")).toMatchObject({ status: "ambiguous", value: null });
+        // 13 pt under 14 pt is a step, not jitter (7 percent).
+        expect(wordRead(block([...phrase("SAMPLE", 760, 665, 14), ...phrase("PART", 760, 684, 13)]), "description").value).toBeNull();
       });
 
       // PR #1020 review note 2: a title whose first word is a fence label of the vocabulary (SHEET, SCALE, NAME, SIZE)
@@ -2086,6 +2091,51 @@ describe("title block cells", () => {
       it.each(["SCALE NTS", "SCALE NONE", "SCALE FULL", "SHEET ONE OF ONE", "SHEET FOUR OF FIVE", "DATE JAN 2024", "DATE JANUARY 2024",
         "WEIGHT LBS 2", "WEIGHT POUNDS", "NAME JS", "APPROVED BY JS", "DRAWN SMITH"])("keeps %s under TITLE a label and its value", (pair) => {
         expect(wordRead(block(phrase(pair, 760, 665, 14)), "description").value).toBeNull();
+      });
+
+      // PR #1042 re-review: a title read with its label word is marked for review, never proven (titleBlockApproval.test.ts).
+      it("marks a title read with its first word a label word, and only such a title", () => {
+        expect(wordRead(block(phrase("SHEET METAL BRACKET", 760, 665, 14)), "description")).toMatchObject({
+          status: "value", value: "SHEET METAL BRACKET", reviewReason: "title_starts_with_label_word",
+        });
+        expect(wordRead(block(phrase("SAMPLE PART", 760, 665, 14)), "description").reviewReason).toBeUndefined();
+      });
+
+      it("pins each test of a label word that starts a title", () => {
+        const title = (words: PdfWord[]) => wordRead(block(words), "description");
+        // Set taller than the TITLE label, but less than 1.3 times as tall (7 pt label, 8.5 pt words).
+        expect(title(phrase("SHEET METAL BRACKET", 760, 665, 8.5)).value).toBeNull();
+        expect(title(phrase("SHEET METAL BRACKET", 760, 665, 9.5)).value).toBe("SHEET METAL BRACKET");
+        // A next word that passes the word tests, followed by OF.
+        expect(title(phrase("SHEET ELEVEN OF TWELVE", 760, 665, 14)).value).toBeNull();
+        expect(title(phrase("SHEET ELEVEN", 760, 665, 14)).value).toBe("SHEET ELEVEN");
+        // A word of the title's cell before it on a line between, or before it on its own line.
+        const between = title([box("COVER", 760, 650, 14), ...phrase("SHEET METAL BRACKET", 760, 668, 14)]);
+        expect(between.value ?? "").not.toMatch(/SHEET/);
+        const leftOnItsLine = title([box("NEW", 745, 665, 14), ...phrase("SHEET METAL BRACKET", 800, 665, 14)]);
+        expect(leftOnItsLine.value ?? "").not.toMatch(/SHEET/);
+      });
+
+      it("keeps a label word under a title printed on the TITLE label's own line a label", () => {
+        const words = [box("TITLE:", 700, 650, 7), box("COVER", 735, 647, 9.5), ...phrase("SHEET METAL BRACKET", 735, 659, 9.5),
+          box("SIZE", 700, 720, 6), ...phrase("DWG. NO.", 725, 720, 6)];
+        expect(wordRead(words, "description")).toMatchObject({ status: "value", value: "COVER" });
+        expect(wordRead(words, "description").reviewReason).toBeUndefined();
+      });
+
+      it("keeps a label word after other text of the title's first line a label", () => {
+        // Set taller than TITLE, the words are a line of their own under it: COVER is before SHEET on that line.
+        const words = [box("TITLE:", 700, 650, 7), box("COVER", 735, 650, 14), ...phrase("SHEET METAL", 790, 650, 14),
+          box("SIZE", 700, 720, 6), ...phrase("DWG. NO.", 725, 720, 6)];
+        expect(wordRead(words, "description")).toMatchObject({ status: "value", value: "COVER" });
+        expect(wordRead(words, "description").reviewReason).toBeUndefined();
+      });
+
+      it("keeps a label word after other text on the TITLE label's own line a label", () => {
+        const words = [box("TITLE:", 700, 650, 7), box("COVER", 735, 647, 9.5), ...phrase("SHEET METAL", 790, 647, 9.5),
+          box("SIZE", 700, 720, 6), ...phrase("DWG. NO.", 725, 720, 6)];
+        expect(wordRead(words, "description")).toMatchObject({ status: "value", value: "COVER" });
+        expect(wordRead(words, "description").reviewReason).toBeUndefined();
       });
 
       it("keeps a label word that follows the title's first line a label", () => {

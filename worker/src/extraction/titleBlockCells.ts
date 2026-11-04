@@ -174,6 +174,12 @@ export type CellRead = {
   complete: boolean;
   geometryRegion?: GeometryBounds;
   revisionRole?: "current" | "history" | "ambiguous";
+  /**
+   * OVD-1009, PR #1042 review: the value may be the suggestion but can never be proven, and why. A title read with its
+   * first word a fence label of the vocabulary ("SHEET METAL BRACKET") cannot be told from that label beside its own
+   * value ("NAME SMITH", "SCALE FULL-SIZE"): see titleWordsReadAsLabels.
+   */
+  reviewReason?: "title_starts_with_label_word";
   /** Independent evidence survives a rejected suggestion; it can veto but never grant approval. */
   observations?: Array<{ value: string; binding: "label_owned" | "unresolved" }>;
 
@@ -2037,6 +2043,9 @@ const TITLE_TALLER_THAN_LABEL = 1.3;
  *    NONE, FULL, FOUR, JANUARY, POUNDS) and is not followed by OF ("SHEET FOUR OF FIVE").
  * Layout text has no sizes, so a title that starts with a label word there is still read as a label and the field is
  * flagged. So is anything that fails one of the tests above: the price is a title such as "SCALE ARM", flagged.
+ * A title read this way is only ever the suggestion (CellRead.reviewReason): a label beside a value of four letters or
+ * more that no list can name ("NAME SMITH", "SCALE FULL-SIZE", "PROJECT ALPHA") passes every test above, so the field is
+ * always flagged for review, never proven (PR #1042 re-review).
  */
 function titleWordsReadAsLabels(labels: readonly Label[], pageLines: readonly TitleBlockTextLine[]): Set<Label> {
   const titleWords = new Set<Label>();
@@ -2111,7 +2120,9 @@ function opensTitleOf(word: Label, title: Label, labels: readonly Label[], lineO
 }
 
 /** The labels and the runs of one page, or null when a cap is passed: a hostile page costs its cap, not its size. */
-function readPageGeometry(pageLines: readonly TitleBlockTextLine[]): { labels: Label[]; labelsByLine: Map<number, Label[]>; runs: Run[] } | null {
+function readPageGeometry(
+  pageLines: readonly TitleBlockTextLine[],
+): { labels: Label[]; labelsByLine: Map<number, Label[]>; runs: Run[]; titleWords: ReadonlySet<Label> } | null {
   const found: Label[] = [];
   for (const line of pageLines) {
     findLabels(line, found, MAX_LABELS_PER_PAGE);
@@ -2148,7 +2159,7 @@ function readPageGeometry(pageLines: readonly TitleBlockTextLine[]): { labels: L
       return null;
     }
   }
-  return { labels, labelsByLine, runs };
+  return { labels, labelsByLine, runs, titleWords };
 }
 
 /**
@@ -2359,7 +2370,7 @@ function readPage(page: number, pageText: readonly TitleBlockTextLine[]): CellRe
   if (geometry === null) {
     return null;
   }
-  const { labels, labelsByLine, runs } = geometry;
+  const { labels, labelsByLine, runs, titleWords } = geometry;
   const caps = computeCapLines(labels);
   const ownership = newPageOwnership();
   const runsByLine = groupByLine(runs);
@@ -2401,6 +2412,11 @@ function readPage(page: number, pageText: readonly TitleBlockTextLine[]): CellRe
       }));
     }
     if (label.field === "revision") read.revisionRole = label.revisionRole;
+    // A title read with a label word that was taken as its first word is never proven (titleWordsReadAsLabels).
+    if (label.field === "description" && read.status === "value" &&
+      [...titleWords].some((word) => read.valueLines.includes(word.line))) {
+      read.reviewReason = "title_starts_with_label_word";
+    }
     read.complete = accountsForCellGeometry(label, read, candidateLines, labelsByLine, ownership, caps);
     reads.push(read);
   }

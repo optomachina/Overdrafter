@@ -51,7 +51,9 @@ export function finalizeExtractionApproval(input: ApprovalInput): { toleranceApp
     }
     if (input.cellProof && CELL_FIELDS.has(name) && hasTitleBlockEvidence) {
       const cells = reads.filter((read) => read.field === name);
-      const agrees = (read: CellRead) => read.status === "value" && read.complete &&
+      // A value read only as a suggestion (CellRead.reviewReason) never agrees, so it is never proven.
+      for (const read of cells) if (read.reviewReason) reasons.add(read.reviewReason);
+      const agrees = (read: CellRead) => read.status === "value" && read.complete && read.reviewReason === undefined &&
         comparable(read.value) === comparable(field.value) &&
         (name !== "revision" || read.revisionRole === "current");
       // I7: approval requires a positive complete vector scan for every participating region.
