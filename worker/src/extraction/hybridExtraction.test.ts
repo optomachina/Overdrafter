@@ -288,6 +288,51 @@ describe("runHybridExtraction", () => {
     expect(result.reviewFields).toEqual(["finish"]);
   });
 
+  it("stores 6061 written without a temper as 6061-T6 Aluminum and keeps the drawing's text as raw (OVD-1166)", async () => {
+    const field = (value: string, reviewNeeded = false) => ({
+      value,
+      confidence: 0.9,
+      reviewNeeded,
+      reasons: ["label_match" as const],
+      sourceRegion: null,
+      snippet: value,
+    });
+    vi.spyOn(pdfDrawing, "inferDrawingSignalsFromPdf").mockReturnValue({
+      description: field("Spacer"),
+      partNumber: field("1093-05589-02"),
+      revision: field("A"),
+      material: field("6061 Alloy", true),
+      finish: field("ANODIZE, BLACK, MIL-A-8625F, TYPE II CLASS 2"),
+      process: field("CNC Milling"),
+      generalTolerance: null,
+      tightestTolerance: null,
+      quoteDescription: null,
+      quoteFinish: null,
+      reviewFields: ["material"],
+      notes: [],
+      threads: [],
+      evidence: [],
+      warnings: [],
+      debugCandidates: {},
+    });
+
+    const result = await runHybridExtraction({
+      config: makeConfig({ drawingExtractionEnableModelFallback: false, titleBlockApprovalEnabled: true }),
+      part: makePart(),
+      cadFile: makeFile(),
+      drawingFile: makeFile({ id: "file-2", original_name: "1093-05589-02.pdf", file_kind: "drawing" }),
+    });
+
+    expect(result.material).toMatchObject({ raw: "6061 Alloy", normalized: "6061-T6 Aluminum" });
+    // Normalization only: the review state the drawing reader decided is unchanged.
+    expect(result.material.reviewNeeded).toBe(true);
+    expect(result.reviewFields).toContain("material");
+    expect(result.finish).toMatchObject({
+      raw: "ANODIZE, BLACK, MIL-A-8625F, TYPE II CLASS 2",
+      normalized: "Black Anodize, Type II",
+    });
+  });
+
   it("does not call the model when parser output is strong and label-backed", async () => {
     const extractWithModel = vi.fn();
 
