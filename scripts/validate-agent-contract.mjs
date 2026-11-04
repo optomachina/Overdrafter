@@ -13,9 +13,12 @@ export const RISKY_ROOT_FILES = Object.freeze([".gitleaks.toml", ".gitleaksignor
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 const DIGIT_LIKE = /like\s+'%\d{3,8}%'/i;
-// FileHandle#sync() and #datasync() take no arguments, so an argument-less call is
-// the fsync; fg.sync(globs), spawn.sync(cmd, args) and glob.sync(pattern) are not.
-const REAL_SYNC = /\.(?:data)?sync\(\s*\)|\bf(?:data)?syncSync\b|\bf(?:data)?sync\(/;
+// FileHandle#sync() and #datasync() take no arguments, so a call whose only
+// "arguments" are undefined or block comments is the fsync; fg.sync(globs),
+// spawn.sync(cmd, args) and glob.sync(pattern) are not. A comment body cannot
+// contain */, so the match never runs past the call's first comment.
+const SYNC_NO_ARGUMENT = String.raw`(?:(?:undefined|\/\*(?:[^*]|\*(?!\/))*\*\/)\s*)*`;
+const REAL_SYNC = new RegExp(String.raw`\.(?:data)?sync\(\s*${SYNC_NO_ARGUMENT}\)|\bf(?:data)?syncSync\b|\bf(?:data)?sync\(`);
 const MOCKED_SYNC = /spyOn\([\s\S]{0,180}["'](?:sync|datasync|f(?:data)?sync(?:Sync)?)["']/;
 
 function walkFiles(repoRoot, relDir, acc, accept) {

@@ -143,9 +143,30 @@ export function mergeGroupTypes(block) {
     const list = inline.match(/^\[([^\]]*)\]$/);
     return list ? listItems(list[1]) : "unreadable";
   }
-  const nested = section.slice(types.index + types[0].length).match(/^(?: {6}- .+\n)+/);
-  if (!nested) return null;
-  return [...nested[0].matchAll(/^ {6}- (.+)\n/gm)].map((item) => unquote(withoutComment(item[1])));
+  return nestedTypes(section.slice(types.index + types[0].length));
+}
+
+/**
+ * The `      - item` lines under a block `types:`. Blank and comment lines are
+ * skipped; a line at four spaces or less ends the list. Any other line (an item
+ * at another indent, a deeper line, a key) makes the list "unreadable", so a
+ * partly read list never passes as the whole list. null when there are no items.
+ */
+function nestedTypes(rest) {
+  const items = [];
+  for (const line of rest.split("\n")) {
+    const trimmed = line.trim();
+    if (trimmed === "" || trimmed.startsWith("#")) continue;
+    const item = line.match(/^ {6}- (.+)$/);
+    if (item) {
+      items.push(unquote(withoutComment(item[1])));
+      continue;
+    }
+    const indent = line.length - line.trimStart().length;
+    if (indent > 4 || trimmed.startsWith("- ")) return "unreadable";
+    break;
+  }
+  return items.length > 0 ? items : null;
 }
 
 /** True when merge_group carries a paths or paths-ignore filter, in either form. */

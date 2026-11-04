@@ -175,6 +175,26 @@ test("OVD-1157: merge_group with a trailing comment, trailing whitespace or an i
     assert.equal(parsed.parseError, null, JSON.stringify(text));
     assert.deepEqual(parsed.mergeGroupTypes, ["checks_requested"], JSON.stringify(text));
   }
+  // Comment and blank lines inside the nested list do not end it early.
+  for (const text of [
+    "  merge_group:\n    types:\n      - checks_requested\n      # a note\n      - destroyed\n",
+    "  merge_group:\n    types:\n      # first\n      - checks_requested\n\n      - destroyed\n  pull_request:\n",
+  ]) {
+    const parsed = types(text);
+    assert.equal(parsed.parseError, null, JSON.stringify(text));
+    assert.deepEqual(parsed.mergeGroupTypes, ["checks_requested", "destroyed"], JSON.stringify(text));
+  }
+  // A list item at another indent, or a nested line that is not an item, fails closed.
+  for (const text of [
+    "  merge_group:\n    types:\n    - checks_requested\n",
+    "  merge_group:\n    types:\n      - checks_requested\n        - destroyed\n",
+    "  merge_group:\n    types:\n      - checks_requested\n      destroyed: true\n",
+  ]) {
+    assert.ok(types(text).parseError, JSON.stringify(text));
+  }
+  assert.deepEqual(types("  merge_group:\n    types:\n      - checks_requested\n    branches: [main]\n").mergeGroupTypes, ["checks_requested"]);
+  assert.equal(types("  merge_group: null\n").mergeGroupTypes, null);
+  assert.equal(types("  merge_group: ~\n").mergeGroupTypes, null);
   assert.equal(types("  merge_group: # no types\n").mergeGroupTypes, null);
   assert.equal(types("  merge_group: {}\n").mergeGroupTypes, null);
   // An inline value this module cannot read fails closed instead of reading as absent.
@@ -199,8 +219,18 @@ test("OVD-1157: the fsync lint ignores fast-glob and cross-spawn .sync( calls", 
     fs.mkdirSync(path.dirname(unit), { recursive: true });
     fs.writeFileSync(unit, "const files = fg.sync([\"**/*.ts\"], { cwd });\nconst result = spawn.sync(\"git\", [\"status\"]);\nconst g = glob.sync(pattern);\n");
     assert.deepEqual(testDeterminismErrors(temp), []);
+    // A comment before a real argument, or a later comment, does not turn a library call into an fsync.
+    fs.writeFileSync(unit, "const files = fg.syn" + "c(/* globs */ patterns);\nrun(/* later */);\nconst g = glob.syn" + "c(pattern /* x */);\n");
+    assert.deepEqual(testDeterminismErrors(temp), []);
     // FileHandle sync and datasync take no arguments; those still fail, with or without spaces or optional chaining.
-    for (const call of ["await handle.syn" + "c();\n", "await handle?.syn" + "c( );\n", "await fh.datasyn" + "c();\n"]) {
+    for (const call of [
+      "await handle.syn" + "c();\n",
+      "await handle?.syn" + "c( );\n",
+      "await fh.datasyn" + "c();\n",
+      "await handle.syn" + "c(undefined);\n",
+      "await handle.syn" + "c(/* journal */);\n",
+      "await fh.datasyn" + "c( /* a */ undefined /* b */ );\n",
+    ]) {
       fs.writeFileSync(unit, call);
       assert.ok(testDeterminismErrors(temp).some((error) => error.includes("scripts/glob.test.mjs")), call);
     }
