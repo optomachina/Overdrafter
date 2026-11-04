@@ -1,5 +1,4 @@
 import { test as base, expect, type Page } from "@playwright/test";
-import { FINGERPRINT } from "./data";
 import { QuoteBrowserBackend } from "./network";
 
 // Customer-visible error containment on the real ClientPart page. Every failing RPC body
@@ -36,7 +35,10 @@ function leakingReply(status: number, code: string) {
   return { status, body: { code, message: `Synthetic failure ${leak}`, details: leak, hint: leak } };
 }
 
-const dialog = (page: Page) => page.getByRole("dialog", { name: "Confirm Xometry beta quote request" });
+const dialog = (page: Page) => page.getByRole("dialog", { name: "Request a quote" });
+const consent = (page: Page) => dialog(page).getByRole("checkbox", {
+  name: "I can share these files, they aren't export-controlled, and this is a quote request only.", exact: true,
+});
 const closeDialog = (page: Page) => dialog(page).getByRole("button", { name: "Close", exact: true }).first();
 const openPage = (page: Page) => page.goto("/e2e/quote-confirmation/index.html");
 
@@ -67,36 +69,35 @@ test.afterEach(async ({ backend }, testInfo) => {
   expect(backend.pageErrors).toEqual([]);
 });
 
-test("scope lookup 400 shows bounded copy and Retry scope check without leaking the server body", async ({ page, backend }) => {
+test("scope lookup 400 shows bounded copy and Check again without leaking the server body", async ({ page, backend }) => {
   backend.scopeMode = "error";
   backend.failureReply = leakingReply(400, "P0001");
   await openConfirmation(page);
   await dialog(page).getByRole("button", { name: "Inches", exact: true }).click();
   const alert = dialog(page).getByRole("alert");
-  await expect(alert).toContainText("This package is not ready for controlled Xometry beta dispatch.");
-  // Bounded controller copy: "could not be loaded" for PostgREST objects, "could not be verified" for Error instances.
-  await expect(alert).toContainText(/The (?:current )?Xometry confirmation scope could not be (?:loaded|verified)\./);
+  // Bounded, plain controller copy (OVD-1163): no supplier, scope or package wording.
+  await expect(alert).toContainText(/This part can't be quoted here right now\.|We couldn't check this part just now\./);
+  await expect(alert).not.toContainText(/scope|dispatch|package|beta|Xometry/i);
   await expectNoSentinel(page);
   await expect(closeDialog(page)).toBeEnabled();
-  const retry = alert.getByRole("button", { name: "Retry scope check", exact: true });
+  const retry = alert.getByRole("button", { name: "Check again", exact: true });
   await expect(retry).toBeEnabled();
   expect(backend.dispatches).toHaveLength(0);
   backend.scopeMode = "ready";
   backend.failureReply = null;
   await retry.click();
-  await expect(dialog(page).getByText(FINGERPRINT, { exact: true })).toBeVisible();
+  await expect(consent(page)).toBeVisible();
 });
 
 test("dispatch 500 shows the unknown-outcome copy and safe recheck without leaking the server body", async ({ page, backend }) => {
   await openConfirmation(page);
   await dialog(page).getByRole("button", { name: "Inches", exact: true }).click();
-  await expect(dialog(page).getByText(FINGERPRINT, { exact: true })).toBeVisible();
-  const boxes = dialog(page).getByRole("checkbox");
-  await expect(boxes).toHaveCount(3);
-  for (let index = 0; index < 3; index++) await boxes.nth(index).check();
+  await expect(consent(page)).toBeVisible();
+  await expect(dialog(page).getByRole("checkbox")).toHaveCount(1);
+  await consent(page).check();
   backend.nextReply = "denied";
   backend.failureReply = leakingReply(500, "XX000");
-  await dialog(page).getByRole("button", { name: "Confirm & queue Xometry quote", exact: true }).click();
+  await dialog(page).getByRole("button", { name: "Send quote request", exact: true }).click();
   await expect(dialog(page).getByRole("alert")).toContainText("could not confirm whether the request was queued");
   await expect(page.locator("[data-sonner-toast]").filter({
     hasText: "The request status could not be confirmed. Check the previous quote request to retry safely.",
@@ -110,8 +111,8 @@ test("dispatch 500 shows the unknown-outcome copy and safe recheck without leaki
   await expect(recheck).toBeEnabled();
   backend.failureReply = null;
   await recheck.click();
-  await dialog(page).getByRole("button", { name: "Confirm & queue Xometry quote", exact: true }).click();
-  await expect(dialog(page).getByText("Xometry quote request queued", { exact: true })).toBeVisible();
+  await dialog(page).getByRole("button", { name: "Send quote request", exact: true }).click();
+  await expect(dialog(page).getByText("Quote request queued", { exact: true })).toBeVisible();
   expect(backend.dispatches).toHaveLength(2);
   expect(backend.dispatches[1].input).toEqual(backend.dispatches[0].input);
   expect(backend.committed.size).toBe(1);

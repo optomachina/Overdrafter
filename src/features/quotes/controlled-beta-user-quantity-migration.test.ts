@@ -50,10 +50,16 @@ describe("OVD-987 controlled beta user quantity migration", () => {
       );
       const newest = defining.at(-1);
       if (newest === MIGRATION_FILE) continue;
-      // A later migration (OVD-1007) may restate it only when rebased onto this body: its md5
-      // precondition names this migration's body, so it refuses to replace anything else.
+      // A later migration (OVD-1007, then OVD-1163 for the resolver) may restate it only when
+      // rebased onto the body before it: each md5 precondition in the chain after this migration
+      // names its predecessor's body, so it refuses to replace anything else.
       expect(defining, qualified).toContain(MIGRATION_FILE);
-      expect(readFileSync(`${MIGRATIONS}/${newest}`, "utf8"), qualified).toContain(`'${md5(body(migrationSql, qualified))}'`);
+      const chain = defining.slice(defining.indexOf(MIGRATION_FILE));
+      for (let index = 1; index < chain.length; index++) {
+        const previous = readFileSync(`${MIGRATIONS}/${chain[index - 1]}`, "utf8");
+        expect(readFileSync(`${MIGRATIONS}/${chain[index]}`, "utf8"), `${qualified} in ${chain[index]}`)
+          .toContain(`'${md5(body(previous, qualified))}'`);
+      }
     }
   });
 

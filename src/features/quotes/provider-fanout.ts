@@ -156,7 +156,7 @@ export const PROVIDER_FANOUT_SKIP_REASON_COPY: Readonly<Record<ProviderFanoutSki
   not_offered: "Not offered for automatic quotes yet.",
   user_rate_limit: "Over your quote request limit for now.",
   cost_ceiling: "Over your workspace's pending quote budget.",
-  scope_changed: "The package changed after you reviewed it, so it was not sent.",
+  scope_changed: "The part changed after you reviewed it, so it was not sent.",
 };
 
 function formatUsd(value: number): string {

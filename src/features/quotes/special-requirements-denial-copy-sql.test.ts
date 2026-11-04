@@ -4,7 +4,7 @@ import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "n
 import { describe, expect, it } from "vitest";
 import type { ClientPartRequestUpdateInput } from "./types";
 import { REQUESTED_SERVICE_TYPE_OPTIONS } from "./service-intent";
-import { SERVER_SPECIAL_REQUIREMENT_PATHS, getXometryBetaScopeFailureMessage } from "./xometry-beta-dispatch";
+import { BETA_6061_T6_MATERIAL, SERVER_SPECIAL_REQUIREMENT_PATHS, getXometryBetaScopeFailureMessage } from "./xometry-beta-dispatch";
 
 /**
  * OVD-991: the customer copy for the special requirements and exact scope
@@ -157,7 +157,7 @@ describe("provider_dispatch_exact_scope_required", () => {
     expect(candidates).toContain("selected_vendor.vendor = any(requirement.applicable_vendors)");
     expect(candidates).toContain("from public.parts part");
     expect(candidates).toContain("where part.job_id = p_job_id");
-    expect(message).toContain("provider applies to this part");
+    expect(message).toContain("supplier applies to this part");
     expect(message).toContain("one part and one Quote quantity");
     expect(message).toContain("approved files must also match");
     expect(message).not.toContain("Qty");
@@ -265,19 +265,73 @@ describe("OVD-993 legacy Xometry envelope fields", () => {
     );
   });
 
-  it.each([
-    ["v_process", "xometry_beta_cnc_milling_required", ["cncmilling", "cncmachining", "milling"], "set Process to CNC milling", ["CNC milling"]],
-    ["v_material", "xometry_beta_6061_t6_required", ["6061t6", "6061t6aluminum", "aluminum6061t6"], "set Material to 6061-T6 aluminum", ["6061-T6 aluminum"]],
-    // A blank Finish is accepted, which is what "leave it blank" names.
-    ["v_finish", "xometry_beta_as_machined_required", ["", "asmachined"], "set Finish to As machined or leave it blank", ["As machined", ""]],
-  ] as const)("%s: the copy for %s names only values the resolver accepts", (variable, code, accepted, instruction, namedValues) => {
+  it("v_process: the copy for xometry_beta_cnc_milling_required names only values the resolver accepts", () => {
+    const accepted = ["cncmilling", "cncmachining", "milling"];
     // A changed accepted set must re-verify the copy.
-    expect(acceptedValues(body, variable, code)).toEqual([...accepted]);
-    const message = getXometryBetaScopeFailureMessage({ message: code }, "fictiv");
-    expect(message).toContain(instruction);
-    for (const value of namedValues) {
-      expect(accepted, value).toContain(sqlNormalize(value));
-    }
+    expect(acceptedValues(body, "v_process", "xometry_beta_cnc_milling_required")).toEqual(accepted);
+    const message = getXometryBetaScopeFailureMessage({ message: "xometry_beta_cnc_milling_required" }, "fictiv");
+    expect(message).toContain("set Process to CNC milling");
+    expect(accepted).toContain(sqlNormalize("CNC milling"));
+  });
+
+  // OVD-1163: 6061 without a temper is the beta's 6061-T6; another stated temper stays refused.
+  describe("v_material", () => {
+    const match = /if v_material !~ '([^']+)' then raise exception 'xometry_beta_6061_t6_required'/.exec(body);
+    const pattern = new RegExp(match?.[1] ?? "(?!)");
+
+    it("is the one anchored 6061-T6 pattern the copy and the fix rely on", () => {
+      expect(match?.[1]).toBe(
+        "^(aluminum|aluminium|al)?(alloy)?6061(t6|t651|t6511|t6t651)?(aluminum|aluminium|al)?(alloy)?$",
+      );
+      expect(body.match(/raise exception 'xometry_beta_6061_t6_required'/g)).toHaveLength(1);
+    });
+
+    it.each([
+      "6061", "6061 Alloy", "Al 6061", "6061 aluminum", "Aluminum 6061", "ALUMINIUM 6061", "6061-T6",
+      "6061-T6 aluminum", "Aluminum 6061-T6", "6061-T651", "Aluminum 6061-T6511", "6061-T6/T651",
+    ])("accepts %s", (material) => {
+      expect(pattern.test(sqlNormalize(material))).toBe(true);
+    });
+
+    it.each(["6061-O", "6061-T4", "6061-T451", "6061-F", "6061-T62", "7075-T6", "Aluminum", "16061", "6061 steel"])(
+      "refuses %s",
+      (material) => {
+        expect(pattern.test(sqlNormalize(material))).toBe(false);
+      },
+    );
+
+    it("saves, through the one-click fix, a material the resolver accepts", () => {
+      expect(pattern.test(sqlNormalize(BETA_6061_T6_MATERIAL))).toBe(true);
+      const message = getXometryBetaScopeFailureMessage({ message: "xometry_beta_6061_t6_required" }, "fictiv");
+      expect(message).toContain("6061-T6 aluminum");
+      expect(pattern.test(sqlNormalize("6061-T6 aluminum"))).toBe(true);
+    });
+  });
+
+  // OVD-1163: a drawing finish passes only with the customer's quote-only as-machined choice for it.
+  it("v_finish: blank, As machined, or a quoteAsMachined choice naming this exact finish", () => {
+    const start = body.indexOf("if v_finish not in ('', 'asmachined')");
+    const end = body.indexOf("raise exception 'xometry_beta_as_machined_required'");
+    expect(start).toBeGreaterThan(-1);
+    expect(body.slice(start, end)).toBe(
+      "if v_finish not in ('', 'asmachined') and v_finish is distinct from pg_catalog.regexp_replace( pg_catalog.lower(pg_catalog.btrim(coalesce(v_requirement.spec_snapshot #>> '{quoteAsMachined,finish}', ''))), '[^a-z0-9]', '', 'g' ) then ",
+    );
+    expect(body.match(/raise exception 'xometry_beta_as_machined_required'/g)).toHaveLength(1);
+    // The resolver never rewrites the finish it checks.
+    expect(body).not.toMatch(/update public\.approved_part_requirements/);
+    const message = getXometryBetaScopeFailureMessage({ message: "xometry_beta_as_machined_required" }, "fictiv");
+    expect(message).toContain("Finishes can't be quoted yet");
+    expect(message).toContain("as machined");
+  });
+
+  it("the quote-as-machined RPC writes only spec_snapshot.quoteAsMachined, never the finish column", () => {
+    const rpc = latestDefinition("create or replace function public.api_set_client_part_quote_as_machined(").body;
+    expect(rpc).toContain("from public.load_editable_project_part_context(p_job_id)");
+    expect(rpc.match(/update public\.\w+/g)).toEqual(["update public.approved_part_requirements"]);
+    const update = rpc.slice(rpc.indexOf("update public.approved_part_requirements"), rpc.indexOf("get diagnostics"));
+    expect(update).toMatch(/^update public\.approved_part_requirements set spec_snapshot = case/);
+    expect(update).not.toMatch(/\bfinish\s*=/);
+    expect(rpc).toContain("pg_catalog.jsonb_build_object('finish', v_finish)");
   });
 });
 
@@ -293,7 +347,7 @@ describe.each([
       `if public.normalize_requested_service_kinds( v_job.requested_service_kinds, v_job.primary_service_kind ) is distinct from array['manufacturing_quote']::text[] then raise exception '${code}'`,
     );
     expect(message).toContain("a service other than Manufacturing quote");
-    expect(message).toContain("quotes manufacturing only");
+    expect(message).toContain("only manufacturing can be quoted here");
   });
 
   it("names every other service kind the normalizer keeps, in the form's words", () => {
@@ -326,8 +380,8 @@ describe("provider_dispatch_process_not_admitted", () => {
     expect(body).toContain(
       "if v_process = '' or not exists ( select 1 from pg_catalog.unnest(v_admission.supported_processes) supported(process) where pg_catalog.regexp_replace(supported.process::text, '[^a-z0-9]', '', 'g') = v_process ) then raise exception 'provider_dispatch_process_not_admitted'",
     );
-    expect(message).toContain("Process is blank or not one of them");
-    expect(message).toContain("Set Process to the process that makes this part, then retry");
+    expect(message).toContain("Process is blank or can't be quoted by this supplier");
+    expect(message).toContain("Set Process to the process that makes this part, then check again");
   });
 
   it("names no process, material or finish: the admitted list is server-side and the generic path checks neither material nor finish", () => {
@@ -362,15 +416,15 @@ describe("xometry_beta_compatible_drawing_required", () => {
       expect(block, condition).toContain(condition);
     }
     expect(body.match(/raise exception 'xometry_beta_compatible_drawing_required'/g)).toHaveLength(1);
-    expect(message).toContain("a drawing only as a PDF whose uploaded bytes have been verified");
+    expect(message).toContain("The drawing must be a PDF whose uploaded bytes have been verified");
   });
 
   it("can only be waited out: the worker alone registers the verified hash, so the copy asks for a retry, not a removal", () => {
     const register = latestDefinition("create or replace function public.api_register_trusted_file_hash(").body;
     expect(register).toContain("if auth.role() <> 'service_role' then raise exception");
     expect(register).toContain("set trusted_content_sha256 = v_hash");
-    expect(message).toContain("Wait for file processing to finish, then retry the scope check");
-    expect(message).toContain("if it still fails, contact support");
+    expect(message).toContain("Wait for file processing to finish, then check again");
+    expect(message).toContain("If it still fails, contact support");
     expect(message).not.toMatch(/\bremove\b/i);
     expect(message).not.toMatch(/register/i);
   });

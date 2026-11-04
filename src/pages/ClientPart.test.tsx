@@ -67,6 +67,7 @@ const {
     unpinJob: vi.fn(),
     unpinProject: vi.fn(),
     updateClientPartRequest: vi.fn(),
+    setClientPartQuoteAsMachined: vi.fn(),
     clearClientPartRequestedByDate: vi.fn().mockResolvedValue("job-1"),
     updateProject: vi.fn(),
     uploadFilesToJob: vi.fn(),
@@ -118,6 +119,7 @@ vi.mock("@/features/quotes/api/extraction-api", () => ({
 vi.mock("@/features/quotes/api/jobs-api", () => ({
   resetClientPartPropertyOverrides: api.resetClientPartPropertyOverrides,
   updateClientPartRequest: api.updateClientPartRequest,
+  setClientPartQuoteAsMachined: api.setClientPartQuoteAsMachined,
   clearClientPartRequestedByDate: api.clearClientPartRequestedByDate,
 }));
 vi.mock("@/features/quotes/api/projects-api", () => ({
@@ -619,7 +621,7 @@ async function clickRequestQuoteButton() {
   for (const checkbox of await screen.findAllByRole("checkbox")) {
     fireEvent.click(checkbox);
   }
-  fireEvent.click(await screen.findByRole("button", { name: "Confirm & queue Xometry quote" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Send quote request" }));
 }
 
 function createXometryDispatchScope() {
@@ -2408,7 +2410,7 @@ describe("ClientPart", () => {
 
       fireEvent.click(await findRequestQuoteButton());
       fireEvent.click(await screen.findByRole("button", { name: "Inches" }));
-      const confirm = await screen.findByRole("button", { name: "Confirm & queue Fictiv quote" });
+      const confirm = await screen.findByRole("button", { name: "Send quote request" });
       for (const checkbox of await screen.findAllByRole("checkbox")) fireEvent.click(checkbox);
       fireEvent.click(confirm);
 
@@ -2487,7 +2489,7 @@ describe("ClientPart", () => {
   async function confirmXometryDialog() {
     fireEvent.click(await findRequestQuoteButton());
     fireEvent.click(await screen.findByRole("button", { name: "Inches" }));
-    const confirm = await screen.findByRole("button", { name: "Confirm & queue Xometry quote" });
+    const confirm = await screen.findByRole("button", { name: "Send quote request" });
     for (const checkbox of await screen.findAllByRole("checkbox")) fireEvent.click(checkbox);
     fireEvent.click(confirm);
   }
@@ -2572,12 +2574,12 @@ describe("ClientPart", () => {
       expect(within(skipped).getByText("Geomiq").parentElement).toHaveTextContent("Not offered");
       expect(
         screen.getByRole("checkbox", {
-          name: "I am authorized to share these files and requirements with Xometry and Fictiv to request a quote.",
+          name: "I can share these files with these suppliers, they aren't export-controlled, and this is a quote request only.",
         }),
       ).toBeInTheDocument();
 
       for (const checkbox of await screen.findAllByRole("checkbox")) fireEvent.click(checkbox);
-      fireEvent.click(screen.getByRole("button", { name: "Confirm & queue Xometry quote" }));
+      fireEvent.click(screen.getByRole("button", { name: "Send quote request" }));
 
       // Xometry is denied for a reason other than a changed package, so Fictiv
       // is still sent with its own scope and a reference derived from the
@@ -2658,7 +2660,7 @@ describe("ClientPart", () => {
       fireEvent.click(await screen.findByRole("button", { name: "Inches" }));
       const sent = await screen.findByRole("list", { name: "Providers sent" });
       for (const checkbox of await screen.findAllByRole("checkbox")) fireEvent.click(checkbox);
-      fireEvent.click(screen.getByRole("button", { name: "Confirm & queue Fictiv quote" }));
+      fireEvent.click(screen.getByRole("button", { name: "Send quote request" }));
 
       await waitFor(() => expect(api.requestXometryBetaDispatch).toHaveBeenCalledTimes(1));
       const confirmationReference = api.requestProviderDispatch.mock.calls[0][0].approvalReference;
@@ -2744,12 +2746,12 @@ describe("ClientPart", () => {
       fireEvent.click(screen.getAllByRole("button", { name: "Close" })[0]);
       fireEvent.click(await screen.findByRole("button", { name: "Check previous quote request" }));
       mockXometryRequestServerRule(["xometry", "fictiv"]);
-      await waitFor(() => expect(screen.getByRole("button", { name: "Confirm & queue Xometry quote" })).toBeEnabled());
-      fireEvent.click(screen.getByRole("button", { name: "Confirm & queue Xometry quote" }));
+      await waitFor(() => expect(screen.getByRole("button", { name: "Send quote request" })).toBeEnabled());
+      fireEvent.click(screen.getByRole("button", { name: "Send quote request" }));
 
       await waitFor(() => expect(api.requestXometryBetaDispatch).toHaveBeenCalledTimes(2));
       expect(api.requestXometryBetaDispatch.mock.calls[1][0]).toEqual(attemptedInput);
-      expect(await screen.findByText("Xometry quote request queued")).toBeInTheDocument();
+      expect(await screen.findByText("Quote request queued")).toBeInTheDocument();
     } finally {
       vi.unstubAllEnvs();
     }
@@ -2774,7 +2776,7 @@ describe("ClientPart", () => {
       fireEvent.click(await screen.findByRole("button", { name: "Inches" }));
       const sent = await screen.findByRole("list", { name: "Providers sent" });
       for (const checkbox of await screen.findAllByRole("checkbox")) fireEvent.click(checkbox);
-      fireEvent.click(screen.getByRole("button", { name: "Confirm & queue Xometry quote" }));
+      fireEvent.click(screen.getByRole("button", { name: "Send quote request" }));
 
       await waitFor(() => {
         expect(sent.querySelector('[data-provider="fictiv"]')).toHaveAttribute("data-status", "denied");
@@ -2834,10 +2836,10 @@ describe("ClientPart", () => {
     fireEvent.click(requestButton);
     fireEvent.click(await screen.findByRole("button", { name: "Inches" }));
     expect(api.requestXometryBetaDispatch).not.toHaveBeenCalled();
-    expect(screen.getByRole("button", { name: "Confirm & queue Xometry quote" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Send quote request" })).toBeDisabled();
     for (const checkbox of await screen.findAllByRole("checkbox")) fireEvent.click(checkbox);
     expect(api.requestXometryBetaDispatch).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "Confirm & queue Xometry quote" }));
+    fireEvent.click(screen.getByRole("button", { name: "Send quote request" }));
     expect(mockQuoteCollectionMode.plan).toBe("free");
     expect(mockQuoteCollectionMode.hasAutomaticEntitlement).toBe(false);
 
@@ -2855,8 +2857,8 @@ describe("ClientPart", () => {
   });
 
   it.each([
-    ["xometry_beta_scope_changed", "The current package was not queued. Review the refreshed scope and try again."],
-    ["free_allowance_unavailable", "The current package was not queued. Review the refreshed scope and try again."],
+    ["xometry_beta_scope_changed", "The request was refused. Check this part's quote requests before trying again."],
+    ["free_allowance_unavailable", "The request was refused. Check this part's quote requests before trying again."],
     ["xometry_beta_job_busy", "This part is being updated in another session. Try again in a moment."],
   ])("fails closed and refreshes scope when dispatch is denied: %s", async (reason, expectedToast) => {
     api.requestXometryBetaDispatch.mockRejectedValue(new Error(reason));
@@ -2873,7 +2875,7 @@ describe("ClientPart", () => {
     await waitFor(() => {
       expect(toastMock.error).toHaveBeenCalledWith(expectedToast);
     });
-    await screen.findByText(/current package was not queued/i);
+    await screen.findByText(/request was refused/i);
     fireEvent.click(screen.getAllByRole("button", { name: "Close" })[0]);
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /request (manual )?quote/i })).not.toBeInTheDocument();
@@ -2912,7 +2914,7 @@ describe("ClientPart", () => {
     for (const checkbox of await screen.findAllByRole("checkbox")) {
       fireEvent.click(checkbox);
     }
-    const sendButton = await screen.findByRole("button", { name: "Confirm & queue Xometry quote" });
+    const sendButton = await screen.findByRole("button", { name: "Send quote request" });
     fireEvent.click(sendButton);
     fireEvent.click(sendButton);
 
@@ -2935,7 +2937,7 @@ describe("ClientPart", () => {
     }
     await act(async () => { deferred.reject(new Error("Request failed")); });
     if (scenario === "actor_changed") {
-      await waitFor(() => expect(screen.getByRole("button", { name: "Confirm & queue Xometry quote" })).toBeDisabled());
+      await waitFor(() => expect(screen.getByRole("button", { name: "Send quote request" })).toBeDisabled());
       expect(screen.queryByText(/could not confirm whether the request was queued/i)).not.toBeInTheDocument();
       expect(api.requestXometryBetaDispatch).toHaveBeenCalledTimes(1);
       fireEvent.click(screen.getAllByRole("button", { name: "Close" })[0]);
@@ -2972,7 +2974,7 @@ describe("ClientPart", () => {
         if (scenario === "blocked_after") mockQuoteCollectionMode.automaticEnabled = false;
       });
       const previousScopeChecks = api.getXometryBetaDispatchScope.mock.calls.length;
-      fireEvent.click(screen.getByRole("button", { name: "Refresh current scope" }));
+      fireEvent.click(screen.getByRole("button", { name: "Check again" }));
       await waitFor(() => expect(api.getXometryBetaDispatchScope.mock.calls.length).toBeGreaterThan(previousScopeChecks));
     }
     fireEvent.click(screen.getAllByRole("button", { name: "Close" })[0]);
@@ -2982,8 +2984,10 @@ describe("ClientPart", () => {
     }
     fireEvent.click(await screen.findByRole("button", { name: "Check previous quote request" }));
     expect(await screen.findByRole("dialog")).toBeInTheDocument();
-    expect(screen.getByText("a".repeat(64))).toBeInTheDocument();
-    expect(screen.queryByText("d".repeat(64))).not.toBeInTheDocument();
+    // OVD-1163: the fingerprint is no longer shown; the replay below proves the
+    // reopened dialog still holds the original scope ("a"), never the refreshed one ("d").
+    expect(attemptedInput.expectedScopeFingerprint).toBe("a".repeat(64));
+    expect(screen.getByRole("dialog").textContent).not.toContain("a".repeat(64));
     expect(screen.getByRole("button", { name: "Inches" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("button", { name: "Millimeters" })).toBeDisabled();
     for (const checkbox of screen.getAllByRole("checkbox")) {
@@ -2992,13 +2996,14 @@ describe("ClientPart", () => {
     }
     expect(api.requestXometryBetaDispatch).toHaveBeenCalledTimes(1);
     api.requestXometryBetaDispatch.mockResolvedValue({ accepted: true, created: false, deduplicated: true, status: "queued" });
-    await waitFor(() => expect(screen.getByRole("button", { name: "Confirm & queue Xometry quote" })).toBeEnabled());
-    fireEvent.click(screen.getByRole("button", { name: "Confirm & queue Xometry quote" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Send quote request" })).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: "Send quote request" }));
     await waitFor(() => expect(api.requestXometryBetaDispatch).toHaveBeenCalledTimes(2));
     expect(api.requestXometryBetaDispatch.mock.calls[1][0].approvalReference).toBe(approval);
     expect(api.requestXometryBetaDispatch.mock.calls[1][0]).toEqual(attemptedInput);
-    await waitFor(() => expect(screen.getByRole("button", { name: "Confirm & queue Xometry quote" })).toBeDisabled());
-    expect(await screen.findByText("Xometry quote request queued")).toBeInTheDocument();
+    expect(api.requestXometryBetaDispatch.mock.calls[1][0].expectedScopeFingerprint).not.toBe("d".repeat(64));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Send quote request" })).toBeDisabled());
+    expect(await screen.findByText("Quote request queued")).toBeInTheDocument();
     fireEvent.click(screen.getAllByRole("button", { name: "Close" })[0]);
     expect(screen.queryByRole("button", { name: "Check previous quote request" })).not.toBeInTheDocument();
     expect(api.requestQuote).not.toHaveBeenCalled();
@@ -3009,10 +3014,10 @@ describe("ClientPart", () => {
     await screen.findByTestId("part-info-panel");
     fireEvent.click(await screen.findByRole("button", { name: "Inches" }));
     for (const checkbox of await screen.findAllByRole("checkbox")) fireEvent.click(checkbox);
-    expect(screen.getByRole("button", { name: "Confirm & queue Xometry quote" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Send quote request" })).toBeEnabled();
     mockQuoteCollectionMode.automaticEnabled = false;
     await act(async () => { await queryClient.invalidateQueries({ queryKey: ["job-vendor-preferences"] }); });
-    await waitFor(() => expect(screen.getByRole("button", { name: "Confirm & queue Xometry quote" })).toBeDisabled());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Send quote request" })).toBeDisabled());
     fireEvent.click(screen.getAllByRole("button", { name: "Close" })[0]);
     expect(screen.queryByRole("button", { name: "Check previous quote request" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /request (manual )?quote/i })).not.toBeInTheDocument();
@@ -3494,6 +3499,142 @@ describe("ClientPart", () => {
     expect(notice).not.toHaveTextContent(/thread callouts/i);
   });
 
+  // OVD-1163: fixable denials are fixed from the popup, which then checks again on its own.
+  describe("one-click fixes in the quote popup (OVD-1163)", () => {
+    const drawingFinish = "ANODIZE, BLACK, MIL-A-8625F, TYPE II CLASS 2";
+
+    function finishedPartDetail(specSnapshot: Record<string, unknown> = {}) {
+      const detail = createDispatchReadyPartDetail(["xometry"]);
+      return {
+        ...detail,
+        part: {
+          ...detail.part,
+          approvedRequirement: {
+            ...detail.part.approvedRequirement!,
+            material: "6061 Alloy",
+            finish: drawingFinish,
+            spec_snapshot: specSnapshot,
+          },
+        },
+      };
+    }
+
+    async function openDenied(denial: string) {
+      api.getXometryBetaDispatchScope
+        .mockReset()
+        .mockRejectedValueOnce(scopeDenial(denial))
+        .mockResolvedValue(createXometryDispatchScope());
+      renderWithClient("/parts/job-1");
+      fireEvent.click(await findRequestQuoteButton());
+      fireEvent.click(await screen.findByRole("button", { name: "Inches" }));
+      return screen.findByRole("alert");
+    }
+
+    it("sets the material to 6061-T6 aluminum, then checks again and asks for consent", async () => {
+      api.fetchPartDetailByJobId.mockResolvedValue(finishedPartDetail());
+      const alert = await openDenied("xometry_beta_6061_t6_required");
+      expect(alert).toHaveTextContent("We can quote 6061-T6 aluminum only right now.");
+
+      fireEvent.click(within(alert).getByRole("button", { name: "Use 6061-T6 aluminum" }));
+
+      await waitFor(() => expect(api.updateClientPartRequest).toHaveBeenCalledTimes(1));
+      expect(api.updateClientPartRequest).toHaveBeenCalledWith(
+        expect.objectContaining({ jobId: "job-1", material: "6061-T6 aluminum", finish: drawingFinish }),
+      );
+      await waitFor(() => expect(api.getXometryBetaDispatchScope).toHaveBeenCalledTimes(2));
+      expect(await screen.findByRole("checkbox", {
+        name: "I can share these files, they aren't export-controlled, and this is a quote request only.",
+      })).not.toBeChecked();
+      expect(api.setClientPartQuoteAsMachined).not.toHaveBeenCalled();
+      expect(api.requestXometryBetaDispatch).not.toHaveBeenCalled();
+    });
+
+    it("quotes a finished part as machined without changing its drawing finish, then checks again", async () => {
+      api.fetchPartDetailByJobId.mockResolvedValue(finishedPartDetail());
+      api.setClientPartQuoteAsMachined.mockResolvedValue(undefined);
+      const alert = await openDenied("xometry_beta_as_machined_required");
+      expect(alert).toHaveTextContent("Finishes can't be quoted yet.");
+
+      fireEvent.click(within(alert).getByRole("button", { name: "Quote as machined (price won't include the finish)" }));
+
+      await waitFor(() => expect(api.setClientPartQuoteAsMachined).toHaveBeenCalledExactlyOnceWith("job-1", true));
+      await waitFor(() => expect(api.getXometryBetaDispatchScope).toHaveBeenCalledTimes(2));
+      // The drawing finish is never written: no request update at all.
+      expect(api.updateClientPartRequest).not.toHaveBeenCalled();
+      expect(await screen.findByRole("checkbox", {
+        name: "I can share these files, they aren't export-controlled, and this is a quote request only.",
+      })).toBeInTheDocument();
+      expect(api.requestXometryBetaDispatch).not.toHaveBeenCalled();
+    });
+
+    it("keeps the refusal and does not check again when the as-machined choice fails", async () => {
+      api.fetchPartDetailByJobId.mockResolvedValue(finishedPartDetail());
+      api.setClientPartQuoteAsMachined.mockRejectedValue(scopeDenial("You do not have permission to edit job job-1."));
+      const alert = await openDenied("xometry_beta_as_machined_required");
+
+      fireEvent.click(within(alert).getByRole("button", { name: "Quote as machined (price won't include the finish)" }));
+
+      expect(await screen.findByText("That change didn't save. Try again.")).toBeInTheDocument();
+      expect(api.getXometryBetaDispatchScope).toHaveBeenCalledTimes(1);
+      expect(api.updateClientPartRequest).not.toHaveBeenCalled();
+    });
+
+    it("offers no fix for a tolerance refusal", async () => {
+      api.fetchPartDetailByJobId.mockResolvedValue(finishedPartDetail());
+      const alert = await openDenied("xometry_beta_standard_tolerance_required");
+
+      expect(alert).toHaveTextContent("Enter this part's tightest tolerance.");
+      expect(within(alert).getAllByRole("button").map((button) => button.textContent)).toEqual(["Check again"]);
+    });
+
+    // The label follows what each quote was priced for, never the current choice alone.
+    function quotedDetail(offerFinishes: string[], specSnapshot: Record<string, unknown> = {}) {
+      const detail = createLiveOfferPartDetail(new Date().toISOString());
+      const quote = detail.part!.vendorQuotes[0];
+      quote.offers = offerFinishes.map((finish, index) => ({
+        ...quote.offers[0], id: `offer-${index + 1}`, offer_key: `xometry-${index + 1}`, finish,
+      }));
+      detail.part!.approvedRequirement = {
+        ...detail.part!.approvedRequirement!, finish: drawingFinish,
+        spec_snapshot: { ...(detail.part!.approvedRequirement!.spec_snapshot as object), ...specSnapshot },
+      };
+      return detail;
+    }
+
+    it("labels quotes priced as machined as excluding the finish", async () => {
+      api.fetchPartDetailByJobId.mockResolvedValue(quotedDetail(["As machined"], { quoteAsMachined: { finish: drawingFinish } }));
+      renderWithClient("/parts/job-1");
+
+      const note = await screen.findByRole("note");
+      expect(note).toHaveTextContent(`Quoted as machined. Prices don't include the finish (${drawingFinish}).`);
+      expect(within(screen.getByRole("region", { name: "Quote information" })).getByRole("note")).toBe(note);
+    });
+
+    it("says only some quotes are as machined when older quotes include the finish", async () => {
+      api.fetchPartDetailByJobId.mockResolvedValue(quotedDetail([drawingFinish, "As machined"], { quoteAsMachined: { finish: drawingFinish } }));
+      renderWithClient("/parts/job-1");
+
+      expect(await screen.findByRole("note")).toHaveTextContent(
+        `Some quotes are as machined. Their prices don't include the finish (${drawingFinish}).`,
+      );
+    });
+
+    it("never labels quotes priced with the finish, even after the as-machined choice", async () => {
+      api.fetchPartDetailByJobId.mockResolvedValue(quotedDetail([drawingFinish], { quoteAsMachined: { finish: drawingFinish } }));
+      renderWithClient("/parts/job-1");
+
+      await screen.findByTestId("part-info-panel");
+      expect(screen.queryByText(/as machined/i)).not.toBeInTheDocument();
+    });
+
+    it("keeps the label on as-machined quotes after the choice is withdrawn", async () => {
+      api.fetchPartDetailByJobId.mockResolvedValue(quotedDetail(["As machined"]));
+      renderWithClient("/parts/job-1");
+
+      expect(await screen.findByRole("note")).toHaveTextContent("Quoted as machined.");
+    });
+  });
+
   describe("scope denial copy in the confirmation dialog (OVD-991)", () => {
     async function openDeniedScope(denial: string, drawingThreads: string[] | undefined, savedThreads?: string) {
       const detail = createDispatchReadyPartDetail(["fictiv"]);
@@ -3521,22 +3662,22 @@ describe("ClientPart", () => {
     it.each([
       ["with thread callouts on the drawing", THREADED_DRAWING, true],
       ["without thread callouts", undefined, false],
-    ])("names Fictiv, the denied fields and the way out for a saved Need by date %s", async (_label, drawingThreads, hasNote) => {
+    ])("names the denied fields and the way out, without naming Fictiv, for a saved Need by date %s", async (_label, drawingThreads, hasNote) => {
       vi.stubEnv("VITE_LIVE_DISPATCH_PROVIDER", "fictiv");
       try {
         const alert = await openDeniedScope("provider_dispatch_special_requirements_not_supported", drawingThreads);
 
-        expect(alert).toHaveTextContent("This package is not ready for controlled Fictiv beta dispatch.");
-        expect(alert).toHaveTextContent("The controlled Fictiv beta cannot carry a Need by date, Threads, Notes");
+        expect(alert).toHaveTextContent("We can't quote a Need by date, Threads, Notes");
+        expect(alert).not.toHaveTextContent(/package|scope|dispatch|controlled|beta|Fictiv/i);
         // The page cannot see every server-checked field (packaging notes are not in the client
         // part metadata), so it names the full list (QA FAIL on #1029 at d268b149).
         expect(alert).toHaveTextContent("an inspection level other than Standard");
         expect(alert).toHaveTextContent("packaging");
-        expect(alert).toHaveTextContent("If this part needs any of them, it is outside the beta.");
-        expect(alert).toHaveTextContent("Remove them only if the part does not need them, then retry.");
+        expect(alert).toHaveTextContent("If this part needs any of them, it can't be quoted here yet.");
+        expect(alert).toHaveTextContent("Remove them only if the part does not need them, then check again.");
         expect(alert).not.toHaveTextContent("Xometry");
         expect(alert.textContent?.includes("Thread callouts read from the drawing are saved as Threads")).toBe(hasNote);
-        expect(alert.textContent?.includes("You can clear Threads in the request editor if the part does not need them, then retry.")).toBe(hasNote);
+        expect(alert.textContent?.includes("You can clear Threads in the request editor if the part does not need them, then check again.")).toBe(hasNote);
         expect(alert).not.toHaveTextContent("cannot be cleared");
       } finally {
         vi.unstubAllEnvs();
@@ -3548,7 +3689,7 @@ describe("ClientPart", () => {
       try {
         const alert = await openDeniedScope("provider_dispatch_special_requirements_not_supported", THREADED_DRAWING, "M8");
         expect(alert).toHaveTextContent("Thread callouts read from the drawing are saved as Threads");
-        expect(alert).toHaveTextContent("You can clear Threads in the request editor if the part does not need them, then retry.");
+        expect(alert).toHaveTextContent("You can clear Threads in the request editor if the part does not need them, then check again.");
         expect(alert).not.toHaveTextContent("cannot be cleared");
       } finally {
         vi.unstubAllEnvs();
@@ -3560,8 +3701,8 @@ describe("ClientPart", () => {
       try {
         const alert = await openDeniedScope("provider_dispatch_exact_scope_required", undefined);
 
-        expect(alert).toHaveTextContent("The controlled Fictiv beta quotes one part at one quantity from its approved files.");
-        expect(alert).toHaveTextContent("provider applies to this part");
+        expect(alert).toHaveTextContent("We quote one part at one quantity from its approved files.");
+        expect(alert).toHaveTextContent("supplier applies to this part");
         expect(alert).toHaveTextContent("one part and one Quote quantity");
         expect(alert).toHaveTextContent("contact support");
         expect(alert).not.toHaveTextContent("Qty");

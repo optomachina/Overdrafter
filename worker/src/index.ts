@@ -31,6 +31,7 @@ import {
   uploadArtifact,
 } from "./files.js";
 import { buildQuoteLaneScopeSnapshot, parseWorkerSourcingIntent } from "./quoteScope.js";
+import { supplierQuoteRequirement } from "./quoteAsMachined.js";
 import {
   claimNextTask,
   createServiceClient,
@@ -1428,6 +1429,10 @@ export async function handleVendorQuoteTask(
   if (!requirementCapturedAt) {
     throw new Error(`Approved requirement ${context.requirement.id} is missing its update timestamp.`);
   }
+  // OVD-1163: what the supplier is asked to quote. A customer's "Quote as
+  // machined" choice drops the drawing finish here only; the scope snapshot
+  // below keeps the approved requirement, so its fingerprint still matches.
+  const supplierRequirement = supplierQuoteRequirement(context.requirement);
 
   const retryCount = retryCountForAttempts(task.attempts);
 
@@ -1966,7 +1971,7 @@ export async function handleVendorQuoteTask(
           vendorAutomationStarted = true;
         },
       });
-      const approvedRequirement = context.requirement;
+      const approvedRequirement = supplierRequirement;
       const quoteInput: VendorQuoteAdapterInput = {
         organizationId: task.organization_id,
         quoteRunId: task.quote_run_id,
@@ -1975,7 +1980,7 @@ export async function handleVendorQuoteTask(
         drawingFile: context.drawingFile,
         stagedCadFile,
         stagedDrawingFile,
-        requirement: context.requirement,
+        requirement: supplierRequirement,
         requestedQuantity: currentResult.requested_quantity,
       };
       const outcome = await runGenericProviderTask({
@@ -2140,7 +2145,7 @@ export async function handleVendorQuoteTask(
         drawingFile: context.drawingFile,
         stagedCadFile,
         stagedDrawingFile,
-        requirement: context.requirement,
+        requirement: supplierRequirement,
         requestedQuantity: currentResult.requested_quantity,
       },
     });
@@ -2157,7 +2162,7 @@ export async function handleVendorQuoteTask(
         vendorQuoteResultId: currentResult.id,
         quoteRunId: task.quote_run_id,
         requestedQuantity: currentResult.requested_quantity,
-        requirement: context.requirement,
+        requirement: supplierRequirement,
         // Computed before the gate runs, so a fail-closed hold keeps the package identity too.
         packageId: stagedPackageId({ cad: stagedCadFile, drawing: stagedDrawingFile }),
         internalTestQuote,
@@ -2196,7 +2201,7 @@ export async function handleVendorQuoteTask(
       organizationId: task.organization_id,
       vendor,
       requestedQuantity: currentResult.requested_quantity,
-      requirement: context.requirement,
+      requirement: supplierRequirement,
       requirementCapturedAt,
       result: gatedResult,
     });

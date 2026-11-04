@@ -48,12 +48,14 @@ import {
 import { useProviderFanout } from "@/features/quotes/use-provider-fanout";
 import { getXometryFanoutVendors } from "@/features/quotes/provider-fanout-dispatch";
 import {
+  BETA_6061_T6_MATERIAL,
   LIVE_DISPATCH_PROVIDER_LABELS,
   classifyXometryBetaDispatchFailure,
   getXometryBetaDispatchDenialMessage,
   getXometryBetaScopeDenialCode,
   getXometryBetaScopeFailureMessage,
   isExplicitXometryBetaDispatchDenial,
+  type QuoteRequestFix,
 } from "@/features/quotes/xometry-beta-dispatch";
 import {
   fetchJobVendorPreferenceContext,
@@ -70,7 +72,7 @@ import {
   fetchVendorCapabilityProfiles,
   resolveClientPartDetailRoute,
 } from "@/features/quotes/api/workspace-access";
-import { clearClientPartRequestedByDate, updateClientPartRequest, resetClientPartPropertyOverrides } from "@/features/quotes/api/jobs-api";
+import { clearClientPartRequestedByDate, updateClientPartRequest, resetClientPartPropertyOverrides, setClientPartQuoteAsMachined } from "@/features/quotes/api/jobs-api";
 import { useArchiveUndo } from "@/features/quotes/archive-undo";
 import { buildActivityLogEntries } from "@/features/quotes/activity-log";
 import { formatPartLabel, getClientItemPresentation } from "@/features/quotes/client-presentation";
@@ -1686,10 +1688,11 @@ export function useClientPartController(
     else handleSaveRequestPatch({ requestedByDate: nextDate });
   };
 
-  const handleSaveRequestPatch = (next: Partial<ClientPartRequestUpdateInput>) => {
+  /** Saves a field patch over the server draft; resolves false when nothing was saved. */
+  const saveRequestPatch = async (next: Partial<ClientPartRequestUpdateInput>): Promise<boolean> => {
     // The server draft still holds the override a pending reset removes (OVD-1155).
     if (!fallbackRequestDraft || resetFieldMutation.isPending) {
-      return;
+      return false;
     }
 
     const payload = {
@@ -1707,26 +1710,44 @@ export function useClientPartController(
       mutationCompleted: false,
     };
     setRequestDraft(preservedDraft);
-    saveRequestMutation.mutate(payload, {
-      onSuccess: () => {
-        const preservation = patchDraftPreservationRef.current;
-        if (preservation?.requestId !== requestId) {
-          return;
-        }
+    try {
+      await saveRequestMutation.mutateAsync(payload);
+    } catch {
+      if (patchDraftPreservationRef.current?.requestId === requestId) {
+        patchDraftPreservationRef.current = null;
+      }
+      return false;
+    }
+    const preservation = patchDraftPreservationRef.current;
+    if (preservation?.requestId === requestId) {
+      const completedPreservation = {
+        ...preservation,
+        mutationCompleted: true,
+      };
+      patchDraftPreservationRef.current = completedPreservation;
+      setRequestDraft({ ...completedPreservation.draft });
+    }
+    return true;
+  };
 
-        const completedPreservation = {
-          ...preservation,
-          mutationCompleted: true,
-        };
-        patchDraftPreservationRef.current = completedPreservation;
-        setRequestDraft({ ...completedPreservation.draft });
-      },
-      onError: () => {
-        if (patchDraftPreservationRef.current?.requestId === requestId) {
-          patchDraftPreservationRef.current = null;
-        }
-      },
-    });
+  const handleSaveRequestPatch = (next: Partial<ClientPartRequestUpdateInput>) => {
+    void saveRequestPatch(next);
+  };
+
+  /**
+   * OVD-1163: the quote popup's one-click fixes. Rejects when nothing changed,
+   * so the popup keeps the denial; the popup re-runs the check after success.
+   */
+  const handleApplyQuoteRequestFix = async (fix: QuoteRequestFix): Promise<void> => {
+    if (fix === "use_6061_t6") {
+      if (!(await saveRequestPatch({ material: BETA_6061_T6_MATERIAL }))) {
+        throw new Error("The material change was not saved.");
+      }
+      return;
+    }
+    // Quote-only: the drawing finish stays on the part.
+    await setClientPartQuoteAsMachined(canonicalJobId, true);
+    await invalidateClientWorkspaceQueries(queryClient, { jobId: canonicalJobId });
   };
 
   /**
@@ -1988,6 +2009,7 @@ export function useClientPartController(
     handleResetAllFields,
     handleSaveRequest,
     handleSaveRequestPatch,
+    handleApplyQuoteRequestFix,
     handleNeedByFilterChange,
     handleSelectQuoteOption,
     handleToggleCurrentPartPin,

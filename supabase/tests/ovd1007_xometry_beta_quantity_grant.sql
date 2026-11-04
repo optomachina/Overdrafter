@@ -11,6 +11,11 @@
 begin;
 select plan(59);
 
+-- OVD-1163 restates S1 on top of OVD-1007. Its rollback (a byte copy of
+-- docs/migration-drafts/ovd-1163.rollback.sql) restores the OVD-1007 body
+-- inside this rolled-back transaction, so this suite tests the OVD-1007 layer.
+\ir fixtures/ovd1163_rollback.inc
+
 -- ---------------------------------------------------------------- 0. rollback drill (no history)
 -- fixtures/ovd1007_xometry_beta_quantity_grant_rollback.inc is a byte copy of
 -- docs/migration-drafts/ovd-1007.rollback.sql (scripts/run-supabase-policy-tests.node-test.mjs).

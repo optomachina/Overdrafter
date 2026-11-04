@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { REQUESTED_SERVICE_TYPE_OPTIONS } from "./service-intent";
 import {
-  LIVE_DISPATCH_PROVIDER_LABELS,
+  QUOTE_REQUEST_FIX_LABELS,
+  getQuoteRequestFix,
   getXometryBetaScopeDenialCode,
   getXometryBetaScopeExplainedDenialCode,
   getXometryBetaScopeFailureMessage,
@@ -96,26 +97,64 @@ describe("getXometryBetaScopeExplainedDenialCode", () => {
   });
 });
 
+/** OVD-1163: popup copy is plain and short and names no supplier or beta machinery. */
+function expectPlainCopy(message: string) {
+  expect(message).not.toMatch(/\b(?:scope|dispatch|package|envelope|controlled beta)\b/i);
+  expect(message).not.toMatch(/\b(?:Xometry|Fictiv)\b/);
+  expect(message).not.toMatch(/\bbeta\b/i);
+}
+
+const ALL_COPY_CODES = [
+  "xometry_beta_confirmed_sourcing_address_required",
+  "provider_dispatch_confirmed_destination_required",
+  "xometry_beta_standard_tolerance_required",
+  "xometry_beta_quantity_one_required",
+  "xometry_beta_single_quantity_required",
+  "xometry_beta_special_delivery_date_not_supported",
+  "xometry_beta_special_requirements_not_supported",
+  "provider_dispatch_special_requirements_not_supported",
+  "provider_dispatch_exact_scope_required",
+  "provider_dispatch_job_busy",
+  "xometry_beta_exact_scope_required",
+  ...OVD993_ACTIONABLE_CODES,
+  ...OVD993_EXPLAINED_CODES,
+] as const;
+
 describe("getXometryBetaScopeFailureMessage", () => {
+  // OVD-1163: deliberate copy change. Every denial reads plainly and names no supplier.
+  it.each(ALL_COPY_CODES)("keeps %s plain, supplier-neutral and bounded", (code) => {
+    for (const provider of ["xometry", "fictiv"] as const) {
+      const message = getXometryBetaScopeFailureMessage(postgrestError(code), provider, { drawingThreads: true });
+      expectPlainCopy(message);
+      expectBoundedCopy(message);
+      expect(getXometryBetaScopeFailureMessage(postgrestError(code), provider)).toBe(
+        getXometryBetaScopeFailureMessage(postgrestError(code)),
+      );
+    }
+  });
+
+  it("keeps the transport retry copy plain too", () => {
+    const message = getXometryBetaScopeFailureMessage(new TypeError("Failed to fetch"), "fictiv");
+    expect(message).toBe("We couldn't check this part just now. Check again.");
+    expectPlainCopy(message);
+  });
+
   it("asks for a confirmed destination without sending the customer to Settings", () => {
     const message = getXometryBetaScopeFailureMessage(
       postgrestError("xometry_beta_confirmed_sourcing_address_required"),
     );
-    expect(message).toBe(
-      "Xometry needs a confirmed shipping address for supplier quotes. Review and confirm your organization's shipping address.",
+    expect(message).toBe("Confirm your organization's shipping address so suppliers can quote.");
+  });
+
+  it("reads the generic path's missing destination with the same copy (OVD-1068)", () => {
+    const denial = postgrestError("provider_dispatch_confirmed_destination_required");
+    expect(getXometryBetaScopeDenialCode(denial)).toBe("provider_dispatch_confirmed_destination_required");
+    expect(getXometryBetaScopeFailureMessage(denial, "fictiv")).toBe(
+      getXometryBetaScopeFailureMessage(postgrestError("xometry_beta_confirmed_sourcing_address_required")),
     );
   });
 
-  it("reads the generic path's missing destination and names its provider (OVD-1068)", () => {
-    const denial = postgrestError("provider_dispatch_confirmed_destination_required");
-    expect(getXometryBetaScopeDenialCode(denial)).toBe("provider_dispatch_confirmed_destination_required");
-    const message = getXometryBetaScopeFailureMessage(denial, "fictiv");
-    expect(message).toContain("Fictiv needs a confirmed shipping address");
-    expect(message).not.toContain("provider_dispatch_");
-    expect(message).not.toContain("Xometry");
-  });
-
-  it("explains the beta tolerance floor", () => {
+  it("explains the tolerance floor", () => {
     const message = getXometryBetaScopeFailureMessage(postgrestError("xometry_beta_standard_tolerance_required"));
     expect(message).toContain("tightest tolerance");
     expect(message).toContain("±0.005 in");
@@ -129,9 +168,8 @@ describe("getXometryBetaScopeFailureMessage", () => {
     for (const fragment of fragments) {
       expect(message).toContain(fragment);
     }
-    expect(message).not.toContain("_required");
-    expect(message).not.toContain("_supported");
-    expect(message).not.toContain("not currently eligible");
+    expect(message).toContain("check again");
+    expectBoundedCopy(message);
   });
 
   // OVD-991: every field both server scope checks deny as a special requirement, in form words.
@@ -153,13 +191,13 @@ describe("getXometryBetaScopeFailureMessage", () => {
     ["xometry_beta_special_requirements_not_supported", false],
     ["provider_dispatch_special_requirements_not_supported", true],
   ])("special requirements copy for %s", (code, namesNeedBy) => {
-    it("names every denied field and says a part that needs them is outside the beta", () => {
+    it("names every denied field and says a part that needs them can't be quoted here yet", () => {
       const message = getXometryBetaScopeFailureMessage(postgrestError(code));
       for (const fragment of SPECIAL_REQUIREMENT_FRAGMENTS) {
         expect(message).toContain(fragment);
       }
-      expect(message).toContain("cannot carry");
-      expect(message).toContain("it is outside the beta");
+      expect(message).toContain("We can't quote");
+      expect(message).toContain("If this part needs any of them, it can't be quoted here yet");
       expect(message).toContain("Remove them only if the part does not need them");
     });
 
@@ -167,9 +205,7 @@ describe("getXometryBetaScopeFailureMessage", () => {
       const message = getXometryBetaScopeFailureMessage(postgrestError(code));
       expect(message).not.toMatch(/\bclear\b/i);
       expect(message).not.toContain("does not support special requirements");
-      expect(message).not.toContain("_required");
-      expect(message).not.toContain("_supported");
-      expect(message).not.toContain("not currently eligible");
+      expectBoundedCopy(message);
     });
 
     it(namesNeedBy ? "names the Need by date the generic check also denies" : "leaves the Need by date to its own denial", () => {
@@ -188,9 +224,9 @@ describe("getXometryBetaScopeFailureMessage", () => {
       ).toBe(plain);
       expect(withThreads.startsWith(plain)).toBe(true);
       expect(withThreads).toContain("Thread callouts read from the drawing are saved as Threads");
-      expect(withThreads).toContain("You can clear Threads in the request editor if the part does not need them, then retry.");
+      expect(withThreads).toContain("You can clear Threads in the request editor if the part does not need them, then check again.");
       expect(withThreads).not.toContain("cannot be cleared");
-      expect(withThreads).not.toContain("a part with thread callouts is outside the beta");
+      expect(withThreads).not.toContain("a part with thread callouts");
     });
   });
 
@@ -216,7 +252,7 @@ describe("getXometryBetaScopeFailureMessage", () => {
         "fictiv",
       );
       expect(message).toContain("one part at one quantity from its approved files");
-      expect(message).toContain("provider applies to this part");
+      expect(message).toContain("supplier applies to this part");
       expect(message).toContain("one part and one Quote quantity");
       expect(message).toContain("approved files must also match");
       expect(message).toContain("contact support");
@@ -227,71 +263,49 @@ describe("getXometryBetaScopeFailureMessage", () => {
     });
   });
 
-  // OVD-991: Fictiv customers must never read "Xometry" in a Fictiv denial.
-  it.each([
-    "xometry_beta_quantity_one_required",
-    "xometry_beta_single_quantity_required",
-    "xometry_beta_special_delivery_date_not_supported",
-    "xometry_beta_special_requirements_not_supported",
-    "provider_dispatch_special_requirements_not_supported",
-    "provider_dispatch_exact_scope_required",
-  ])("names the configured provider, never Xometry, in the field copy for %s", (code) => {
-    const message = getXometryBetaScopeFailureMessage(postgrestError(code), "fictiv");
-    expect(message).toContain("controlled Fictiv beta");
-    expect(message).not.toContain("Xometry");
-    expect(getXometryBetaScopeFailureMessage(postgrestError(code), "xometry")).toContain("controlled Xometry beta");
-    expect(getXometryBetaScopeFailureMessage(postgrestError(code))).toContain("controlled Xometry beta");
-  });
-
-  it("names the configured provider in the generic denial and retry copy", () => {
-    expect(getXometryBetaScopeFailureMessage(postgrestError("provider_dispatch_scope_mismatch"), "fictiv")).toContain(
-      "controlled Fictiv beta dispatch",
-    );
-    expect(getXometryBetaScopeFailureMessage(new TypeError("Failed to fetch"), "fictiv")).toBe(
-      "The current Fictiv confirmation scope could not be verified. Try the scope check again.",
-    );
-  });
-
-  // OVD-993: the remaining envelope denials name the form field and a value the server accepts.
-  describe("OVD-993 envelope field copy", () => {
-    it.each([
-      [
-        "xometry_beta_cnc_milling_required",
-        "Process",
-        "If this part is CNC milled",
-        "set Process to CNC milling",
-        "a part made by another process is outside the beta",
-      ],
-      [
-        "xometry_beta_6061_t6_required",
-        "Material",
-        "If this part is 6061-T6 aluminum",
-        "set Material to 6061-T6 aluminum",
-        "a part in another material is outside the beta",
-      ],
-      [
-        "xometry_beta_as_machined_required",
-        "Finish",
-        "If this part needs no finish",
-        "set Finish to As machined or leave it blank",
-        "a part that needs another finish is outside the beta",
-      ],
-    ])("%s names the %s field, the accepted value and the way out", (code, field, condition, instruction, limit) => {
-      const message = getXometryBetaScopeFailureMessage(postgrestError(code));
-      expect(message).toContain(field);
+  // OVD-993 / OVD-1163: the remaining denials name the form field and a value the server accepts.
+  describe("envelope field copy", () => {
+    it("names the Process field, the accepted value and the condition before the instruction", () => {
+      const message = getXometryBetaScopeFailureMessage(postgrestError("xometry_beta_cnc_milling_required"));
+      const condition = "If this part is CNC milled";
+      const instruction = "set Process to CNC milling, then check again";
       expect(message).toContain(condition);
-      expect(message).toContain(`${instruction}, then retry`);
-      expect(message).toContain(limit);
-      // The instruction is conditional: a part that needs another value is never told to change it.
+      expect(message).toContain(instruction);
+      // The instruction is conditional: a part made another way is never told to change it.
       expect(message.indexOf(condition)).toBeLessThan(message.indexOf(instruction));
       expectBoundedCopy(message);
     });
 
+    it("says only 6061-T6 aluminum can be quoted and makes the material change conditional (fix offered beside it)", () => {
+      const message = getXometryBetaScopeFailureMessage(postgrestError("xometry_beta_6061_t6_required"));
+      expect(message).toBe("We can quote 6061-T6 aluminum only right now. Use it only if this part is 6061-T6.");
+      expect(getQuoteRequestFix("xometry_beta_6061_t6_required")).toBe("use_6061_t6");
+      expect(QUOTE_REQUEST_FIX_LABELS.use_6061_t6).toBe("Use 6061-T6 aluminum");
+    });
+
+    // OVD-1163 item 5: the finish refusal says plainly that finishes can't be quoted yet.
+    it("says plainly that finishes can't be quoted yet and offers the as-machined fix", () => {
+      const message = getXometryBetaScopeFailureMessage(postgrestError("xometry_beta_as_machined_required"));
+      expect(message).toBe("Finishes can't be quoted yet. You can get a quote for this part as machined, without the finish.");
+      expect(message).not.toMatch(/set Finish|leave it blank/);
+      expect(getQuoteRequestFix("xometry_beta_as_machined_required")).toBe("quote_as_machined");
+      expect(QUOTE_REQUEST_FIX_LABELS.quote_as_machined).toBe("Quote as machined (price won't include the finish)");
+    });
+
+    it("offers a fix for no other denial", () => {
+      for (const code of ALL_COPY_CODES) {
+        const fix = getQuoteRequestFix(getXometryBetaScopeDenialCode(postgrestError(code)));
+        expect(fix, code).toBe(
+          code === "xometry_beta_6061_t6_required" ? "use_6061_t6" : code === "xometry_beta_as_machined_required" ? "quote_as_machined" : null,
+        );
+      }
+      expect(getQuoteRequestFix(null)).toBeNull();
+    });
+
     it("tells the generic path's process denial to set a blank or unadmitted Process without naming a process list", () => {
       const message = getXometryBetaScopeFailureMessage(postgrestError("provider_dispatch_process_not_admitted"), "fictiv");
-      expect(message).toContain("this request's Process is blank or not one of them");
-      expect(message).toContain("Set Process to the process that makes this part, then retry");
-      expect(message).toContain("if Fictiv is not admitted for that process, the part is outside the beta");
+      expect(message).toContain("This request's Process is blank or can't be quoted by this supplier");
+      expect(message).toContain("Set Process to the process that makes this part, then check again");
       // The admitted list lives in the server-side registry, and the generic resolver checks no material or finish.
       expect(message).not.toMatch(/CNC|mill/i);
       expect(message).not.toContain("Material");
@@ -299,12 +313,12 @@ describe("getXometryBetaScopeFailureMessage", () => {
       expectBoundedCopy(message);
     });
 
-    it("tells the drawing denial to wait for verification and retry, never to remove or re-register the drawing", () => {
+    it("tells the drawing denial to wait for verification and check again, never to remove or re-register the drawing", () => {
       const message = getXometryBetaScopeFailureMessage(postgrestError("xometry_beta_compatible_drawing_required"));
-      expect(message).toContain("a drawing only as a PDF whose uploaded bytes have been verified");
-      expect(message).toContain("this part's drawing has not passed that check");
-      expect(message).toContain("Wait for file processing to finish, then retry the scope check");
-      expect(message).toContain("if it still fails, contact support");
+      expect(message).toContain("The drawing must be a PDF whose uploaded bytes have been verified");
+      expect(message).toContain("this part's drawing hasn't passed that check yet");
+      expect(message).toContain("Wait for file processing to finish, then check again");
+      expect(message).toContain("If it still fails, contact support");
       expect(message).not.toMatch(/\bremove\b/i);
       expect(message).not.toMatch(/register/i);
       expectBoundedCopy(message);
@@ -318,47 +332,20 @@ describe("getXometryBetaScopeFailureMessage", () => {
         expect(message, option.code).toContain(option.label);
       }
       expect(message).toContain("Requested services are recorded when the part is uploaded");
-      expect(message).toContain("controlled Fictiv beta dispatch quotes manufacturing only");
-      expect(message).toContain("this request is outside the beta");
+      expect(message).toContain("only manufacturing can be quoted here");
       // Nothing in the dialog changes the job's services, so no retry, set or remove instruction.
       expect(message).not.toMatch(/\b(?:retry|set|remove|clear|change|then)\b/i);
       expectBoundedCopy(message);
     });
-
-    // The provider label comes from LIVE_DISPATCH_PROVIDER_LABELS and is the only provider-specific text.
-    it.each([...OVD993_ACTIONABLE_CODES, ...OVD993_EXPLAINED_CODES])(
-      "names the configured provider from the label source, never a hard-coded one, for %s",
-      (code) => {
-        const fictiv = getXometryBetaScopeFailureMessage(postgrestError(code), "fictiv");
-        const xometry = getXometryBetaScopeFailureMessage(postgrestError(code), "xometry");
-        expect(fictiv).toContain(LIVE_DISPATCH_PROVIDER_LABELS.fictiv);
-        expect(fictiv).not.toContain(LIVE_DISPATCH_PROVIDER_LABELS.xometry);
-        expect(xometry).toContain(LIVE_DISPATCH_PROVIDER_LABELS.xometry);
-        expect(xometry).not.toContain(LIVE_DISPATCH_PROVIDER_LABELS.fictiv);
-        expect(getXometryBetaScopeFailureMessage(postgrestError(code))).toBe(xometry);
-        expect(fictiv.split(LIVE_DISPATCH_PROVIDER_LABELS.fictiv).join(LIVE_DISPATCH_PROVIDER_LABELS.xometry)).toBe(xometry);
-      },
-    );
   });
 
   it("keeps the generic copy for explicit denials without a field mapping", () => {
-    for (const code of ["provider_dispatch_job_busy", "provider_dispatch_scope_mismatch", "xometry_beta_trusted_step_required"]) {
+    for (const code of ["provider_dispatch_job_busy", "provider_dispatch_scope_mismatch", "xometry_beta_trusted_step_required", "xometry_beta_exact_scope_required"]) {
       expect(getXometryBetaScopeFailureMessage(postgrestError(code)))
-        .toBe("This package is not currently eligible for controlled Xometry beta dispatch. Review its access, files, and manufacturing requirements.");
+        .toBe("This part can't be quoted here right now. Review its files and manufacturing requirements.");
     }
   });
-
-  it("keeps bounded copy for other explicit server denials delivered as plain records", () => {
-    expect(getXometryBetaScopeFailureMessage(postgrestError("xometry_beta_exact_scope_required")))
-      .toBe("This package is not currently eligible for controlled Xometry beta dispatch. Review its access, files, and manufacturing requirements.");
-  });
-
-  it("keeps the retry copy for transport failures", () => {
-    expect(getXometryBetaScopeFailureMessage(new TypeError("Failed to fetch")))
-      .toBe("The current Xometry confirmation scope could not be verified. Try the scope check again.");
-  });
 });
-
 
 describe("set-field denial copy (OVD-995)", () => {
   it.each([
@@ -376,7 +363,7 @@ describe("set-field denial copy (OVD-995)", () => {
         release: { releaseStatus: "released", reviewDisposition: null, quoteBlockedUntilRelease: null, notes: null },
       },
     });
-    expect(message).toContain("cannot carry Notes.");
+    expect(message).toContain("We can't quote Notes yet.");
     expect(message).not.toContain("Threads");
     expect(message).not.toContain("certifications");
     expect(message).not.toContain("Need by date");
@@ -417,7 +404,7 @@ describe("set-field denial copy (OVD-995)", () => {
     });
     expect(message).toContain("Notes (including service, packaging, shipping, certification, sourcing and release notes)");
     expect(message).toContain("Threads");
-    expect(message).not.toContain("cannot carry Notes.");
+    expect(message).not.toContain("We can't quote Notes yet.");
   });
   it("does not invent a set field when the complete client payload is empty", () => {
     const message = getXometryBetaScopeFailureMessage(postgrestError("provider_dispatch_special_requirements_not_supported"), "fictiv", {
@@ -436,9 +423,9 @@ describe("set-field denial copy (OVD-995)", () => {
   });
 });
 
-it.each(["xometry", "fictiv"] as const)("names %s and gives the single positive quantity remedy", (provider) => {
+it.each(["xometry", "fictiv"] as const)("gives %s the single positive quantity remedy without naming a supplier", (provider) => {
   const message = getXometryBetaScopeFailureMessage(postgrestError("xometry_beta_single_quantity_required"), provider);
-  expect(message).toContain(provider === "xometry" ? "Xometry" : "Fictiv");
+  expect(message).not.toMatch(/Xometry|Fictiv/);
   expect(message).toContain("exactly one quantity of 1 or more");
   expect(message).toContain("Remove extra Quote quantities");
   expect(message).toContain("request it as its own quote");

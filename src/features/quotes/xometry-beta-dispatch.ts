@@ -495,7 +495,7 @@ export function getXometryBetaDispatchDenialMessage(error: unknown): string {
   }
   return isDispatchJobBusy(error)
     ? "This part is being updated in another session. Try again in a moment."
-    : "The current package was not queued. Review the refreshed scope and try again.";
+    : "The request was refused. Check this part's quote requests before trying again.";
 }
 
 /** Returns bounded operator evidence without forwarding server messages or request data. */
@@ -561,7 +561,7 @@ const SPECIAL_REQUIREMENT_FIELDS =
  * Threads in the request editor when the part does not need them.
  */
 const DRAWING_THREADS_NOTE =
-  " Thread callouts read from the drawing are saved as Threads with the request. You can clear Threads in the request editor if the part does not need them, then retry.";
+  " Thread callouts read from the drawing are saved as Threads with the request. You can clear Threads in the request editor if the part does not need them, then check again.";
 
 function joinWithOr(items: readonly string[]): string {
   return items.length <= 1 ? items.join("") : `${items.slice(0, -1).join(", ")} or ${items.at(-1)}`;
@@ -644,13 +644,43 @@ function describeSetSpecialRequirements(
   return fields.filter(([set]) => Boolean(set)).map(([, label]) => label).join(", ");
 }
 
-/** Converts scope failures to bounded customer copy without exposing database details. */
+/**
+ * OVD-1163: denials the quote popup can fix in one click. The fix applies a
+ * change and re-runs the check; nothing else is offered a button.
+ *   use_6061_t6: sets the part's Material to 6061-T6 aluminum through the
+ *     client request update (there is no quote-only material override).
+ *   quote_as_machined: the quote-only finish override
+ *     (public.api_set_client_part_quote_as_machined); the drawing finish is
+ *     never changed.
+ */
+export type QuoteRequestFix = "use_6061_t6" | "quote_as_machined";
+
+/** The Material value the use_6061_t6 fix saves; the resolver accepts it (SQL contract test). */
+export const BETA_6061_T6_MATERIAL = "6061-T6 aluminum";
+
+export const QUOTE_REQUEST_FIX_LABELS: Readonly<Record<QuoteRequestFix, string>> = {
+  use_6061_t6: "Use 6061-T6 aluminum",
+  quote_as_machined: "Quote as machined (price won't include the finish)",
+};
+
+export function getQuoteRequestFix(code: XometryBetaScopeDenialCode | null | undefined): QuoteRequestFix | null {
+  switch (code) {
+    case "xometry_beta_6061_t6_required":
+      return "use_6061_t6";
+    case "xometry_beta_as_machined_required":
+      return "quote_as_machined";
+    default:
+      return null;
+  }
+}
+
+/** Converts scope failures to short, plain customer copy without exposing database details. */
 export function getXometryBetaScopeFailureMessage(
   error: unknown,
-  provider: LiveDispatchProvider = "xometry",
+  // Kept for callers; OVD-1163 copy names no supplier.
+  _provider: LiveDispatchProvider = "xometry",
   context: XometryBetaScopeFailureContext = {},
 ): string {
-  const label = LIVE_DISPATCH_PROVIDER_LABELS[provider];
   const drawingThreadsNote = context.drawingThreads === true ? DRAWING_THREADS_NOTE : "";
   const specialFields = context.request
     ? describeSetSpecialRequirements(context.request, context.requestComplete === true)
@@ -660,50 +690,52 @@ export function getXometryBetaScopeFailureMessage(
   switch (getXometryBetaScopeDenialCode(error)) {
     case "xometry_beta_confirmed_sourcing_address_required":
     case "provider_dispatch_confirmed_destination_required":
-      return `${label} needs a confirmed shipping address for supplier quotes. Review and confirm your organization's shipping address.`;
+      return "Confirm your organization's shipping address so suppliers can quote.";
     case "xometry_beta_standard_tolerance_required":
-      return "Enter this part's tightest tolerance. The controlled Xometry beta accepts ±0.005 in (0.127 mm) or looser; tighter tolerances are outside the beta.";
+      return "Enter this part's tightest tolerance. We can quote ±0.005 in (0.127 mm) or looser right now.";
     case "xometry_beta_quantity_one_required":
-      return `The controlled ${label} beta quotes quantity 1 only. Set Qty to 1 and clear extra Quote quantities, then retry.`;
+      return "We can quote quantity 1 only right now. Set Qty to 1 and clear extra Quote quantities, then check again.";
     case "xometry_beta_single_quantity_required":
-      return `The controlled ${label} beta quotes one quantity per request. Remove extra Quote quantities so exactly one quantity of 1 or more remains, then retry. To see another quantity, request it as its own quote.`;
+      return "We can quote one quantity per request. Remove extra Quote quantities so exactly one quantity of 1 or more remains, then check again. To see another quantity, request it as its own quote.";
     case "xometry_beta_special_delivery_date_not_supported":
-      return `The controlled ${label} beta does not support a Need by date. Clear Need by in the request, then retry.`;
+      return "We can't quote a Need by date yet. Clear Need by in the request, then check again.";
     case "xometry_beta_special_requirements_not_supported":
-      return `The controlled ${label} beta cannot carry ${specialFields || "the saved special requirements"}. If this part needs any of them, it is outside the beta. Remove them only if the part does not need them, then retry.${drawingThreadsNote}`;
+      return `We can't quote ${specialFields || "the saved special requirements"} yet. If this part needs any of them, it can't be quoted here yet. Remove them only if the part does not need them, then check again.${drawingThreadsNote}`;
     case "provider_dispatch_special_requirements_not_supported":
-      return `The controlled ${label} beta cannot carry ${genericFields || "the saved special requirements"}. If this part needs any of them, it is outside the beta. Remove them only if the part does not need them, then retry.${drawingThreadsNote}`;
+      return `We can't quote ${genericFields || "the saved special requirements"} yet. If this part needs any of them, it can't be quoted here yet. Remove them only if the part does not need them, then check again.${drawingThreadsNote}`;
     case "provider_dispatch_exact_scope_required":
-      return `The controlled ${label} beta quotes one part at one quantity from its approved files. Check that the provider applies to this part and that the request contains one part and one Quote quantity. The approved files must also match. If the scope still cannot be verified, contact support.`;
+      return "We quote one part at one quantity from its approved files. Check that the supplier applies to this part and that the request has one part and one Quote quantity. The approved files must also match. If it still fails, contact support.";
     // OVD-993, legacy Xometry resolver: Process, Material and Finish are compared after lowercasing and
     // dropping every character outside a-z and 0-9, so the values named here are the forms the server accepts.
     case "xometry_beta_cnc_milling_required":
-      return `The controlled ${label} beta quotes CNC milled parts only. If this part is CNC milled, set Process to CNC milling, then retry; a part made by another process is outside the beta.`;
+      return "We can quote CNC milled parts only right now. If this part is CNC milled, set Process to CNC milling, then check again.";
     case "xometry_beta_6061_t6_required":
-      return `The controlled ${label} beta quotes 6061-T6 aluminum only. If this part is 6061-T6 aluminum, set Material to 6061-T6 aluminum, then retry; a part in another material is outside the beta.`;
+      // OVD-1163: the popup offers the use_6061_t6 fix beside this line.
+      return "We can quote 6061-T6 aluminum only right now. Use it only if this part is 6061-T6.";
     case "xometry_beta_as_machined_required":
-      return `The controlled ${label} beta quotes an as-machined finish only. If this part needs no finish, set Finish to As machined or leave it blank, then retry; a part that needs another finish is outside the beta.`;
+      // OVD-1163: the popup offers the quote_as_machined fix beside this line.
+      return "Finishes can't be quoted yet. You can get a quote for this part as machined, without the finish.";
     case "provider_dispatch_process_not_admitted":
       // Generic path only: a blank Process is refused, and the admitted process list lives in the
       // server-side admission registry, so the copy names no process.
-      return `The controlled ${label} beta quotes only the manufacturing processes ${label} is admitted for, and this request's Process is blank or not one of them. Set Process to the process that makes this part, then retry; if ${label} is not admitted for that process, the part is outside the beta.`;
+      return "This request's Process is blank or can't be quoted by this supplier. Set Process to the process that makes this part, then check again.";
     case "xometry_beta_compatible_drawing_required":
       // Only the worker registers a file's verified hash, and the part page has no action that removes
-      // a drawing, so the customer can only wait for verification and retry.
-      return `The controlled ${label} beta accepts a drawing only as a PDF whose uploaded bytes have been verified, and this part's drawing has not passed that check. Wait for file processing to finish, then retry the scope check; if it still fails, contact support.`;
+      // a drawing, so the customer can only wait for verification and check again.
+      return "The drawing must be a PDF whose uploaded bytes have been verified, and this part's drawing hasn't passed that check yet. Wait for file processing to finish, then check again. If it still fails, contact support.";
     default:
       break;
   }
 
   if (getXometryBetaScopeExplainedDenialCode(error) !== null) {
-    // Both paths: Requested services are set when the part is uploaded and are not editable here, so
+    // Both paths: Requested services are recorded at upload and are not editable here, so
     // this explains the refusal without promising an action.
-    return `This request's Requested services include a service other than Manufacturing quote (${NON_MANUFACTURING_SERVICES}). Requested services are recorded when the part is uploaded, and controlled ${label} beta dispatch quotes manufacturing only, so this request is outside the beta.`;
+    return `This request's Requested services include a service other than Manufacturing quote (${NON_MANUFACTURING_SERVICES}). Requested services are recorded when the part is uploaded, and only manufacturing can be quoted here.`;
   }
 
   if (isExplicitXometryBetaDispatchDenial(error)) {
-    return `This package is not currently eligible for controlled ${label} beta dispatch. Review its access, files, and manufacturing requirements.`;
+    return "This part can't be quoted here right now. Review its files and manufacturing requirements.";
   }
 
-  return `The current ${label} confirmation scope could not be verified. Try the scope check again.`;
+  return "We couldn't check this part just now. Check again.";
 }

@@ -356,6 +356,7 @@ insert into ovd736_authenticated_allowlist (sig, reason) values
   ('public.api_reset_client_part_property_overrides(uuid,text[])', 'signed in RPC: called from src/features/quotes/api/jobs-api.ts'),
   ('public.api_review_export_control_block(uuid,text,text)', 'signed in RPC: OVD-723 admin review, requires verified auth and is_platform_admin; no src caller yet'),
   ('public.api_select_quote_option(uuid,uuid,text)', 'signed in RPC: called from src/features/quotes/api/packages-api.ts'),
+  ('public.api_set_client_part_quote_as_machined(uuid,boolean)', 'signed in RPC: called from src/features/quotes/api/jobs-api.ts (OVD-1163)'),
   ('public.api_set_global_spend_cap(numeric,numeric,boolean)', 'signed in RPC: called from src/features/quotes/api/platform-admin-api.ts'),
   ('public.api_set_job_selected_vendor_quote_offer(uuid,uuid)', 'signed in RPC: called from src/features/quotes/api/quote-requests-api.ts'),
   ('public.api_set_job_vendor_preferences(uuid,public.vendor_name[],public.vendor_name[])', 'signed in RPC: called from src/features/quotes/api/vendor-preferences-api.ts'),

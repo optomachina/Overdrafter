@@ -20,6 +20,12 @@ export class QuoteBrowserBackend {
   denialCode = "xometry_beta_scope_changed";
   /** OVD-1068: the organization's effective quote shipping destination. Confirmed by default. */
   destination: { address: Address; confirmed: boolean } = { address: { ...SHIPPING }, confirmed: true };
+  /**
+   * OVD-1163: the part carries a drawing finish the scope check refuses until the customer
+   * chooses "Quote as machined" (api_set_client_part_quote_as_machined).
+   */
+  drawingFinish = false;
+  quoteAsMachined = false;
   /** Optional status and PostgREST body for every failing RPC reply; null keeps the default P0001 400. */
   failureReply: { status: number; body: Record<string, unknown> } | null = null;
   private pendingGate: Promise<void> | null = null;
@@ -123,10 +129,15 @@ export class QuoteBrowserBackend {
       case "api_get_xometry_beta_dispatch_scope": {
         if (this.scopeMode === "error") return this.denial(route, "Synthetic scope lookup unavailable");
         if (!this.destination.confirmed) return this.denial(route, "xometry_beta_confirmed_sourcing_address_required");
+        if (this.drawingFinish && !this.quoteAsMachined) return this.denial(route, "xometry_beta_as_machined_required");
         const value = scope(input.p_declared_model_units === "millimeter" ? "millimeter" : "inch", this.changed,
           this.destination.address as typeof SHIPPING);
         return this.json(route, this.scopeMode === "malformed" ? { ...value, scopeFingerprint: "invalid" } : value);
       }
+      case "api_set_client_part_quote_as_machined":
+        if (input.p_job_id !== ID.job || input.p_quote_as_machined !== true || !this.drawingFinish) return this.denyUnexpected(route);
+        this.quoteAsMachined = true;
+        return this.json(route, { jobId: ID.job, quoteAsMachined: true });
       case "api_request_xometry_beta_dispatch": {
         const gate = this.pendingGate;
         this.pendingGate = null;

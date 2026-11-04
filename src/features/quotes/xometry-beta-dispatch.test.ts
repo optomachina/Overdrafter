@@ -264,12 +264,14 @@ describe("busy admission denial", () => {
     });
   });
 
-  it("keeps the refreshed-scope message for every other denial", () => {
+  // OVD-1163: plain copy, no "package" or "scope", and no claim that nothing was sent:
+  // an exact replay of a request that did commit can still be refused.
+  it("keeps the neutral refused message for every other denial", () => {
     expect(getXometryBetaDispatchDenialMessage({ message: "xometry_beta_scope_changed" })).toBe(
-      "The current package was not queued. Review the refreshed scope and try again.",
+      "The request was refused. Check this part's quote requests before trying again.",
     );
     expect(getXometryBetaDispatchDenialMessage(new Error("xometry_beta_job_busy_other"))).toBe(
-      "The current package was not queued. Review the refreshed scope and try again.",
+      "The request was refused. Check this part's quote requests before trying again.",
     );
   });
 });
@@ -353,12 +355,13 @@ describe("generic Fictiv dispatch contract (OVD-673)", () => {
     }
   });
 
-  it("names the configured provider in scope failure copy", () => {
+  // OVD-1163: the popup names no supplier; Fictiv customers never read "Xometry" either.
+  it("keeps scope failure copy plain and supplier-neutral", () => {
     expect(getXometryBetaScopeFailureMessage({ message: "provider_dispatch_admission_disabled" }, "fictiv")).toBe(
-      "This package is not currently eligible for controlled Fictiv beta dispatch. Review its access, files, and manufacturing requirements.",
+      "This part can't be quoted here right now. Review its files and manufacturing requirements.",
     );
     expect(getXometryBetaScopeFailureMessage(new Error("boom"), "fictiv")).toBe(
-      "The current Fictiv confirmation scope could not be verified. Try the scope check again.",
+      "We couldn't check this part just now. Check again.",
     );
   });
 

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { CheckCircle2, FileText, Loader2, RefreshCw, Settings, ShieldCheck } from "lucide-react";
+import { CheckCircle2, Loader2, RefreshCw, Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -13,11 +13,13 @@ import {
 import { cn } from "@/lib/utils";
 import { ProviderFanoutStatus } from "@/components/quotes/ProviderFanoutStatus";
 import { QuoteShippingAddressPanel } from "@/components/quotes/QuoteShippingAddressPanel";
-import { getProviderDisplayName } from "@/features/quotes/provider-fanout";
+import { isQuotedAsMachined } from "@/features/quotes/quote-as-machined";
 import type { ProviderFanoutState } from "@/features/quotes/use-provider-fanout";
 import {
-  LIVE_DISPATCH_PROVIDER_LABELS,
+  QUOTE_REQUEST_FIX_LABELS,
+  getQuoteRequestFix,
   type LiveDispatchProvider,
+  type QuoteRequestFix,
   type XometryBetaDispatchDiagnosticCode,
   type XometryBetaDispatchScope,
   type XometryBetaModelUnits,
@@ -53,6 +55,11 @@ type XometryBetaDispatchConfirmationDialogProps = {
   fanout?: ProviderFanoutState | null;
   isScopeLoading?: boolean;
   isSubmitting?: boolean;
+  /**
+   * OVD-1163: applies a one-click fix for a fixable denial. The dialog re-runs
+   * the check (onRetryScope) after it resolves; a rejection shows a retry line.
+   */
+  onApplyFix?: (fix: QuoteRequestFix) => Promise<void>;
   onConfirm: (
     input: XometryBetaDispatchConfirmationInput,
   ) => Promise<XometryBetaDispatchConfirmationResult | null>;
@@ -71,51 +78,11 @@ type XometryBetaDispatchConfirmationDialogProps = {
   scopeError?: string | null;
 };
 
-type Affirmations = {
-  authorityToShare: boolean;
-  nonExportControlled: boolean;
-  quoteOnly: boolean;
-};
-
 /** Denials that only a confirmed organization shipping address resolves (legacy Xometry and generic paths). */
 const SHIPPING_ADDRESS_DENIALS: ReadonlySet<XometryBetaScopeDenialCode> = new Set([
   "xometry_beta_confirmed_sourcing_address_required",
   "provider_dispatch_confirmed_destination_required",
 ]);
-
-const EMPTY_AFFIRMATIONS: Affirmations = {
-  authorityToShare: false,
-  nonExportControlled: false,
-  quoteOnly: false,
-};
-
-function formatFileSize(sizeBytes: number | null | undefined) {
-  if (sizeBytes === null || sizeBytes === undefined) {
-    return null;
-  }
-
-  if (sizeBytes < 1024 * 1024) {
-    return `${Math.max(1, Math.round(sizeBytes / 1024))} KB`;
-  }
-
-  return `${(sizeBytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-function formatValue(value: string | number | null | undefined, fallback = "Not specified") {
-  if (typeof value === "string") {
-    return value.trim() || fallback;
-  }
-
-  return value === null || value === undefined ? fallback : String(value);
-}
-
-function getSpecificationValue(
-  specification: Record<string, unknown> | null | undefined,
-  key: string,
-) {
-  const value = specification?.[key];
-  return typeof value === "string" ? value : null;
-}
 
 function getScopeIdentity(
   scope: XometryBetaDispatchScope | null,
@@ -142,102 +109,50 @@ function getScopeIdentity(
   ].join(":");
 }
 
-function formatProviderList(labels: readonly string[]) {
-  return labels.length <= 2 ? labels.join(" and ") : `${labels.slice(0, -1).join(", ")}, and ${labels.at(-1)}`;
-}
-
-function getShareLabel(fanout: ProviderFanoutState | null, providerLabel: string) {
-  if (!fanout || fanout.plan.send.length <= 1) return providerLabel;
-  return formatProviderList(fanout.plan.send.map(getProviderDisplayName));
+/** One consent line for the three server attestations; with several suppliers it says so. */
+function getConsentLabel(fanout: ProviderFanoutState | null) {
+  const withWhom = fanout && fanout.plan.send.length > 1 ? " with these suppliers" : "";
+  return `I can share these files${withWhom}, they aren't export-controlled, and this is a quote request only.`;
 }
 
 function createApprovalReference() {
   return globalThis.crypto.randomUUID();
 }
 
-function DisclosureFile({
-  label,
-  file,
-  providerLabel,
-}: Readonly<{
-  label: "CAD" | "Drawing";
-  file: XometryBetaDispatchScope["scope"]["part"]["cad"] | null;
-  providerLabel: string;
-}>) {
-  if (!file) {
-    return (
-      <div className="border-b border-paper-hairline py-3 text-sm text-paper-muted">
-        No {label.toLowerCase()} file is included in this {providerLabel} scope.
-      </div>
-    );
-  }
-
-  return (
-    <div className="border-b border-paper-hairline py-3">
-      <div className="flex items-start gap-3">
-        <FileText className="mt-0.5 h-4 w-4 shrink-0 text-paper-muted" aria-hidden="true" />
-        <div className="min-w-0">
-          <p className="text-sm font-semibold text-paper-ink">{file.name}</p>
-          <p className="mt-1 font-mono text-[10px] uppercase tracking-[0.08em] text-paper-muted">
-            {label}{file.mimeType ? ` · ${file.mimeType}` : ""}{file.sizeBytes ? ` · ${formatFileSize(file.sizeBytes)}` : ""}
-          </p>
-          <dl className="mt-3 space-y-1 font-mono text-[11px] leading-5 text-paper-muted">
-            <div>
-              <dt className="inline">File ID: </dt>
-              <dd className="inline break-all text-paper-ink">{file.fileId}</dd>
-            </div>
-            <div>
-              <dt className="inline">SHA-256: </dt>
-              <dd className="inline break-all text-paper-ink">{file.sha256}</dd>
-            </div>
-          </dl>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function ScopeDetail({ label, value }: Readonly<{ label: string; value: string }>) {
-  return (
-    <div className="border-b border-paper-hairline py-3 sm:pr-5">
-      <dt className="text-[11px] text-paper-muted">{label}</dt>
-      <dd className="mt-1 text-sm font-medium text-paper-ink">{value}</dd>
-    </div>
-  );
-}
-
 function ScopeLoadState({
   declaredModelUnits,
+  fix,
+  fixError,
+  isFixing,
   isScopeLoading,
+  onApplyFix,
   onOpenSourcingSettings,
   onRetryScope,
   organizationId,
-  providerLabel,
   scopeDenialCode,
   scopeError,
 }: Readonly<{
   declaredModelUnits: XometryBetaDeclaredModelUnits | null;
+  fix: QuoteRequestFix | null;
+  fixError: boolean;
+  isFixing: boolean;
   isScopeLoading: boolean;
+  onApplyFix?: (fix: QuoteRequestFix) => void;
   onOpenSourcingSettings?: () => void;
   onRetryScope?: () => void | Promise<void>;
   organizationId: string | null;
-  providerLabel: string;
   scopeDenialCode: XometryBetaScopeDenialCode | null;
   scopeError: string | null;
 }>) {
   if (!declaredModelUnits) {
-    return (
-      <output className="block border-y border-paper-hairline bg-paper-inset px-4 py-3 text-sm text-paper-muted">
-        Select the CAD model units to load the current {providerLabel} disclosure scope.
-      </output>
-    );
+    return null;
   }
 
-  if (isScopeLoading) {
+  if (isScopeLoading || isFixing) {
     return (
-      <output className="flex min-h-28 items-center justify-center gap-3 text-sm text-paper-muted">
+      <output className="flex items-center gap-2 text-sm text-paper-muted">
         <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-        Verifying the current {providerLabel} disclosure scope…
+        Checking this part…
       </output>
     );
   }
@@ -250,10 +165,15 @@ function ScopeLoadState({
 
   return (
     <>
-      <section role="alert" className="border-y border-destructive/40 bg-destructive/5 px-4 py-3">
-        <p className="text-sm font-semibold text-paper-ink">This package is not ready for controlled {providerLabel} beta dispatch.</p>
-        <p className="mt-1 text-sm leading-5 text-paper-muted">{scopeError}</p>
+      <section role="alert" className="border-y border-paper-hairline bg-paper-inset px-4 py-3">
+        <p className="text-sm leading-5 text-paper-ink">{scopeError}</p>
+        {fixError ? <p className="mt-1 text-sm text-paper-muted">That change didn't save. Try again.</p> : null}
         <div className="mt-3 flex flex-wrap gap-2">
+          {fix && onApplyFix ? (
+            <Button type="button" size="sm" className="rounded-[2px]" onClick={() => onApplyFix(fix)}>
+              {QUOTE_REQUEST_FIX_LABELS[fix]}
+            </Button>
+          ) : null}
           {addressRequired && !organizationId && onOpenSourcingSettings ? (
             <Button type="button" variant="outline" size="sm" className="rounded-[2px]" onClick={onOpenSourcingSettings}>
               <Settings className="mr-2 h-4 w-4" aria-hidden="true" />
@@ -263,14 +183,14 @@ function ScopeLoadState({
           {onRetryScope && (
             <Button type="button" variant="outline" size="sm" className="rounded-[2px]" onClick={() => void onRetryScope()}>
               <RefreshCw className="mr-2 h-4 w-4" aria-hidden="true" />
-              Retry scope check
+              Check again
             </Button>
           )}
         </div>
       </section>
       {addressRequired && organizationId ? (
-        // A successful confirmation re-runs the scope check, which replaces this panel.
-        <QuoteShippingAddressPanel organizationId={organizationId} providerLabel={providerLabel} onConfirmed={() => onRetryScope?.()} />
+        // A successful confirmation re-runs the check, which replaces this panel.
+        <QuoteShippingAddressPanel organizationId={organizationId} providerLabel="Supplier" onConfirmed={() => onRetryScope?.()} />
       ) : null}
     </>
   );
@@ -279,12 +199,10 @@ function ScopeLoadState({
 function SubmissionState({
   isQueued,
   onRetryScope,
-  providerLabel,
   submissionError,
 }: Readonly<{
   isQueued: boolean;
   onRetryScope?: () => void | Promise<void>;
-  providerLabel: string;
   submissionError: string | null;
 }>) {
   if (submissionError) {
@@ -293,7 +211,7 @@ function SubmissionState({
         <p className="text-sm text-paper-ink">{submissionError}</p>
         {onRetryScope ? (
           <Button type="button" variant="outline" size="sm" className="mt-3 rounded-[2px]" onClick={() => void onRetryScope()}>
-            Refresh current scope
+            Check again
           </Button>
         ) : null}
       </section>
@@ -305,13 +223,11 @@ function SubmissionState({
   }
 
   return (
-    <output className="flex gap-3 border-y border-emerald-500/30 bg-emerald-500/5 px-4 py-3">
-      <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700" aria-hidden="true" />
+    <output className="flex gap-3 border-y border-paper-hairline px-4 py-3">
+      <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-paper-muted" aria-hidden="true" />
       <span>
-        <strong className="block text-sm font-semibold text-paper-ink">{providerLabel} quote request queued</strong>
-        <span className="mt-1 block text-sm leading-5 text-paper-muted">
-          The exact confirmed scope is queued for dispatch. {providerLabel} has not yet been confirmed as having received the package.
-        </span>
+        <strong className="block text-sm font-semibold text-paper-ink">Quote request queued</strong>
+        <span className="mt-1 block text-sm leading-5 text-paper-muted">The supplier hasn't confirmed receipt yet.</span>
       </span>
     </output>
   );
@@ -322,6 +238,7 @@ export function XometryBetaDispatchConfirmationDialog({
   fanout = null,
   isScopeLoading = false,
   isSubmitting = false,
+  onApplyFix,
   onConfirm,
   onDeclaredModelUnitsChange,
   onOpenChange,
@@ -334,10 +251,10 @@ export function XometryBetaDispatchConfirmationDialog({
   scopeDenialCode = null,
   scopeError = null,
 }: Readonly<XometryBetaDispatchConfirmationDialogProps>) {
-  const providerLabel = LIVE_DISPATCH_PROVIDER_LABELS[provider];
-  // With fan out on, the disclosure names every provider the confirmation reaches.
-  const shareLabel = getShareLabel(fanout, providerLabel);
-  const [affirmations, setAffirmations] = useState<Affirmations>(EMPTY_AFFIRMATIONS);
+  // One box carries all three server attestations: authority to share, not
+  // export-controlled, and quote only. Ticking it sends each one as true.
+  const consentLabel = getConsentLabel(fanout);
+  const [consented, setConsented] = useState(false);
   const confirmationInFlight = useRef(false);
   const [isConfirming, setIsConfirming] = useState(false);
   const [uncertainAttempt, setUncertainAttempt] = useState<{
@@ -347,6 +264,8 @@ export function XometryBetaDispatchConfirmationDialog({
   const [approvalReference, setApprovalReference] = useState<string | null>(null);
   const [submissionError, setSubmissionError] = useState<string | null>(null);
   const [isQueued, setIsQueued] = useState(false);
+  const [isFixing, setIsFixing] = useState(false);
+  const [fixError, setFixError] = useState(false);
   const wasOpenRef = useRef(false);
   const displayedScope = uncertainAttempt?.scope ?? scope;
   const displayedUnits = uncertainAttempt?.input.declaredModelUnits ?? declaredModelUnits;
@@ -357,35 +276,33 @@ export function XometryBetaDispatchConfirmationDialog({
   const activeScope = scopeIdentity ? displayedScope : null;
   const effectiveScopeLoading = !uncertainAttempt && isScopeLoading;
   const effectiveScopeError = uncertainAttempt ? null : scopeError;
+  const effectiveDenialCode = uncertainAttempt ? null : scopeDenialCode;
   // Until the outcome is known, these controls describe an existing request.
   // Editing them must never discard the reference needed to reconcile it.
   const confirmationControlsLocked = isSubmitting || isConfirming || isQueued || Boolean(uncertainAttempt);
-  const hasAllAffirmations =
-    affirmations.authorityToShare &&
-    affirmations.nonExportControlled &&
-    affirmations.quoteOnly;
   const canConfirm =
     Boolean(activeScope) &&
     !effectiveScopeLoading &&
     !effectiveScopeError &&
+    !isFixing &&
     !isSubmitting &&
     !isConfirming &&
     !isQueued &&
-    (Boolean(uncertainAttempt) || hasAllAffirmations);
+    (Boolean(uncertainAttempt) || consented);
 
   useEffect(() => {
     if (uncertainAttempt) return;
-    setAffirmations(EMPTY_AFFIRMATIONS);
+    setConsented(false);
     setApprovalReference(null);
     // Scope changes revoke fresh consent; only an explicit new flow clears an outcome.
   }, [scopeIdentity, uncertainAttempt]);
 
-  // The authority box names the recipients, so a change to the send list
-  // (for example a guard refetch) withdraws that affirmation.
+  // With several suppliers the consent names them, so a change to the send
+  // list (for example a guard refetch) withdraws it.
   const recipientsKey = fanout ? fanout.plan.send.join(",") : provider;
   useEffect(() => {
     if (uncertainAttempt || confirmationInFlight.current) return;
-    setAffirmations((current) => (current.authorityToShare ? { ...current, authorityToShare: false } : current));
+    setConsented(false);
     setApprovalReference(null);
   }, [recipientsKey, uncertainAttempt]);
 
@@ -397,10 +314,11 @@ export function XometryBetaDispatchConfirmationDialog({
       return;
     }
 
-    setAffirmations(EMPTY_AFFIRMATIONS);
+    setConsented(false);
     setApprovalReference(null);
     setSubmissionError(null);
     setIsQueued(false);
+    setFixError(false);
     onDeclaredModelUnitsChange(null);
   }, [onDeclaredModelUnitsChange, open, uncertainAttempt]);
 
@@ -410,20 +328,21 @@ export function XometryBetaDispatchConfirmationDialog({
 
   const handleModelUnitsChange = (units: XometryBetaDeclaredModelUnits) => {
     if (confirmationInFlight.current || confirmationControlsLocked) return;
-    setAffirmations(EMPTY_AFFIRMATIONS);
+    setConsented(false);
     setApprovalReference(null);
     setSubmissionError(null);
     setIsQueued(false);
+    setFixError(false);
     onDeclaredModelUnitsChange(units);
   };
 
-  const updateAffirmation = (key: keyof Affirmations, checked: boolean) => {
+  const updateConsent = (checked: boolean) => {
     if (confirmationInFlight.current || confirmationControlsLocked) {
       return;
     }
 
     setSubmissionError(null);
-    setAffirmations((current) => ({ ...current, [key]: checked }));
+    setConsented(checked);
     if (!checked) {
       setApprovalReference(null);
     }
@@ -431,7 +350,27 @@ export function XometryBetaDispatchConfirmationDialog({
 
   const retryScope = () => {
     if (!uncertainAttempt) setSubmissionError(null);
+    setFixError(false);
     return onRetryScope?.();
+  };
+
+  // OVD-1163: apply the fix, then re-run the check without leaving the popup.
+  const applyFix = async (fix: QuoteRequestFix) => {
+    if (!onApplyFix || isFixing || confirmationControlsLocked) return;
+    setIsFixing(true);
+    setFixError(false);
+    try {
+      await onApplyFix(fix);
+    } catch {
+      setFixError(true);
+      setIsFixing(false);
+      return;
+    }
+    try {
+      await onRetryScope?.();
+    } finally {
+      setIsFixing(false);
+    }
   };
 
   const confirm = async () => {
@@ -445,6 +384,8 @@ export function XometryBetaDispatchConfirmationDialog({
     setApprovalReference(nextApprovalReference);
     setSubmissionError(null);
 
+    // The policy revision and scope fingerprint bind the consent to this exact
+    // server scope; they are sent, never shown.
     const attemptedInput: XometryBetaDispatchConfirmationInput = uncertainAttempt?.input ?? {
         approvalReference: nextApprovalReference,
         authorityToShare: true,
@@ -460,18 +401,16 @@ export function XometryBetaDispatchConfirmationDialog({
       if (result?.status === "unknown") {
         setUncertainAttempt({ scope: activeScope, input: attemptedInput });
         setSubmissionError(
-          `We could not confirm whether the request was queued. Retry with the same approval reference to check safely; do not create a new confirmation. Diagnostic: ${result.diagnosticCode ?? "unknown_failure"}.`,
+          `We could not confirm whether the request was queued. Try again; it won't be sent twice. Diagnostic: ${result.diagnosticCode ?? "unknown_failure"}.`,
         );
         return;
       }
 
       setUncertainAttempt(null);
       if (!result?.accepted) {
-        setAffirmations(EMPTY_AFFIRMATIONS);
+        setConsented(false);
         setApprovalReference(null);
-        setSubmissionError(
-          "The current package was not queued. We refreshed its authoritative state; review it and try again.",
-        );
+        setSubmissionError("The request was refused. We checked the part again; review it before trying again.");
         void onRetryScope?.();
         return;
       }
@@ -480,7 +419,7 @@ export function XometryBetaDispatchConfirmationDialog({
     } catch {
       setUncertainAttempt({ scope: activeScope, input: attemptedInput });
       setSubmissionError(
-        "We could not confirm whether the request was queued. Retry with the same approval reference to check safely; do not create a new confirmation. Diagnostic: unknown_failure.",
+        "We could not confirm whether the request was queued. Try again; it won't be sent twice. Diagnostic: unknown_failure.",
       );
     } finally {
       confirmationInFlight.current = false;
@@ -489,171 +428,82 @@ export function XometryBetaDispatchConfirmationDialog({
   };
 
   const requirements = activeScope?.scope.requirements;
-  const specification = requirements?.specification;
+  const quotedAsMachined = isQuotedAsMachined(requirements?.finish, requirements?.specification);
+  const showFanout = Boolean(fanout && activeScope && fanout.plan.send.length > 1);
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="max-h-[calc(100svh-2rem)] w-[calc(100vw-2rem)] max-w-2xl overflow-y-auto border-paper-hairline bg-paper-surface p-0 text-paper-ink sm:rounded-[4px]">
-        <DialogHeader className="border-b border-paper-hairline px-5 pb-5 pt-6 text-left sm:px-7">
-          <p className="font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-paper-red">
-            Founding Beta · {providerLabel}
-          </p>
-          <DialogTitle className="font-display text-2xl font-bold tracking-[-0.035em]">
-            Confirm {providerLabel} beta quote request
-          </DialogTitle>
-          <DialogDescription className="max-w-xl text-sm leading-6 text-paper-muted">
-            Review the exact package OverDrafter will queue for {shareLabel}. This creates a quote request only—no card charge, order, purchase order, or supplier commitment.
-          </DialogDescription>
+      <DialogContent className="max-h-[calc(100svh-2rem)] w-[calc(100vw-2rem)] max-w-md overflow-y-auto border-paper-hairline bg-paper-surface p-0 text-paper-ink sm:rounded-[4px]">
+        <DialogHeader className="px-5 pb-0 pt-5 text-left">
+          <DialogTitle className="font-display text-xl font-bold tracking-[-0.02em]">Request a quote</DialogTitle>
+          <DialogDescription className="text-sm text-paper-ink">What units is this CAD model in?</DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-6 px-5 py-5 sm:px-7">
-          <section aria-labelledby="model-units-heading">
-            <h3 id="model-units-heading" className="font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-paper-muted">
-              CAD model units
-            </h3>
-            <p className="mt-2 text-sm leading-5 text-paper-muted">
-              Choose the units used by this CAD model. This declaration is part of the confirmed {providerLabel} scope.
-            </p>
-            <div className="mt-3 grid gap-2 sm:grid-cols-2">
-              {([
-                ["inch", "Inches"],
-                ["millimeter", "Millimeters"],
-              ] as const).map(([units, label]) => (
-                <Button
-                  key={units}
-                  type="button"
-                  variant="outline"
-                  aria-pressed={displayedUnits === units}
-                  className={cn(
-                    "justify-start rounded-[2px] border-paper-hairline bg-transparent",
-                    displayedUnits === units && "border-paper-red bg-paper-inset text-paper-ink",
-                  )}
-                  disabled={confirmationControlsLocked}
-                  onClick={() => handleModelUnitsChange(units)}
-                >
-                  {label}
-                </Button>
-              ))}
-            </div>
-          </section>
+        <div className="space-y-4 px-5 py-4">
+          <div className="grid grid-cols-2 gap-2" role="group" aria-label="CAD model units">
+            {([
+              ["inch", "Inches"],
+              ["millimeter", "Millimeters"],
+            ] as const).map(([units, label]) => (
+              <Button
+                key={units}
+                type="button"
+                variant="outline"
+                aria-pressed={displayedUnits === units}
+                className={cn(
+                  "rounded-[2px] border-paper-hairline bg-transparent",
+                  displayedUnits === units && "border-paper-red bg-paper-inset text-paper-ink",
+                )}
+                disabled={confirmationControlsLocked}
+                onClick={() => handleModelUnitsChange(units)}
+              >
+                {label}
+              </Button>
+            ))}
+          </div>
 
           <ScopeLoadState
             declaredModelUnits={displayedUnits}
+            fix={getQuoteRequestFix(effectiveDenialCode)}
+            fixError={fixError}
+            isFixing={isFixing}
             isScopeLoading={effectiveScopeLoading}
+            onApplyFix={onApplyFix ? (fix) => void applyFix(fix) : undefined}
             onOpenSourcingSettings={onOpenSourcingSettings}
             onRetryScope={retryScope}
             organizationId={organizationId}
-            providerLabel={providerLabel}
-            scopeDenialCode={uncertainAttempt ? null : scopeDenialCode}
+            scopeDenialCode={effectiveDenialCode}
             scopeError={effectiveScopeError}
           />
 
-          {activeScope && !effectiveScopeLoading && !effectiveScopeError ? (
+          {activeScope && !effectiveScopeLoading && !effectiveScopeError && !isFixing ? (
             <>
-              <section aria-labelledby="dispatch-scope-heading">
-                <h3 id="dispatch-scope-heading" className="font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-paper-muted">
-                  Exact disclosure scope
-                </h3>
-                <dl className="mt-2 grid border-y border-paper-hairline sm:grid-cols-2">
-                  <ScopeDetail label="Provider" value={providerLabel} />
-                  <ScopeDetail label="Quote quantity" value={`${activeScope.requestedQuantity} part${activeScope.requestedQuantity === 1 ? "" : "s"}`} />
-                  <ScopeDetail label="Confirmed shipping destination" value={`${activeScope.scope.destination.street}, ${activeScope.scope.destination.city}, ${[activeScope.scope.destination.region, activeScope.scope.destination.postalCode].filter(Boolean).join(" ")}, ${activeScope.scope.destination.country}`} />
-                  <ScopeDetail label="Policy revision" value={activeScope.policyRevision} />
-                  <ScopeDetail label="Envelope revision" value={activeScope.envelopeRevision} />
-                  <div className="border-b border-paper-hairline py-3 sm:col-span-2">
-                    <dt className="text-[11px] text-paper-muted">Scope fingerprint</dt>
-                    <dd className="mt-1 break-all font-mono text-xs text-paper-ink">{activeScope.scopeFingerprint}</dd>
-                  </div>
-                </dl>
-              </section>
-
-              <section aria-labelledby="disclosure-files-heading">
-                <h3 id="disclosure-files-heading" className="font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-paper-muted">
-                  Files to be shared
-                </h3>
-                <div className="mt-2 border-t border-paper-hairline">
-                  <DisclosureFile label="CAD" file={activeScope.scope.part.cad} providerLabel={providerLabel} />
-                  <DisclosureFile label="Drawing" file={activeScope.scope.part.drawing} providerLabel={providerLabel} />
-                </div>
-              </section>
-
-              <section aria-labelledby="normalized-requirements-heading">
-                <h3 id="normalized-requirements-heading" className="font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-paper-muted">
-                  Normalized manufacturing requirements
-                </h3>
-                <dl className="mt-2 grid border-y border-paper-hairline sm:grid-cols-2">
-                  <ScopeDetail label="Part number" value={formatValue(requirements?.partNumber)} />
-                  <ScopeDetail label="Revision" value={formatValue(requirements?.revision)} />
-                  <ScopeDetail label="Description" value={formatValue(requirements?.description)} />
-                  <ScopeDetail label="Process" value={formatValue(getSpecificationValue(specification, "process"))} />
-                  <ScopeDetail label="Material" value={formatValue(requirements?.material)} />
-                  <ScopeDetail label="Finish" value={formatValue(requirements?.finish, "As machined")} />
-                  <ScopeDetail
-                    label="Tightest tolerance"
-                    value={
-                      requirements?.tightestToleranceInch === null || requirements?.tightestToleranceInch === undefined
-                        ? "Not specified"
-                        : `±${requirements.tightestToleranceInch} in`
-                    }
-                  />
-                  <ScopeDetail label="Requested quantity" value={`${activeScope.requestedQuantity}`} />
-                </dl>
-              </section>
-
-              <section aria-labelledby="dispatch-affirmations-heading">
-                <h3 id="dispatch-affirmations-heading" className="font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-paper-muted">
-                  Your affirmations
-                </h3>
-                <div className="mt-2 divide-y divide-paper-hairline border-y border-paper-hairline">
-                  <label className="flex cursor-pointer gap-3 py-4 text-sm leading-5 has-[:disabled]:cursor-default has-[:disabled]:opacity-65">
-                    <Checkbox
-                      checked={Boolean(uncertainAttempt) || affirmations.authorityToShare}
-                      disabled={confirmationControlsLocked}
-                      aria-label={`I am authorized to share these files and requirements with ${shareLabel} to request a quote.`}
-                      onCheckedChange={(checked) => updateAffirmation("authorityToShare", checked === true)}
-                    />
-                    <span>I am authorized to share these files and requirements with {shareLabel} to request a quote.</span>
-                  </label>
-                  <label className="flex cursor-pointer gap-3 py-4 text-sm leading-5 has-[:disabled]:cursor-default has-[:disabled]:opacity-65">
-                    <Checkbox
-                      checked={Boolean(uncertainAttempt) || affirmations.nonExportControlled}
-                      disabled={confirmationControlsLocked}
-                      aria-label="I confirm this package is not ITAR, CUI, export-controlled, or otherwise restricted from this beta workflow."
-                      onCheckedChange={(checked) => updateAffirmation("nonExportControlled", checked === true)}
-                    />
-                    <span>I confirm this package is not ITAR, CUI, export-controlled, or otherwise restricted from this beta workflow.</span>
-                  </label>
-                  <label className="flex cursor-pointer gap-3 py-4 text-sm leading-5 has-[:disabled]:cursor-default has-[:disabled]:opacity-65">
-                    <Checkbox
-                      checked={Boolean(uncertainAttempt) || affirmations.quoteOnly}
-                      disabled={confirmationControlsLocked}
-                      aria-label="I understand this is quote-only: it creates no card charge, order, purchase order, or supplier commitment."
-                      onCheckedChange={(checked) => updateAffirmation("quoteOnly", checked === true)}
-                    />
-                    <span>I understand this is quote-only: it creates no card charge, order, purchase order, or supplier commitment.</span>
-                  </label>
-                </div>
-              </section>
+              {quotedAsMachined ? (
+                <p className="text-sm text-paper-muted">Quoting as machined. The price won't include the finish.</p>
+              ) : null}
+              {showFanout && fanout ? <ProviderFanoutStatus plan={fanout.plan} outcomes={fanout.outcomes} /> : null}
+              <label className="flex cursor-pointer gap-3 text-sm leading-5 has-[:disabled]:cursor-default has-[:disabled]:opacity-65">
+                <Checkbox
+                  checked={Boolean(uncertainAttempt) || consented}
+                  disabled={confirmationControlsLocked}
+                  aria-label={consentLabel}
+                  onCheckedChange={(checked) => updateConsent(checked === true)}
+                />
+                <span>{consentLabel}</span>
+              </label>
             </>
           ) : null}
 
-          {fanout && activeScope ? <ProviderFanoutStatus plan={fanout.plan} outcomes={fanout.outcomes} /> : null}
-
-          <SubmissionState
-            isQueued={isQueued}
-            onRetryScope={retryScope}
-            providerLabel={providerLabel}
-            submissionError={submissionError}
-          />
+          <SubmissionState isQueued={isQueued} onRetryScope={retryScope} submissionError={submissionError} />
         </div>
 
-        <DialogFooter className="gap-2 border-t border-paper-hairline bg-paper-inset px-5 py-4 sm:px-7">
+        <DialogFooter className="gap-2 border-t border-paper-hairline px-5 py-3">
           <Button type="button" variant="outline" className="rounded-[2px]" disabled={isSubmitting} onClick={() => handleOpenChange(false)}>
             Close
           </Button>
           <Button type="button" className="rounded-[2px]" disabled={!canConfirm} onClick={() => void confirm()}>
-            {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" /> : <ShieldCheck className="mr-2 h-4 w-4" aria-hidden="true" />}
-            Confirm & queue {providerLabel} quote
+            {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" /> : null}
+            Send quote request
           </Button>
         </DialogFooter>
       </DialogContent>
