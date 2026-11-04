@@ -1,7 +1,7 @@
 {
   "schema": "free-quote-ci-source.v1",
   "scope": "fresh-full-head; baseline126 comparison; not production/live112 upgrade qualification",
-  "migrationCount": 175,
+  "migrationCount": 177,
   "baselineCount": 126,
   "migrations": [
     "supabase/migrations/20251106035356_483321a4-d45c-47bd-bdae-71625fcdec1a.sql",
@@ -178,6 +178,8 @@
     "supabase/migrations/20261101130200_ovd994_clear_need_by_and_threads.sql",
     "supabase/migrations/20261101130300_ovd1011_client_part_metadata_defaults.sql",
     "supabase/migrations/20261101130400_ovd1012_legacy_tolerance_unit_unknown.sql",
+    "supabase/migrations/20261104032000_ovd1000_accept_result_lane_quantity.sql",
+    "supabase/migrations/20261104032100_ovd829_provider_daily_quote_cap.sql",
     "supabase/migrations/20261104032200_ovd1151_client_part_request_metadata.sql"
   ],
   "contractMigrationCount": 133,
@@ -386,6 +388,16 @@
       "path": "supabase/migrations/20261101130400_ovd1012_legacy_tolerance_unit_unknown.sql",
       "issue": "OVD-1012",
       "sha256": "866b8a9ddc6d9f384496e8f3b3a09a5139a4c630ae92e9e16d67a5d3d5459278"
+    },
+    {
+      "path": "supabase/migrations/20261104032000_ovd1000_accept_result_lane_quantity.sql",
+      "issue": "OVD-1000",
+      "sha256": "eec4f807525402e3e625279e9813eb1cbbf2f424e6d7486cd08bf5c009e616af"
+    },
+    {
+      "path": "supabase/migrations/20261104032100_ovd829_provider_daily_quote_cap.sql",
+      "issue": "OVD-829",
+      "sha256": "350b34f46b15a8f8cbbdb2a65cd989f0e3d592c92e171e819f209df280548549"
     },
     {
       "path": "supabase/migrations/20261104032200_ovd1151_client_part_request_metadata.sql",
@@ -828,6 +840,8 @@
     "supabase/migrations/20261101130200_ovd994_clear_need_by_and_threads.sql": "4cd268bf66461dd96767061134763f0157dca9a4067326cfd33d561eac6e0f7c",
     "supabase/migrations/20261101130300_ovd1011_client_part_metadata_defaults.sql": "fb9acb7f07576dd626f4f4f6827ceae6f621c25a5cc0a9a4690ff05cf0c9b85c",
     "supabase/migrations/20261101130400_ovd1012_legacy_tolerance_unit_unknown.sql": "866b8a9ddc6d9f384496e8f3b3a09a5139a4c630ae92e9e16d67a5d3d5459278",
+    "supabase/migrations/20261104032000_ovd1000_accept_result_lane_quantity.sql": "eec4f807525402e3e625279e9813eb1cbbf2f424e6d7486cd08bf5c009e616af",
+    "supabase/migrations/20261104032100_ovd829_provider_daily_quote_cap.sql": "350b34f46b15a8f8cbbdb2a65cd989f0e3d592c92e171e819f209df280548549",
     "supabase/migrations/20261104032200_ovd1151_client_part_request_metadata.sql": "dc8001afa7023e5ed87f02f6ee1b4b0fdc96649dc0880df0595abcd625101617"
   }
 }

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { cpSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -295,6 +296,57 @@ test('OVD-1012 pgTAP fixtures are byte copies of the migration and rollback they
   const suite = readFileSync(join(source, 'ovd1012_legacy_tolerance_unit_unknown.sql'), 'utf8');
   assert.match(suite, /\\ir fixtures\/ovd1012_legacy_tolerance_unit_unknown\.inc\n/);
   assert.match(suite, /\\ir fixtures\/ovd1012_legacy_tolerance_unit_unknown_rollback\.inc\n/);
+});
+
+test('OVD-1000 pgTAP fixture is a byte copy of the rollback it drills', () => {
+  assert.deepEqual(readFileSync(join(source, 'fixtures/ovd1000_accept_result_lane_quantity_rollback.inc')),
+    readFileSync(fileURLToPath(new URL('../docs/migration-drafts/ovd-1000.rollback.sql', import.meta.url))));
+  const suite = readFileSync(join(source, 'ovd1000_accept_result_lane_quantity.sql'), 'utf8');
+  assert.match(suite, /\\ir fixtures\/ovd1000_accept_result_lane_quantity_rollback\.inc\n/);
+});
+
+test('OVD-829 pgTAP fixtures are byte copies of the migration and rollback the drill applies', () => {
+  const migration = 'supabase/migrations/20261104032100_ovd829_provider_daily_quote_cap.sql';
+  for (const [fixture, file] of [
+    ['ovd829_provider_daily_quote_cap.inc', migration],
+    ['ovd829_rollback.inc', 'docs/migration-drafts/ovd-829.rollback.sql'],
+  ]) {
+    assert.deepEqual(readFileSync(join(source, 'fixtures', fixture)),
+      readFileSync(fileURLToPath(new URL(`../${file}`, import.meta.url))));
+  }
+  const suite = readFileSync(join(source, 'ovd829_provider_settings_rollback.sql'), 'utf8');
+  assert.match(suite, /\\ir fixtures\/ovd829_provider_daily_quote_cap\.inc\n/);
+  assert.match(suite, /\\ir fixtures\/ovd829_rollback\.inc\n/);
+});
+
+test('OVD-829 md5 guards name the deployed bodies they replace and the bodies they restore', () => {
+  const read = file => readFileSync(fileURLToPath(new URL(`../${file}`, import.meta.url)), 'utf8');
+  const md5 = text => createHash('md5').update(text).digest('hex');
+  const body = (text, name) => {
+    const start = text.indexOf(`create or replace function ${name}(`);
+    assert.notEqual(start, -1, `${name} is defined`);
+    const open = text.indexOf('$$', start) + 2;
+    return text.slice(open, text.indexOf('$$', open));
+  };
+  const migration = read('supabase/migrations/20261104032100_ovd829_provider_daily_quote_cap.sql');
+  const rollback = read('docs/migration-drafts/ovd-829.rollback.sql');
+  const deployed = {
+    'public.api_admin_set_provider_kill_switch': read('supabase/migrations/20261016000156_ovd767_admin_write_aal2_guards.sql'),
+    'public.api_admin_list_provider_kill_switches': read('supabase/migrations/20261013043100_ovd722_provider_kill_switch.sql'),
+  };
+  for (const [name, baseline] of Object.entries(deployed)) {
+    const before = md5(body(baseline, name));
+    const after = md5(body(migration, name));
+    const pair = new RegExp(String.raw`'${name.replace('.', String.raw`\.`)}\([^']*\)',\s*array\['([0-9a-f]{32})', '([0-9a-f]{32})'\]`);
+    assert.deepEqual(migration.match(pair)?.slice(1), [before, after], `migration guard for ${name}`);
+    assert.deepEqual(rollback.match(pair)?.slice(1), [after, before], `rollback guard for ${name}`);
+    assert.equal(md5(body(rollback, name)), before, `rollback restores ${name} byte for byte`);
+  }
+  for (const name of ['public.api_worker_reserve_provider_dispatch', 'public.api_worker_provider_settings_state',
+    'private.write_provider_settings', 'public.api_admin_set_provider_settings', 'public.api_service_set_provider_daily_quote_cap']) {
+    const single = new RegExp(String.raw`'${name.replace('.', String.raw`\.`)}\([^']*\)',\s*array\['([0-9a-f]{32})'\], true`);
+    assert.equal(migration.match(single)?.[1], md5(body(migration, name)), `migration guard for new ${name}`);
+  }
 });
 
 test('OVD-1011 pgTAP fixture is a byte copy of the rollback it drills', () => {
