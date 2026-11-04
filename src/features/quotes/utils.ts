@@ -20,11 +20,16 @@ import type {
   RequirementFieldName,
   RequirementFieldOwnership,
   RequirementFieldResolution,
+  RfqLineItemExtendedMetadata,
 } from "@/features/quotes/types";
 import type { ClientOptionKind, Json, VendorName } from "@/integrations/supabase/types";
 import { normalizeImportedPartNumber } from "@/features/quotes/part-reference";
 import { readWorkerNotes } from "@/features/quotes/provider-notes";
-import { readRfqLineItemExtendedMetadata } from "@/features/quotes/rfq-metadata";
+import {
+  normalizeRfqLineItemExtendedMetadata,
+  readRfqLineItemExtendedMetadata,
+  sanitizeClientVisibleRfqLineItemExtendedMetadata,
+} from "@/features/quotes/rfq-metadata";
 import {
   formatRequestedQuoteQuantitiesInput,
   normalizeRequestedQuoteQuantities,
@@ -777,6 +782,12 @@ export function normalizeClientPartMetadata(
       quoteQuantities: normalizeRequestedQuoteQuantities(asArray<number>(payload.quoteQuantities), quantityCandidate),
       requestedByDate: typeof payload.requestedByDate === "string" ? payload.requestedByDate : null,
       projectPartProperties: normalizeClientPartPropertyState(payload.projectPartProperties),
+      requestMetadata:
+        payload.requestMetadata && typeof payload.requestMetadata === "object" && !Array.isArray(payload.requestMetadata)
+          ? sanitizeClientVisibleRfqLineItemExtendedMetadata(
+              payload.requestMetadata as Partial<RfqLineItemExtendedMetadata>,
+            )
+          : null,
     },
     extraction: {
       lifecycle:
@@ -893,7 +904,11 @@ export function buildRequirementDraft(
   const process = readSpecSnapshotString(approved?.spec_snapshot, "process");
   const processDefault = serviceIntent.primaryServiceKind === "manufacturing_quote" ? "CNC Machining" : null;
   const notes = readSpecSnapshotString(approved?.spec_snapshot, "notes");
-  const metadata = readRfqLineItemExtendedMetadata(approved?.spec_snapshot);
+  // A client cannot read the approved snapshot; its metadata projection carries the
+  // client-visible RFQ details instead, so a full save resends what is stored (OVD-1151).
+  const metadata = approved
+    ? readRfqLineItemExtendedMetadata(approved.spec_snapshot)
+    : normalizeRfqLineItemExtendedMetadata(clientRequirement?.requestMetadata);
   const materialRequired = requestedServicesRequireMaterial(serviceIntent.requestedServiceKinds);
   const quantity =
     clientRequirement?.quantity ??

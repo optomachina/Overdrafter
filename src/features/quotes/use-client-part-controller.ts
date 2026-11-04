@@ -1644,7 +1644,8 @@ export function useClientPartController(
   };
 
   const handleSaveRequest = () => {
-    if (!effectiveRequestDraft) {
+    // The draft still holds the override a pending reset removes; saving it would put it back (OVD-1155).
+    if (!effectiveRequestDraft || resetFieldMutation.isPending) {
       return;
     }
 
@@ -1684,7 +1685,8 @@ export function useClientPartController(
   };
 
   const handleSaveRequestPatch = (next: Partial<ClientPartRequestUpdateInput>) => {
-    if (!fallbackRequestDraft) {
+    // The server draft still holds the override a pending reset removes (OVD-1155).
+    if (!fallbackRequestDraft || resetFieldMutation.isPending) {
       return;
     }
 

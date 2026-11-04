@@ -29,9 +29,13 @@ describe("OVD-1011 client reset defaults migration", () => {
     expect(migration).toContain("create or replace function private.api_list_client_part_metadata(");
     expect(migration).not.toContain("create or replace function public.");
     const newer = readdirSync("supabase/migrations").filter((name) => name > filename);
-    expect(newer.filter((name) => /create or replace function (?:public|private)\.api_list_client_part_metadata/.test(
+    expect(newer.filter((name) => /create or replace function private\.api_list_client_part_metadata/.test(
       readFileSync(`supabase/migrations/${name}`, "utf8"),
     ))).toEqual([]);
+    // OVD-1151 restates only the public wrapper, on top of this private body.
+    expect(newer.filter((name) => /create or replace function public\.api_list_client_part_metadata/.test(
+      readFileSync(`supabase/migrations/${name}`, "utf8"),
+    ))).toEqual(["20261104031900_ovd1151_client_part_request_metadata.sql"]);
   });
 
   it("preserves security attributes and the private ACL in both directions", () => {

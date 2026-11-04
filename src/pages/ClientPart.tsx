@@ -239,6 +239,7 @@ const ClientPart = () => {
     needByFilterIsViewOnly,
     clearNeedByMutation,
     revisionOptions,
+    resetFieldMutation,
     saveRequestMutation,
     singleQuantity,
     selectedQuoteOption,
@@ -274,6 +275,10 @@ const ClientPart = () => {
     refetchXometryDispatchScope,
     isXometryDispatchScopeLoading,
   } = useClientPartController(undefined, { warmNavigation: false });
+  // A pending field reset counts as a request write: until it lands, the draft still holds the
+  // override it removes, so any save would put it back (OVD-1155).
+  const isRequestWritePending =
+    saveRequestMutation.isPending || clearNeedByMutation.isPending || resetFieldMutation.isPending;
   const focusNeedByAfterRemove = useRef(false);
   useEffect(() => {
     if (focusNeedByAfterRemove.current && !saveRequestMutation.isPending && !clearNeedByMutation.isPending) {
@@ -400,7 +405,7 @@ const ClientPart = () => {
   };
 
   const handleQuoteRequestFlowOpenChange = (open: boolean) => {
-    if (open && (saveRequestMutation.isPending || clearNeedByMutation.isPending)) {
+    if (open && isRequestWritePending) {
       return;
     }
 
@@ -542,7 +547,7 @@ const ClientPart = () => {
         onDraftChange={handleDraftChange}
         onSave={handleSaveRequest}
         onUploadRevision={attachFilesPicker.openFilePicker}
-        isSaving={saveRequestMutation.isPending || clearNeedByMutation.isPending}
+        isSaving={isRequestWritePending}
         onResetField={handleResetField}
         onResetAllFields={handleResetAllFields}
         fieldDefaults={partFieldDefaults}
@@ -691,7 +696,7 @@ const ClientPart = () => {
         provider={dispatchProvider}
         fanout={providerFanout}
         scope={automaticQuoteCollectionEnabled ? xometryDispatchScope : null}
-        isScopeLoading={isXometryDispatchScopeLoading || saveRequestMutation.isPending || clearNeedByMutation.isPending}
+        isScopeLoading={isXometryDispatchScopeLoading || isRequestWritePending}
         isSubmitting={isRequestingQuote}
         scopeError={
           automaticQuoteCollectionEnabled
@@ -983,7 +988,7 @@ const ClientPart = () => {
                   <ClientSourcingResultPanel
                     result={sourcingResult}
                     selectedProcess={effectiveRequestDraft?.process}
-                    isProcessSaving={saveRequestMutation.isPending || clearNeedByMutation.isPending}
+                    isProcessSaving={isRequestWritePending}
                     onProcessSelect={(process) => handleSaveRequestPatch({ process })}
                   />
                 ) : null}
@@ -1055,7 +1060,7 @@ const ClientPart = () => {
                               focusNeedByAfterRemove.current = true;
                               clearNeedByMutation.mutate();
                             }}
-                            disabled={saveRequestMutation.isPending || clearNeedByMutation.isPending}
+                            disabled={isRequestWritePending}
                           />
                         ) : null}
                         <QuoteSelectionFunctionBar
@@ -1065,7 +1070,7 @@ const ClientPart = () => {
                           deadlineCounts={viewDeadline ? deadlineCounts : null}
                           onScopeChange={(nextScope) => applyPartPreset(partPresetMode, nextScope)}
                           onRequestedByDateChange={handleNeedByFilterChange}
-                          disabled={saveRequestMutation.isPending || clearNeedByMutation.isPending}
+                          disabled={isRequestWritePending}
                           dueDateHelpText={
                             needByFilterIsViewOnly
                               ? NEED_BY_VIEW_ONLY_HELP_TEXT
@@ -1079,7 +1084,7 @@ const ClientPart = () => {
                   <ClientSourcingResultPanel
                     result={sourcingResult}
                     selectedProcess={effectiveRequestDraft?.process}
-                    isProcessSaving={saveRequestMutation.isPending || clearNeedByMutation.isPending}
+                    isProcessSaving={isRequestWritePending}
                     onProcessSelect={(process) => handleSaveRequestPatch({ process })}
                   />
                 ) : null}
