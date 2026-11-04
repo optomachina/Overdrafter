@@ -40,7 +40,10 @@ const EMPTY_APP_SESSION: AppSessionData = {
 // Shared by every observer, including a queryFn owned by an unmounted observer.
 const sessionEpochs = new WeakMap<QueryClient, number>();
 const failedRestores = new WeakSet<QueryClient>();
-const pendingRestores = new WeakMap<QueryClient, { epoch: number; promise: Promise<AppSessionData>; timedOut: boolean }>();
+// accessToken is the stored token the restore started from: it identifies the
+// session a late INITIAL_SESSION replay carries.
+type PendingRestore = { epoch: number; promise: Promise<AppSessionData>; timedOut: boolean; accessToken: string | null };
+const pendingRestores = new WeakMap<QueryClient, PendingRestore>();
 const getSessionEpoch = (client: QueryClient) => sessionEpochs.get(client) ?? 0;
 
 function advanceSessionEpoch(client: QueryClient, cancelFetch = true) {
@@ -401,10 +404,16 @@ export function useAppSession() {
       // bootstrap and the in-flight restore already read. Restarting the query
       // for it cancels that restore and queues another serialised getUser()
       // behind the lock, so under latency the restore never finishes.
+      // The same holds after the deadline settled without a user while that
+      // restore is still pending: its late success is adopted, so reseeding here
+      // would reopen the splash and drop it.
       if (event === "INITIAL_SESSION") {
         const cached = queryClient.getQueryData<AppSessionData>(APP_SESSION_QUERY_KEY);
+        const pending = pendingRestores.get(queryClient);
         if (queryClient.isFetching({ queryKey: APP_SESSION_QUERY_KEY }) > 0 ||
-            (cached?.user?.id === session.user.id && cached.restoreComplete === true)) {
+            (cached?.user?.id === session.user.id && cached.restoreComplete === true) ||
+            (pending?.accessToken != null && pending.accessToken === session.access_token &&
+              pending.accessToken === getStoredSupabaseAccessToken())) {
           return;
         }
       }
@@ -451,7 +460,12 @@ export function useAppSession() {
       let pending = pendingRestores.get(queryClient);
       if (!pending && !failedRestores.has(queryClient) && !sessionErrorRetriedRef.current && !membershipErrorRetriedRef.current &&
           !isRestoredSession(queryClient.getQueryData(APP_SESSION_QUERY_KEY))) {
-        const entry = { epoch, promise: fetchAppSessionData(), timedOut: false };
+        const entry: PendingRestore = {
+          epoch,
+          accessToken: getStoredSupabaseAccessToken(),
+          promise: fetchAppSessionData(),
+          timedOut: false,
+        };
         pending = entry;
         pendingRestores.set(queryClient, entry);
         signal.addEventListener("abort", () => {
