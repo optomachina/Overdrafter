@@ -34,9 +34,9 @@ quote, file transfer, provider execution, payment behavior, or release readiness
 
 | Trigger | Observable acceptance | Failure detected |
 | --- | --- | --- |
-| Eligible enrolled Free client opens confirmation | Units blank, no scope call until chosen, all three affirmations required, exact disclosure visible | Implicit consent or bypassed Free access |
+| Eligible enrolled Free client opens confirmation | Units blank, no scope call until chosen, one consent line required (sends all three attestations), no beta, supplier, fingerprint or file text shown (OVD-1163) | Implicit consent or bypassed Free access |
 | Quote access blocked, lookup error, malformed response | Request action absent; zero scope/dispatch calls | Fail-open access |
-| Scope lookup error or malformed response | Error, no affirmations, disabled submit; explicit retry recovers | Malformed/stale scope admitted |
+| Scope lookup error or malformed response | Error, no consent, disabled submit; Check again recovers | Malformed/stale scope admitted |
 | Units changed before submission | Consent cleared; millimeter scope and units serialized | Old consent applied to new scope |
 | Pending request, repeat activation and attempted edits | Single RPC; units/checkboxes/submit locked | Duplicate requests or mutable in-flight scope |
 | Commit followed by lost HTTP response | Truthful unknown status, no queued claim, consent controls locked | Unknown result presented as success |
@@ -46,8 +46,9 @@ quote, file transfer, provider execution, payment behavior, or release readiness
 | Explicit stale-scope/free-allowance denial | No create; refreshed scope shown, consent reset; fresh confirmation has new key and scope | Stale confirmation automatically reused after denial |
 | Unknown recovery explicitly denied while access blocked | No create, no fresh consent, no request/recovery action after closing | Recovery privilege survives definitive denial |
 | Scope denied for a missing shipping address (OVD-1068) | Inline form names missing fields; Save and confirm writes shipping fields, confirms the read-back address, re-runs the scope by itself; after reload the scope loads with no panel and no second confirmation | Customer sent to Settings, a draft confirmed instead of the saved address, or client-only confirmation state |
+| Finished part refused (OVD-1163) | Plain "Finishes can't be quoted yet" line; one-click Quote as machined calls only the quote-only RPC, re-runs the scope by itself, never the request update; screenshots of both states kept as test output | Drawing finish rewritten, a manual re-check required, or consent offered before the re-check |
 | Close before submit, reopen, Escape | Unsubmitted consent discarded; no dispatch or stale dialog | Accidental submit or stale consent |
-| Scope 400, dispatch 500 or quote-access 401 whose body carries JWT, `service_role`, `storageState`, stack-frame and email sentinels (`errors.browser.ts`) | Bounded copy with Retry scope check, Close then Check previous quote request, or reload; no sentinel in body text, toasts, dialogs or markup | Server error text or secrets forwarded to customers |
+| Scope 400, dispatch 500 or quote-access 401 whose body carries JWT, `service_role`, `storageState`, stack-frame and email sentinels (`errors.browser.ts`) | Bounded copy with Check again, Close then Check previous quote request, or reload; no sentinel in body text, toasts, dialogs or markup | Server error text or secrets forwarded to customers |
 
 Source review identified and this bounded repair addresses an existing recovery
 edge: closing an uncertain confirmation after quote access becomes blocked had

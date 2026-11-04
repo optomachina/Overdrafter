@@ -12,6 +12,9 @@ select plan(127);
 -- OVD-1007 restates S1, S3 and S4 on top of OVD-987. Its rollback (a byte copy
 -- of docs/migration-drafts/ovd-1007.rollback.sql) restores the OVD-987 bodies
 -- inside this rolled-back transaction, so this suite tests the OVD-987 layer.
+-- OVD-1163 restates S1 on top of OVD-1007; its rollback (a byte copy of
+-- docs/migration-drafts/ovd-1163.rollback.sql) restores the OVD-1007 body first.
+\ir fixtures/ovd1163_rollback.inc
 \ir fixtures/ovd1007_xometry_beta_quantity_grant_rollback.inc
 
 -- ---------------------------------------------------------------- 0. rollback drill

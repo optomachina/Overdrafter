@@ -1211,6 +1211,18 @@ export async function clearClientPartRequestedByDate(jobId: string): Promise<str
   return ensureData(data, error);
 }
 
+/**
+ * OVD-1163: the quote-only "Quote as machined" choice. It records the current
+ * drawing finish it overrides and never changes the finish itself.
+ */
+export async function setClientPartQuoteAsMachined(jobId: string, quoteAsMachined = true): Promise<void> {
+  const { error } = await callRpc("api_set_client_part_quote_as_machined", {
+    p_job_id: jobId,
+    p_quote_as_machined: quoteAsMachined,
+  });
+  if (error) throw error;
+}
+
 export async function updateClientPartRequest(input: ClientPartRequestUpdateInput): Promise<string> {
   const fixtureGateway = getActiveClientWorkspaceGateway();
 

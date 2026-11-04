@@ -295,10 +295,26 @@ export const XOMETRY_CNC_PROCESS_TERMS = ["CNC Machining"];
  */
 export const XOMETRY_AS_MACHINED_FINISH_TERMS = ["As Machined", "Standard"];
 
+/**
+ * OVD-1163: 6061 written without a temper ("6061", "6061 Alloy", "Al 6061")
+ * is the beta's 6061-T6. T651, T6511 and "T6/T651" are T6 stress-relieved by
+ * stretching (ANSI H35.1) with T6's mechanical properties, and are what bar
+ * and plate 6061-T6 is supplied as, so they map to Xometry's 6061-T6 too. Any
+ * other stated temper (O, F, T4, T451, T62 ...) is a different material and is
+ * refused rather than quoted as 6061-T6.
+ */
+const ALUMINUM_6061_TEMPER = /6061[\s-]*(t\d+|[of])(?![a-z0-9])/;
+const ALUMINUM_6061_T6_TEMPERS = new Set(["t6", "t651", "t6511"]);
+
+function hasNonT6Temper6061(source: string) {
+  const temper = ALUMINUM_6061_TEMPER.exec(source)?.[1];
+  return temper !== undefined && !ALUMINUM_6061_T6_TEMPERS.has(temper);
+}
+
 export function buildMaterialSearchTerms(material: string) {
   const source = material.toLowerCase();
 
-  if (source.includes("6061")) return ["6061-T6", "6061"];
+  if (source.includes("6061")) return hasNonT6Temper6061(source) ? null : ["6061-T6", "6061"];
   if (source.includes("7075")) return ["7075-T6", "7075"];
   if (source.includes("2024")) return ["2024-T3", "2024"];
   if (source.includes("303")) return ["303 Stainless", "303"];
@@ -353,6 +369,7 @@ const MATERIAL_SUMMARY_MAPPINGS: Array<{
 
 export function buildMaterialSummaryTerms(material: string) {
   const source = material.toLowerCase();
+  if (source.includes("6061") && hasNonT6Temper6061(source)) return null;
   const mapping = MATERIAL_SUMMARY_MAPPINGS.find(({ needles }) =>
     needles.some((needle) => source.includes(needle)),
   );

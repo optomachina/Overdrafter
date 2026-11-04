@@ -24,7 +24,7 @@ import { ClientQuoteDecisionPanel } from "@/components/quotes/ClientQuoteDecisio
 import { ClientSourcingResultPanel } from "@/components/quotes/ClientSourcingResultPanel";
 import { XometryBetaDispatchConfirmationDialog } from "@/components/quotes/XometryBetaDispatchConfirmationDialog";
 import { getQuoteSelectionPrompt, hasPublishedQuotePackage } from "@/features/quotes/sourcing-result";
-import { LIVE_DISPATCH_PROVIDER_LABELS } from "@/features/quotes/xometry-beta-dispatch";
+import { isQuotedAsMachined } from "@/features/quotes/quote-as-machined";
 import { requestAccountSettingsPanel } from "@/components/chat/account-settings-request";
 import { QuoteIntelligenceShell } from "@/components/quote-intelligence/QuoteIntelligenceShell";
 import { PartProductDataBar } from "@/components/quotes/PartProductDataBar";
@@ -207,6 +207,7 @@ const ClientPart = () => {
     handleResetAllFields,
     handleSaveRequest,
     handleSaveRequestPatch,
+    handleApplyQuoteRequestFix,
     handleNeedByFilterChange,
     handleSelectQuoteOption,
     handleToggleCurrentPartPin,
@@ -433,6 +434,10 @@ const ClientPart = () => {
   const partPresetScope = getPresetScope(activePreset);
   const partPresetMode = getPresetMode(activePreset);
   const scopedOptions = filterQuoteOptionsForScope(rankedQuoteOptions, partPresetScope);
+  // OVD-1163: the customer chose to quote this finished part as machined.
+  const approvedRequirement = partDetail?.part?.approvedRequirement ?? null;
+  const partFinish = approvedRequirement?.finish?.trim() ?? "";
+  const quotedAsMachined = isQuotedAsMachined(approvedRequirement?.finish, approvedRequirement?.spec_snapshot);
   const reviewOrderDisabledForScope = Boolean(reviewQuoteOption) &&
     (scopedOptions.length === 0 || !scopedOptions.some((option) => option.key === reviewQuoteOption?.key));
   const reviewOrderDisabledReason = reviewOrderDisabledForScope
@@ -701,7 +706,7 @@ const ClientPart = () => {
         scopeError={
           automaticQuoteCollectionEnabled
             ? xometryDispatchScopeError
-            : `Automatic ${LIVE_DISPATCH_PROVIDER_LABELS[dispatchProvider]} beta dispatch is not enabled for this organization.`
+            : "Quote requests aren't turned on for your organization yet."
         }
         scopeDenialCode={automaticQuoteCollectionEnabled ? xometryDispatchScopeDenialCode : null}
         organizationId={partDetail?.job.organization_id ?? null}
@@ -712,6 +717,7 @@ const ClientPart = () => {
         onRetryScope={async () => {
           await refetchXometryDispatchScope();
         }}
+        onApplyFix={handleApplyQuoteRequestFix}
         onConfirm={handleConfirmQuoteRequest}
       />
       <QuoteIntelligenceShell
@@ -991,6 +997,11 @@ const ClientPart = () => {
                     isProcessSaving={isRequestWritePending}
                     onProcessSelect={(process) => handleSaveRequestPatch({ process })}
                   />
+                ) : null}
+                {quotedAsMachined ? (
+                  <p role="note" className="text-sm text-muted-foreground">
+                    Quoted as machined. Prices don't include the finish ({partFinish}).
+                  </p>
                 ) : null}
                 <ClientQuoteDecisionPanel
                     className="rounded-[12px]"

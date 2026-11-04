@@ -349,6 +349,37 @@ test('OVD-829 md5 guards name the deployed bodies they replace and the bodies th
   }
 });
 
+test('OVD-1163 pgTAP fixture is a byte copy of the rollback every drill applies', () => {
+  assert.deepEqual(readFileSync(join(source, 'fixtures/ovd1163_rollback.inc')),
+    readFileSync(fileURLToPath(new URL('../docs/migration-drafts/ovd-1163.rollback.sql', import.meta.url))));
+  for (const file of ['ovd1163_beta_6061_and_quote_as_machined.sql', 'ovd1007_xometry_beta_quantity_grant.sql',
+    'ovd987_controlled_beta_user_quantity.sql']) {
+    assert.match(readFileSync(join(source, file), 'utf8'), /\\ir fixtures\/ovd1163_rollback\.inc\n/, file);
+  }
+});
+
+test('OVD-1163 md5 guards name the deployed resolver body, the restored body and the new RPC', () => {
+  const read = file => readFileSync(fileURLToPath(new URL(`../${file}`, import.meta.url)), 'utf8');
+  const md5 = text => createHash('md5').update(text).digest('hex');
+  const body = (text, name) => {
+    const start = text.indexOf(`create or replace function ${name}(`);
+    assert.notEqual(start, -1, `${name} is defined`);
+    const open = text.indexOf('$$', start) + 2;
+    return text.slice(open, text.indexOf('$$', open));
+  };
+  const resolver = 'private.resolve_xometry_beta_dispatch_scope_with_access';
+  const migration = read('supabase/migrations/20261104032300_ovd1163_beta_6061_and_quote_as_machined.sql');
+  const rollback = read('docs/migration-drafts/ovd-1163.rollback.sql');
+  const before = md5(body(read('supabase/migrations/20261101130100_ovd1007_xometry_beta_quantity_grant.sql'), resolver));
+  const after = md5(body(migration, resolver));
+  const rpc = md5(body(migration, 'public.api_set_client_part_quote_as_machined'));
+  assert.match(migration, new RegExp(String.raw`'${resolver.replace('.', String.raw`\.`)}\(uuid,text,uuid\)',\s*array\['${before}', '${after}'\], false`));
+  assert.match(migration, new RegExp(String.raw`'public\.api_set_client_part_quote_as_machined\(uuid,boolean\)',\s*array\['${rpc}'\], true`));
+  assert.ok(rollback.includes(`not in ('${after}', '${before}')`), 'rollback guard accepts the OVD-1163 and OVD-1007 bodies');
+  assert.ok(rollback.includes(`v_md5 <> '${rpc}'`), 'rollback guard pins the RPC it drops');
+  assert.equal(md5(body(rollback, resolver)), before, 'rollback restores the resolver byte for byte');
+});
+
 test('OVD-1011 pgTAP fixture is a byte copy of the rollback it drills', () => {
   assert.deepEqual(readFileSync(join(source, 'fixtures/ovd1011_client_part_metadata_defaults_rollback.inc')),
     readFileSync(fileURLToPath(new URL('../docs/migration-drafts/ovd-1011.rollback.sql', import.meta.url))));

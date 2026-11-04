@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ClientPartRequestUpdateInput } from "@/features/quotes/types";
-import { clearClientPartRequestedByDate, fetchJobPartSummariesByJobIds, fetchJobPartSummariesByOrganization, updateClientPartRequest } from "./jobs-api";
+import { clearClientPartRequestedByDate, fetchJobPartSummariesByJobIds, fetchJobPartSummariesByOrganization, setClientPartQuoteAsMachined, updateClientPartRequest } from "./jobs-api";
 
 const { callRpcMock, callUntypedRpcMock, fromMock } = vi.hoisted(() => ({
   callRpcMock: vi.fn(),
@@ -163,5 +163,20 @@ describe("published package selection summaries", () => {
     callRpcMock.mockResolvedValue({ data: null, error });
     await expect(updateClientPartRequest({ ...makeInput(null), clearThreads: true })).rejects.toBeTruthy();
     expect(callRpcMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("OVD-1163 quote as machined", () => {
+  beforeEach(() => vi.clearAllMocks());
+  it("sets the quote-only choice through its own RPC, never the request update", async () => {
+    callRpcMock.mockResolvedValue({ data: { jobId: "job-1", quoteAsMachined: true }, error: null });
+    await setClientPartQuoteAsMachined("job-1");
+    expect(callRpcMock.mock.calls).toEqual([
+      ["api_set_client_part_quote_as_machined", { p_job_id: "job-1", p_quote_as_machined: true }],
+    ]);
+  });
+  it("rejects when the server refuses", async () => {
+    callRpcMock.mockResolvedValue({ data: null, error: { code: "P0001", message: "You do not have permission to edit job job-1." } });
+    await expect(setClientPartQuoteAsMachined("job-1")).rejects.toMatchObject({ code: "P0001" });
   });
 });
