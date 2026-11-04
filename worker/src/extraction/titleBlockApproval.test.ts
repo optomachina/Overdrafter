@@ -52,6 +52,20 @@ describe("final extraction approval invariants", () => {
     expect(result.reviewFields).not.toContain("description");
   });
 
+  // OVD-1009 follow-ups (PR #1020 review): a smaller unruled line under the title is no longer proven as part of it, and a
+  // title whose first word is a fence label (SHEET) is read from the TITLE cell and proven like any other title.
+  it("flags a title joined with a smaller line under it, and proves a title that starts with a label word", () => {
+    const sheet = (title: PdfWord[], text: string) =>
+      pdf([box("TITLE:", 100, 100, 7), ...title, box("SIZE", 100, 150, 6), ...phrase("DWG. NO.", 130, 150, 6)], text);
+    const subLine = infer(sheet([...phrase("SAMPLE PART", 130, 115, 14), ...phrase("QTY 4", 130, 132, 9)],
+      "TITLE:\n      SAMPLE PART\n      QTY 4\nSIZE  DWG. NO.")).description;
+    expect(subLine).toMatchObject({ reviewNeeded: true });
+    expect(subLine.value).not.toBe("SAMPLE PART QTY 4");
+    const labelFirst = infer(sheet(phrase("SHEET METAL BRACKET", 130, 115, 14), "TITLE:\n      SHEET METAL BRACKET\nSIZE  DWG. NO.")).description;
+    expect(labelFirst).toMatchObject({ value: "SHEET METAL BRACKET", reviewNeeded: false });
+    expect(labelFirst.reasons).toContain("title_block_cell_proven");
+  });
+
   it("model agreement at 0.99 cannot approve an incomplete 6061-T cell", async () => {
     const input = pdf([box("MATERIAL", 100, 100), box("6061-T", 100, 120), box("6", 100, 150)], "MATERIAL\n6061-T\n6");
     expect(infer(input).material).toMatchObject({ value: "6061-T", reviewNeeded: true });

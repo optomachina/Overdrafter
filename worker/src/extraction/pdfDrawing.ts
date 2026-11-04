@@ -307,7 +307,9 @@ type LengthUnit = Exclude<ToleranceUnit, "unknown">;
  *    it is inches only when printed with at least three decimals (".005") and below 0.1; otherwise
  *    it is unresolved.
  * P5 Angular values are skipped; a bracketed bare value is the inch side of a dual dimension only when
- *    it matches the metric value; decimal commas, zero and non-finite values are unresolved.
+ *    it matches the metric value; on a drawing that declares both systems a bare pair ("±.005 [±0.13]") whose
+ *    sides agree as inches and millimeters in one order only is read that way (OVD-990 item 4); decimal
+ *    commas, zero and non-finite values are unresolved.
  * P6 An unresolved value blocks the result when any of its readings could be tighter than the
  *    tightest resolved value; one that is looser in every reading is ignored.
  * P7 Inch values are floored (exactly) to the 4 decimals of numeric(10,4); a value below 0.0001 in is
@@ -532,6 +534,8 @@ type ToleranceCandidate = {
   problem: "decimal-comma" | "scientific" | null;
   /** The bracketed inch side of a consistent dual dimension. */
   pairedInch: boolean;
+  /** The metric side, printed with no unit, of a consistent dual dimension on a drawing that declares both systems. */
+  pairedMetric: boolean;
   /**
    * OVD-989: the decimal places a general-tolerance table row covers ("THREE PLACE DECIMAL" or ".XXX"
    * is 3), or null for any other value (a callout on a feature, a note).
@@ -569,6 +573,7 @@ function buildCandidate(text: string, start: number, numberStart: number, number
     suffixText: suffixText.replace(/^[ \t]+/, " ").replace(/μ/g, "µ"),
     problem: printed.includes(",") ? "decimal-comma" : scientific ? "scientific" : null,
     pairedInch: false,
+    pairedMetric: false,
     rowPlaces: null,
     numberStart,
   };
@@ -967,8 +972,8 @@ function selectApplicableToleranceRows(
  * whichever is larger. "±0.1 mm [±.004 in]" is a pair; "±0.1 mm [±.04 in]" and "±0.02 mm (±0.1 ...)"
  * are not.
  */
-function isDualDimensionPair(inchSide: ToleranceCandidate, metricSide: ToleranceCandidate) {
-  const mmFactor = metricSide.suffix?.kind === "unit" ? UNIT_TO_MM[metricSide.suffix.unit] : undefined;
+function isDualDimensionPair(inchSide: ToleranceCandidate, metricSide: ToleranceCandidate, bareMetricMm?: number) {
+  const mmFactor = metricSide.suffix?.kind === "unit" ? UNIT_TO_MM[metricSide.suffix.unit] : bareMetricMm;
   if (mmFactor === undefined) {
     return false;
   }
@@ -977,7 +982,29 @@ function isDualDimensionPair(inchSide: ToleranceCandidate, metricSide: Tolerance
   return Math.abs(inchSide.value * 25.4 - metricMm) <= Math.max(DUAL_DIMENSION_RELATIVE_TOLERANCE * metricMm, printedRounding);
 }
 
-function pairDualDimensions(candidates: ToleranceCandidate[]) {
+/**
+ * OVD-990 item 4: on a drawing that declares both systems ("DIMENSIONS IN INCHES [MILLIMETERS]", "UNITS: INCH [MM]"), a bare
+ * value with a bracketed bare value right after it ("±.005 [±0.13]", "±0.1 [±.004]") is one tolerance printed in both
+ * units. Read one side as inches and the other as millimeters: when exactly one of the two orders agrees
+ * (isDualDimensionPair), each side takes the unit of that order, and the tighter of the two readings is the smaller
+ * one. When neither order agrees (or, for values that small, both do), both stay unresolved. A fraction or a value
+ * with no decimals is not paired: its rounding says nothing about the other side.
+ */
+function pairBareDualDimension(previous: ToleranceCandidate, current: ToleranceCandidate) {
+  if (previous.suffix !== null || current.suffix !== null || previous.decimals === 0 || current.decimals === 0) {
+    return;
+  }
+  const inchFirst = isDualDimensionPair(previous, current, 1);
+  const metricFirst = isDualDimensionPair(current, previous, 1);
+  if (inchFirst === metricFirst) {
+    return;
+  }
+  const [inchSide, metricSide] = inchFirst ? [previous, current] : [current, previous];
+  inchSide.pairedInch = true;
+  metricSide.pairedMetric = true;
+}
+
+function pairDualDimensions(candidates: ToleranceCandidate[], bothDeclared = false) {
   for (let index = 1; index < candidates.length; index += 1) {
     const previous = candidates[index - 1]!;
     const current = candidates[index]!;
@@ -988,6 +1015,8 @@ function pairDualDimensions(candidates: ToleranceCandidate[]) {
       current.pairedInch = true;
     } else if (previous.suffix === null && isDualDimensionPair(previous, current)) {
       previous.pairedInch = true;
+    } else if (bothDeclared) {
+      pairBareDualDimension(previous, current);
     }
   }
 }
@@ -1006,6 +1035,9 @@ function resolveUnit(candidate: ToleranceCandidate, declared: { inch: boolean; m
   }
   if (candidate.pairedInch) {
     return "in";
+  }
+  if (candidate.pairedMetric) {
+    return "mm";
   }
   if (declared.inch !== declared.metric) {
     return declared.inch ? "in" : "mm";
@@ -1110,7 +1142,8 @@ function estimateTightestTolerance(sourceText: string, options: { dimensionsRead
   // Filtering may leave no applicable row, but must not erase what was read. Keep
   // the tightest reading as a review-only suggestion, with all numeric safeguards.
   const candidates = applicableCandidates.length > 0 ? applicableCandidates : allCandidates;
-  pairDualDimensions(candidates);
+  const bothDeclared = declared.inch && declared.metric;
+  pairDualDimensions(candidates, bothDeclared);
 
   const readings = candidates.map((candidate) =>
     unresolvedRows.has(candidate) ? readUnresolvedRow(candidate, declared) : readCandidate(candidate, declared),
@@ -1141,7 +1174,7 @@ function estimateTightestTolerance(sourceText: string, options: { dimensionsRead
 
   const { candidate, unit } = resolved;
   if (titleBlockProof) {
-    pairDualDimensions(allCandidates);
+    pairDualDimensions(allCandidates, bothDeclared);
     const tightestRead = allCandidates.reduce((tightest, item) => {
       const reading = readCandidate(item, declared);
       return Math.min(tightest, reading.unit === null ? reading.smallestInches : reading.inches);

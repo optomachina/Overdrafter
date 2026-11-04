@@ -1124,6 +1124,16 @@ function tallestOf(runs: readonly Run[]): number | undefined {
 }
 
 /**
+ * Whether two runs of text are set at one size: neither's tallest word is VALUE_TEXT_TALLER_THAN_LABEL times the
+ * other's. True when either has no height (layout text), so only word boxes can tell two sizes apart.
+ */
+function sameSize(left: readonly Run[], right: readonly Run[]): boolean {
+  const a = tallestOf(left);
+  const b = tallestOf(right);
+  return a === undefined || b === undefined || (a <= VALUE_TEXT_TALLER_THAN_LABEL * b && b <= VALUE_TEXT_TALLER_THAN_LABEL * a);
+}
+
+/**
  * Whether a line of a cell opens the next cell of the stack (HEAT TREAT, HARDNESS, ... under MATERIAL or FINISH): it
  * holds a colon, or starts with a word that heads another cell of a title block (NEIGHBOUR_CELL_LABELS).
  * Neither is the label of the vocabulary, so the text is owned by the cell above it; it is that cell's own label
@@ -1323,8 +1333,13 @@ function wrapColumnOf(stackOf: Label, line: number, runs: readonly Run[]): numbe
  * Word boxes: a line that would continue the value, within MAX_LINE_GAP lines of it in order but farther than that down
  * the page, is not joined and there is no value (`far`): it may be the rest of the value set far under it or the text of
  * another cell, and which one is not known. The value is not read without it either, which would cut it short.
+ *
+ * With `title` (the TITLE or DESCRIPTION cell, OVD-1009): a title is printed at one size, so a line that would continue
+ * it but is set smaller or taller than the line above (a 9 pt "QTY 4" under a 14 pt "SAMPLE PART", with no rule
+ * between them) may as well be an unlisted cell stacked under the title as the title's own second line, and there is no
+ * value (`stackedLabel`). Layout text has no sizes and is read as before.
  */
-function chooseValueLines(byLine: ReadonlyMap<number, Run[]>, stackOf: Label | null): ValueChoice {
+function chooseValueLines(byLine: ReadonlyMap<number, Run[]>, stackOf: Label | null, title = false): ValueChoice {
   const lines = [...byLine.keys()].sort((left, right) => left - right);
   const chosen: ValueLine[] = [];
   const stopped = (line: number): ValueChoice => ({ lines: chosen, stackedLabel: false, far: false, stoppedAt: line });
@@ -1353,6 +1368,9 @@ function chooseValueLines(byLine: ReadonlyMap<number, Run[]>, stackOf: Label | n
     const joins = runs.some((run) => alphanumericCount(run.text) >= 2);
     if (previous !== undefined && joins && lineRuns[0]!.y - previous.runs[0]!.y > MAX_LINE_GAP) {
       return { lines: chosen, stackedLabel: false, far: true, stoppedAt: Number.POSITIVE_INFINITY };
+    }
+    if (title && previous !== undefined && joins && !sameSize(previous.runs, runs)) {
+      return flagged();
     }
     if (previous === undefined || joins) {
       chosen.push({ line, runs });
@@ -1578,7 +1596,7 @@ function readOne(
   // labels under it (SIZE, DWG. NO., CAGE CODE), and no shape of words tells a title from a label ("COVER PLATE"), so it
   // is asked neither that question nor the identifiers' (identifierIsStackedLabel).
   const describes = label.field === "material" || label.field === "finish";
-  const choice = chooseValueLines(groupByLine(owned), describes ? label : null);
+  const choice = chooseValueLines(groupByLine(owned), describes ? label : null, label.field === "description");
   const chosen = choice.lines;
   const valueLines = chosen.map((entry) => entry.line);
   // The cell under this one is an unlisted cell of its own ("HEAT TREAT" over "RC 40-45" under an empty MATERIAL):
@@ -1971,15 +1989,84 @@ function continueWrappedRuns(ownership: PageOwnership, caps: ReadonlyMap<Label, 
   }
 }
 
+/**
+ * Word boxes only (OVD-1009): the labels of the vocabulary that are the first word of a title, not a label. A title is
+ * free text, and its first word may be one a fence label spells ("SHEET METAL BRACKET", "SCALE MOUNT", "NAME PLATE");
+ * read as a label, that word takes the rest of the title as its own value and the TITLE cell is left empty. Such a word
+ * is the first word of the title when all of these hold:
+ *  - it heads no field (a field's label in a title is read as two cells run together, and fails closed: label_in_value);
+ *  - it is in a TITLE or DESCRIPTION label's cell, as a value would be (ownerOf's columns and MAX_DY), with no other
+ *    label between them in the label's columns, or right after that label on the label's own line;
+ *  - it is set taller than the TITLE label, by VALUE_TEXT_TALLER_THAN_LABEL: a title is set larger than its label, and
+ *    the labels of a block at one size, so SIZE or SCALE under TITLE in the next row of cells stays a label;
+ *  - it ends in no colon, no other label is on its line from the TITLE cell's left edge on, and the next word on its line
+ *    follows it one word space later (not set apart as a cell's value is from its label), at its size, and starts with
+ *    two letters: "SHEET 1 OF 1", "SCALE 1:1", "SIZE B", "SIZE  DWG. NO." and a word alone on its line stay labels.
+ * Layout text has no sizes, so a title that starts with a label word there is still read as a label and the field is
+ * flagged.
+ */
+function titleWordsReadAsLabels(labels: readonly Label[], pageLines: readonly TitleBlockTextLine[]): Set<Label> {
+  const titleWords = new Set<Label>();
+  const titles = labels.filter((label) => label.field === "description" && label.fromWords && label.height !== undefined);
+  if (titles.length === 0) {
+    return titleWords;
+  }
+  const lineOf = new Map(pageLines.map((line) => [line.lineNumber, line]));
+  const byLine = groupByLine(labels);
+  for (const word of labels) {
+    if (word.field !== null || !word.fromWords || word.height === undefined || word.text.endsWith(":")) {
+      continue;
+    }
+    const title = titles.find((candidate) => opensTitleOf(word, candidate, labels));
+    if (title === undefined || word.height <= VALUE_TEXT_TALLER_THAN_LABEL * title.height!) {
+      continue;
+    }
+    // Labels left of the TITLE cell are other cells on the same row of text (CHECKED in the approvals column).
+    if ((byLine.get(word.line) ?? []).some((other) => other !== word && other !== title && other.end > title.start - title.slack)) {
+      continue;
+    }
+    const line = lineOf.get(word.line);
+    const next = line?.words?.find((candidate) => candidate.from >= word.charEnd);
+    if (line === undefined || next === undefined || setApartAt(line.raw, next.from) || next.height === undefined) {
+      continue;
+    }
+    const nextText = line.raw.slice(next.from, next.to);
+    const oneSize = next.height <= VALUE_TEXT_TALLER_THAN_LABEL * word.height && word.height <= VALUE_TEXT_TALLER_THAN_LABEL * next.height;
+    if (oneSize && /^[A-Z]{2}/i.test(nextText)) {
+      titleWords.add(word);
+    }
+  }
+  return titleWords;
+}
+
+/** Whether `word` is where the value of the TITLE label `title` starts: see titleWordsReadAsLabels. */
+function opensTitleOf(word: Label, title: Label, labels: readonly Label[]): boolean {
+  if (word.line === title.line) {
+    return word.start >= title.end - 1 && !labels.some((other) =>
+      other.line === word.line && other !== word && other !== title && other.start > title.start && other.start < word.start);
+  }
+  const dy = word.line - title.line;
+  if (dy < 1 || dy > MAX_DY || word.y - title.y > MAX_DY) {
+    return false;
+  }
+  if ((word.start + word.end) / 2 < title.start - title.slack || word.start > title.end + title.reach) {
+    return false;
+  }
+  return !labels.some((other) => other !== word && other.line > title.line && other.line < word.line &&
+    other.end > title.start - title.slack && other.start < title.end + title.reach);
+}
+
 /** The labels and the runs of one page, or null when a cap is passed: a hostile page costs its cap, not its size. */
 function readPageGeometry(pageLines: readonly TitleBlockTextLine[]): { labels: Label[]; labelsByLine: Map<number, Label[]>; runs: Run[] } | null {
-  const labels: Label[] = [];
+  const found: Label[] = [];
   for (const line of pageLines) {
-    findLabels(line, labels, MAX_LABELS_PER_PAGE);
-    if (labels.length > MAX_LABELS_PER_PAGE) {
+    findLabels(line, found, MAX_LABELS_PER_PAGE);
+    if (found.length > MAX_LABELS_PER_PAGE) {
       return null;
     }
   }
+  const titleWords = titleWordsReadAsLabels(found, pageLines);
+  const labels = titleWords.size === 0 ? found : found.filter((label) => !titleWords.has(label));
   const labelsByLine = groupByLine(labels);
   // Header words alone cannot establish that a DESCRIPTION/DATE row is historical.
   // Keep its value as ambiguous evidence; an explicit current cell wins across the document.
@@ -2246,7 +2333,7 @@ function readPage(page: number, pageText: readonly TitleBlockTextLine[]): CellRe
     const read = readOne({ ...label, field: label.field }, page, ownedRuns, ownership.inlineRuns, fenced, pageLines, doubt);
     if (read.status === "ambiguous" || read.status === "rejected") {
       const describes = label.field === "material" || label.field === "finish";
-      const choice = chooseValueLines(groupByLine(ownedRuns), describes ? label : null);
+      const choice = chooseValueLines(groupByLine(ownedRuns), describes ? label : null, label.field === "description");
       const considered = ownedRuns.filter((run) => run.line < choice.stoppedAt);
       // Keep every owned identifier, including later rows that made the suggestion ambiguous.
       // A material, finish or title is one phrase: its wrapped line is not a competing value.

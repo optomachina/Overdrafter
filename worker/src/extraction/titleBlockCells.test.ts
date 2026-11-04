@@ -2030,6 +2030,54 @@ describe("title block cells", () => {
         const title = [...phrase("ROUND, CARBON FIBER END", 740, 660, 10), ...phrase("ATTACHMENTS BONDED", 755, 672, 10)];
         expect(wordRead(block(title), "description")).toMatchObject({ status: "value", value: "ROUND, CARBON FIBER END ATTACHMENTS BONDED" });
       });
+
+      // PR #1020 review note 1: an unruled line in the title's columns, set smaller than the title, was joined into it and
+      // proven ("SAMPLE PART QTY 4"). A title is printed at one size; a line at another may be an unlisted cell's.
+      it("does not join a smaller line under the title into it, and leaves the field empty and flagged", () => {
+        const subLine = wordRead(block([...phrase("SAMPLE PART", 760, 665, 14), ...phrase("QTY 4", 760, 684, 9)]), "description");
+        expect(subLine).toMatchObject({ status: "ambiguous", value: null, reason: "unlisted_label" });
+        expect(subLine.observations).toEqual([{ value: "SAMPLE PART QTY 4", binding: "unresolved" }]);
+        // A taller line under a small first line is the same doubt the other way round.
+        expect(wordRead(block([...phrase("SAMPLE", 760, 665, 9), ...phrase("PART", 760, 680, 14)]), "description")).toMatchObject({
+          status: "ambiguous",
+          value: null,
+        });
+        // A second line at the title's size is its wrapped line, as before.
+        expect(wordRead(block([...phrase("SAMPLE", 760, 665, 14), ...phrase("PART", 760, 684, 14)]), "description")).toMatchObject({
+          status: "value",
+          value: "SAMPLE PART",
+        });
+      });
+
+      // PR #1020 review note 2: a title whose first word is a fence label of the vocabulary (SHEET, SCALE, NAME, SIZE)
+      // was read as that label with the rest of the title as its value, and the TITLE cell was left empty.
+      it.each(["SHEET METAL BRACKET", "SCALE MOUNT", "NAME PLATE", "SIZE ADAPTER", "DATE CODE STAMP"])(
+        "reads the title %s, whose first word is a label of the vocabulary, set as a title under TITLE",
+        (title) => {
+          expect(wordRead(block(phrase(title, 760, 665, 14)), "description")).toMatchObject({ status: "value", value: title, reason: null });
+        },
+      );
+
+      it("keeps a label word under TITLE a label when it is set as a label, or reads as one", () => {
+        // Set at the TITLE label's own size: the next row of cells, not a title.
+        expect(wordRead(block(phrase("SHEET METAL BRACKET", 760, 665, 7)), "description").value).toBeNull();
+        // Followed by a value, not by more words of a title.
+        expect(wordRead(block(phrase("SCALE 1:1", 760, 665, 14)), "description").value).toBeNull();
+        expect(wordRead(block(phrase("SIZE B", 760, 665, 14)), "description").value).toBeNull();
+        // Alone on its line, or ending in a colon.
+        expect(wordRead(block(phrase("SHEET", 760, 665, 14)), "description").value).toBeNull();
+        expect(wordRead(block(phrase("NOTES: SEE SHEET 2", 760, 665, 14)), "description").value).toBeNull();
+        // Its next word set apart from it, as a value is from its label.
+        expect(wordRead(block([box("SHEET", 760, 665, 14), box("METAL", 840, 665, 14)]), "description").value).toBeNull();
+      });
+
+      it("still flags a title whose first word is a field's label, rather than reading two cells as one", () => {
+        expect(wordRead(block(phrase("FINISH PLATE", 760, 665, 14)), "description").value).toBeNull();
+      });
+    });
+
+    it("on layout text, which has no sizes, still leaves a title that starts with a label word empty and flagged", () => {
+      expect(cell(template("SHEET METAL BRACKET"), "description")).toMatchObject({ status: "empty", value: null });
     });
   });
 
