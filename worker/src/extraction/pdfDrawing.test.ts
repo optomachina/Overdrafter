@@ -1566,9 +1566,21 @@ describe("pdfDrawing tightest tolerance units (OVD-976)", () => {
       expect(tolerance([DUAL_INCH, "BORE ±.002", "TOLERANCES ±.005 [±0.13]"])).toMatchObject({ valueInch: null, unit: "unknown" });
       // A pair set apart from each other on the line (another callout's bracket) is not one.
       expect(tolerance([DUAL_INCH, `TOLERANCES ±.005 ${"X".repeat(48)} [±0.13]`]).valueInch).toBeNull();
-      // On a single-system or undeclared drawing nothing changes.
+      // On a single-system or undeclared drawing nothing changes: on an inch drawing both bare sides are inches.
       expect(tolerance([INCH, "TOLERANCES ±.005 [±0.13]"])).toMatchObject({ valueInch: 0.005, unit: "in" });
+      expect(tolerance([INCH, "TOLERANCES ±0.1 [±.004]"])).toMatchObject({ valueInch: 0.004, unit: "in" });
       expect(tolerance(["TOLERANCES ±.005 [±0.13]"])).toMatchObject({ valueInch: 0.005, unit: "in" });
+    });
+
+    // PR #1042 review: the printed (primary, not bracketed) side of a bare pair is the tolerance; the bracketed side is a
+    // conversion whose rounding must not win (±.01 [±0.25] is .01, not 0.25 mm = 0.0098).
+    it("stores the primary side of a bare dual pair, not the converted one", () => {
+      const DUAL_INCH = "DIMENSIONS IN INCHES [MILLIMETERS]";
+      expect(tolerance([DUAL_INCH, "TOLERANCES ±.01 [±0.25]"])).toMatchObject({ valueInch: 0.01, unit: "in" });
+      expect(tolerance([DUAL_INCH, "BORE ±.0005 [±0.01]"])).toMatchObject({ valueInch: 0.0005, unit: "in" });
+      expect(tolerance(["DIMENSIONS IN MILLIMETERS [INCHES]", "TOLERANCES ±0.25 [±.01]"])).toMatchObject({ valueInch: 0.0098, unit: "mm" });
+      // Both sides bracketed: which one is primary is not known, so the smaller reading is stored.
+      expect(tolerance([DUAL_INCH, "TOLERANCES [±.01] [±0.25]"])).toMatchObject({ valueInch: 0.0098, unit: "mm" });
     });
 
     it("leaves a decimal comma, zero or a non-finite value unresolved, never 0", () => {

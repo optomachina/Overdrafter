@@ -1124,13 +1124,19 @@ function tallestOf(runs: readonly Run[]): number | undefined {
 }
 
 /**
- * Whether two runs of text are set at one size: neither's tallest word is VALUE_TEXT_TALLER_THAN_LABEL times the
- * other's. True when either has no height (layout text), so only word boxes can tell two sizes apart.
+ * How far apart two lines of one title may be in size (PR #1042 review): the jitter of word boxes set at one size (13.9 pt
+ * against 14 pt), not the step to the next size (12.5 pt under 14 pt).
  */
-function sameSize(left: readonly Run[], right: readonly Run[]): boolean {
+const TITLE_SIZE_JITTER = 1.05;
+
+/**
+ * Whether two runs of text are set at one size: neither's tallest word is `ratio` times the other's. True when either has
+ * no height (layout text), so only word boxes can tell two sizes apart.
+ */
+function sameSize(left: readonly Run[], right: readonly Run[], ratio: number): boolean {
   const a = tallestOf(left);
   const b = tallestOf(right);
-  return a === undefined || b === undefined || (a <= VALUE_TEXT_TALLER_THAN_LABEL * b && b <= VALUE_TEXT_TALLER_THAN_LABEL * a);
+  return a === undefined || b === undefined || (a <= ratio * b && b <= ratio * a);
 }
 
 /**
@@ -1335,9 +1341,10 @@ function wrapColumnOf(stackOf: Label, line: number, runs: readonly Run[]): numbe
  * another cell, and which one is not known. The value is not read without it either, which would cut it short.
  *
  * With `title` (the TITLE or DESCRIPTION cell, OVD-1009): a title is printed at one size, so a line that would continue
- * it but is set smaller or taller than the line above (a 9 pt "QTY 4" under a 14 pt "SAMPLE PART", with no rule
- * between them) may as well be an unlisted cell stacked under the title as the title's own second line, and there is no
- * value (`stackedLabel`). Layout text has no sizes and is read as before.
+ * it but is set smaller or taller than the title's first line, by more than TITLE_SIZE_JITTER (a 9 or 12.5 pt "QTY 4"
+ * under a 14 pt "SAMPLE PART", with no rule between them), may as well be an unlisted cell stacked under the title as the
+ * title's own second line, and there is no value (`stackedLabel`). Every line is measured against the first, so sizes
+ * that drift a step per line are caught too. Layout text has no sizes and is read as before.
  */
 function chooseValueLines(byLine: ReadonlyMap<number, Run[]>, stackOf: Label | null, title = false): ValueChoice {
   const lines = [...byLine.keys()].sort((left, right) => left - right);
@@ -1369,7 +1376,7 @@ function chooseValueLines(byLine: ReadonlyMap<number, Run[]>, stackOf: Label | n
     if (previous !== undefined && joins && lineRuns[0]!.y - previous.runs[0]!.y > MAX_LINE_GAP) {
       return { lines: chosen, stackedLabel: false, far: true, stoppedAt: Number.POSITIVE_INFINITY };
     }
-    if (title && previous !== undefined && joins && !sameSize(previous.runs, runs)) {
+    if (title && previous !== undefined && joins && !sameSize(chosen[0]!.runs, runs, TITLE_SIZE_JITTER)) {
       return flagged();
     }
     if (previous === undefined || joins) {
@@ -1989,21 +1996,47 @@ function continueWrappedRuns(ownership: PageOwnership, caps: ReadonlyMap<Label, 
   }
 }
 
+/** The fence labels a title may start with ("SHEET METAL BRACKET", "SCALE MOUNT"); an approvals label never does. */
+const TITLE_LEAD_LABEL = /^(?:SHEET|SCALE|SIZE|NAME|DATE|WEIGHT|MASS|PROJECT|ZONE|PAGES?|CAGE)$/i;
+/**
+ * The words that are the value of such a label rather than the next word of a title: "SCALE NONE", "SCALE FULL",
+ * "SHEET FOUR OF FIVE", "DATE JANUARY 2024", "WEIGHT POUNDS". Shorter values (NTS, ONE, JAN, LBS, initials) are refused
+ * by their length (TITLE_NEXT_WORD).
+ */
+const TITLE_LEAD_VALUE_WORD = new RegExp(
+  "^(?:" +
+    [
+      "NONE", "FULL", "HALF", "DOUBLE", "SAME", "VARIES", "NOTED", "SHOWN", "SPECIFIED", "REFERENCE", "ZERO", "FOUR", "FIVE",
+      "NINE", "THREE", "SEVEN", "EIGHT", "TWELVE", "JANUARY", "FEBRUARY", "MARCH", "APRIL", "JUNE", "JULY", "AUGUST", "SEPT",
+      "SEPTEMBER", "OCTOBER", "NOVEMBER", "DECEMBER", "INCH", "INCHES", "POUND", "POUNDS", "GRAM", "GRAMS", "KILOGRAMS?",
+      "KILOS?", "OUNCES?", "MILLIMET(?:ER|RE)S?", "METRIC", "IMPERIAL",
+    ].join("|") +
+    ")$",
+  "i",
+);
+/** The next word of a title after such a label: four letters or more ("METAL", "MOUNT", "PLATE", "ADAPTER", "CODE"). */
+const TITLE_NEXT_WORD = /^[A-Z][A-Z-]{3,}$/i;
+/** A title is set clearly larger than its TITLE label: a label beside it in the next row of cells is not. */
+const TITLE_TALLER_THAN_LABEL = 1.3;
+
 /**
  * Word boxes only (OVD-1009): the labels of the vocabulary that are the first word of a title, not a label. A title is
  * free text, and its first word may be one a fence label spells ("SHEET METAL BRACKET", "SCALE MOUNT", "NAME PLATE");
- * read as a label, that word takes the rest of the title as its own value and the TITLE cell is left empty. Such a word
- * is the first word of the title when all of these hold:
- *  - it heads no field (a field's label in a title is read as two cells run together, and fails closed: label_in_value);
- *  - it is in a TITLE or DESCRIPTION label's cell, as a value would be (ownerOf's columns and MAX_DY), with no other
- *    label between them in the label's columns, or right after that label on the label's own line;
- *  - it is set taller than the TITLE label, by VALUE_TEXT_TALLER_THAN_LABEL: a title is set larger than its label, and
+ * read as a label, that word takes the rest of the title as its own value and the TITLE cell is left empty. A label beside
+ * its own value looks the same ("SCALE NONE", "SHEET ONE OF ONE", "DATE JAN 2024"), and must never be read as the title
+ * (PR #1042 review). Such a word is the first word of the title only when all of these hold:
+ *  - it is one of the fence labels a title may start with (TITLE_LEAD_LABEL); an approvals label (DRAWN, CHECKED,
+ *    APPROVED BY), a field's label and a label with a colon never are;
+ *  - it is the first text of a TITLE or DESCRIPTION label's cell (opensTitleOf): in the label's columns, as a value
+ *    would be, with no word and no label between them, or right after that label on the label's own line;
+ *  - it is set clearly taller than the TITLE label (TITLE_TALLER_THAN_LABEL): a title is set larger than its label, and
  *    the labels of a block at one size, so SIZE or SCALE under TITLE in the next row of cells stays a label;
- *  - it ends in no colon, no other label is on its line from the TITLE cell's left edge on, and the next word on its line
- *    follows it one word space later (not set apart as a cell's value is from its label), at its size, and starts with
- *    two letters: "SHEET 1 OF 1", "SCALE 1:1", "SIZE B", "SIZE  DWG. NO." and a word alone on its line stay labels.
+ *  - no other label is on its line from the TITLE cell's left edge on, and the next word on its line follows it one
+ *    word space later (not set apart as a cell's value is from its label), at its size, is four letters or more
+ *    (TITLE_NEXT_WORD: not NTS, ONE, JAN, LBS or initials), is not a value of such a label (TITLE_LEAD_VALUE_WORD:
+ *    NONE, FULL, FOUR, JANUARY, POUNDS) and is not followed by OF ("SHEET FOUR OF FIVE").
  * Layout text has no sizes, so a title that starts with a label word there is still read as a label and the field is
- * flagged.
+ * flagged. So is anything that fails one of the tests above: the price is a title such as "SCALE ARM", flagged.
  */
 function titleWordsReadAsLabels(labels: readonly Label[], pageLines: readonly TitleBlockTextLine[]): Set<Label> {
   const titleWords = new Set<Label>();
@@ -2014,11 +2047,12 @@ function titleWordsReadAsLabels(labels: readonly Label[], pageLines: readonly Ti
   const lineOf = new Map(pageLines.map((line) => [line.lineNumber, line]));
   const byLine = groupByLine(labels);
   for (const word of labels) {
-    if (word.field !== null || !word.fromWords || word.height === undefined || word.text.endsWith(":")) {
+    if (word.field !== null || !word.fromWords || word.height === undefined || !TITLE_LEAD_LABEL.test(word.text)) {
       continue;
     }
-    const title = titles.find((candidate) => opensTitleOf(word, candidate, labels));
-    if (title === undefined || word.height <= VALUE_TEXT_TALLER_THAN_LABEL * title.height!) {
+    const title = titles.find((candidate) => word.height! > TITLE_TALLER_THAN_LABEL * candidate.height! &&
+      opensTitleOf(word, candidate, labels, lineOf));
+    if (title === undefined) {
       continue;
     }
     // Labels left of the TITLE cell are other cells on the same row of text (CHECKED in the approvals column).
@@ -2026,33 +2060,53 @@ function titleWordsReadAsLabels(labels: readonly Label[], pageLines: readonly Ti
       continue;
     }
     const line = lineOf.get(word.line);
-    const next = line?.words?.find((candidate) => candidate.from >= word.charEnd);
+    const nextIndex = line?.words?.findIndex((candidate) => candidate.from >= word.charEnd) ?? -1;
+    const next = nextIndex < 0 ? undefined : line!.words![nextIndex];
     if (line === undefined || next === undefined || setApartAt(line.raw, next.from) || next.height === undefined) {
       continue;
     }
     const nextText = line.raw.slice(next.from, next.to);
+    const after = line.words![nextIndex + 1];
+    const followedByOf = after !== undefined && /^OF$/i.test(line.raw.slice(after.from, after.to));
     const oneSize = next.height <= VALUE_TEXT_TALLER_THAN_LABEL * word.height && word.height <= VALUE_TEXT_TALLER_THAN_LABEL * next.height;
-    if (oneSize && /^[A-Z]{2}/i.test(nextText)) {
+    if (oneSize && TITLE_NEXT_WORD.test(nextText) && !TITLE_LEAD_VALUE_WORD.test(nextText) && !followedByOf) {
       titleWords.add(word);
     }
   }
   return titleWords;
 }
 
-/** Whether `word` is where the value of the TITLE label `title` starts: see titleWordsReadAsLabels. */
-function opensTitleOf(word: Label, title: Label, labels: readonly Label[]): boolean {
+/** Whether a word of `line` lies in the columns of the TITLE label `title`'s cell, as its value would. */
+function inTitleColumns(title: Label, x0: number, x1: number): boolean {
+  return (x0 + x1) / 2 >= title.start - title.slack && x0 <= title.end + title.reach;
+}
+
+/**
+ * Whether `word` is where the value of the TITLE label `title` starts, the first text of its cell: see
+ * titleWordsReadAsLabels. Any word or label printed between them, on the label's line after it, on a line between, or
+ * before `word` on its own line, in the cell's columns, is the start of the title instead ("BRACKET" over "SCALE NONE").
+ */
+function opensTitleOf(word: Label, title: Label, labels: readonly Label[], lineOf: ReadonlyMap<number, TitleBlockTextLine>): boolean {
+  const before = (line: number, upTo: number) => (lineOf.get(line)?.words ?? []).some((other) =>
+    other.x0 >= title.end - 1 && other.x0 < upTo && inTitleColumns(title, other.x0, other.x1));
   if (word.line === title.line) {
-    return word.start >= title.end - 1 && !labels.some((other) =>
-      other.line === word.line && other !== word && other !== title && other.start > title.start && other.start < word.start);
+    return word.start >= title.end - 1 && !before(word.line, word.start - 0.5);
   }
   const dy = word.line - title.line;
-  if (dy < 1 || dy > MAX_DY || word.y - title.y > MAX_DY) {
+  if (dy < 1 || dy > MAX_DY || word.y - title.y > MAX_DY || !inTitleColumns(title, word.start, word.end)) {
     return false;
   }
-  if ((word.start + word.end) / 2 < title.start - title.slack || word.start > title.end + title.reach) {
+  if (before(title.line, Number.POSITIVE_INFINITY)) {
     return false;
   }
-  return !labels.some((other) => other !== word && other.line > title.line && other.line < word.line &&
+  for (let line = title.line + 1; line < word.line; line += 1) {
+    if ((lineOf.get(line)?.words ?? []).some((other) => inTitleColumns(title, other.x0, other.x1))) {
+      return false;
+    }
+  }
+  const leftOfWord = (lineOf.get(word.line)?.words ?? []).some((other) =>
+    other.x1 <= word.start + 0.5 && inTitleColumns(title, other.x0, other.x1));
+  return !leftOfWord && !labels.some((other) => other !== word && other.line > title.line && other.line < word.line &&
     other.end > title.start - title.slack && other.start < title.end + title.reach);
 }
 

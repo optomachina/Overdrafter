@@ -2042,11 +2042,21 @@ describe("title block cells", () => {
           status: "ambiguous",
           value: null,
         });
-        // A second line at the title's size is its wrapped line, as before.
+        // A second line at the title's size is its wrapped line, as before; a little jitter in the box heights is one size.
         expect(wordRead(block([...phrase("SAMPLE", 760, 665, 14), ...phrase("PART", 760, 684, 14)]), "description")).toMatchObject({
           status: "value",
           value: "SAMPLE PART",
         });
+        expect(wordRead(block([...phrase("SAMPLE", 760, 665, 14), ...phrase("PART", 760, 684, 13.9)]), "description").value).toBe("SAMPLE PART");
+      });
+
+      // PR #1042 review (minor): a sub-line one size step smaller (12.5 pt under 14 pt) is not the title's size either, and
+      // lines that drift smaller step by step are measured against the title's first line, not each against the one above.
+      it("measures every line against the title's first line, with a tight tolerance", () => {
+        const step = wordRead(block([...phrase("SAMPLE PART", 760, 665, 14), ...phrase("QTY 4", 760, 684, 12.5)]), "description");
+        expect(step).toMatchObject({ status: "ambiguous", value: null });
+        const drift = [...phrase("SAMPLE", 760, 665, 14), ...phrase("PART", 760, 682, 12.5), ...phrase("QTY 4", 760, 697, 11)];
+        expect(wordRead(block(drift), "description")).toMatchObject({ status: "ambiguous", value: null });
       });
 
       // PR #1020 review note 2: a title whose first word is a fence label of the vocabulary (SHEET, SCALE, NAME, SIZE)
@@ -2069,6 +2079,18 @@ describe("title block cells", () => {
         expect(wordRead(block(phrase("NOTES: SEE SHEET 2", 760, 665, 14)), "description").value).toBeNull();
         // Its next word set apart from it, as a value is from its label.
         expect(wordRead(block([box("SHEET", 760, 665, 14), box("METAL", 840, 665, 14)]), "description").value).toBeNull();
+      });
+
+      // PR #1042 review: a label word is a title's first word only as the first text of the TITLE cell, and never with a
+      // value of that label after it.
+      it.each(["SCALE NTS", "SCALE NONE", "SCALE FULL", "SHEET ONE OF ONE", "SHEET FOUR OF FIVE", "DATE JAN 2024", "DATE JANUARY 2024",
+        "WEIGHT LBS 2", "WEIGHT POUNDS", "NAME JS", "APPROVED BY JS", "DRAWN SMITH"])("keeps %s under TITLE a label and its value", (pair) => {
+        expect(wordRead(block(phrase(pair, 760, 665, 14)), "description").value).toBeNull();
+      });
+
+      it("keeps a label word that follows the title's first line a label", () => {
+        const title = [...phrase("BRACKET", 760, 665, 14), ...phrase("SCALE MOUNT", 760, 684, 14)];
+        expect(wordRead(block(title), "description")).toMatchObject({ status: "value", value: "BRACKET" });
       });
 
       it("still flags a title whose first word is a field's label, rather than reading two cells as one", () => {

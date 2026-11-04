@@ -537,6 +537,11 @@ type ToleranceCandidate = {
   /** The metric side, printed with no unit, of a consistent dual dimension on a drawing that declares both systems. */
   pairedMetric: boolean;
   /**
+   * The bracketed side of such a bare pair whose other side is printed outside brackets: a conversion of the primary
+   * value, whose rounding is not the tolerance (±.01 [±0.25] is .01 in, not 0.25 mm). It is not read.
+   */
+  dualSecondary: boolean;
+  /**
    * OVD-989: the decimal places a general-tolerance table row covers ("THREE PLACE DECIMAL" or ".XXX"
    * is 3), or null for any other value (a callout on a feature, a note).
    */
@@ -574,6 +579,7 @@ function buildCandidate(text: string, start: number, numberStart: number, number
     problem: printed.includes(",") ? "decimal-comma" : scientific ? "scientific" : null,
     pairedInch: false,
     pairedMetric: false,
+    dualSecondary: false,
     rowPlaces: null,
     numberStart,
   };
@@ -986,9 +992,11 @@ function isDualDimensionPair(inchSide: ToleranceCandidate, metricSide: Tolerance
  * OVD-990 item 4: on a drawing that declares both systems ("DIMENSIONS IN INCHES [MILLIMETERS]", "UNITS: INCH [MM]"), a bare
  * value with a bracketed bare value right after it ("±.005 [±0.13]", "±0.1 [±.004]") is one tolerance printed in both
  * units. Read one side as inches and the other as millimeters: when exactly one of the two orders agrees
- * (isDualDimensionPair), each side takes the unit of that order, and the tighter of the two readings is the smaller
- * one. When neither order agrees (or, for values that small, both do), both stay unresolved. A fraction or a value
- * with no decimals is not paired: its rounding says nothing about the other side.
+ * (isDualDimensionPair), each side takes the unit of that order. The side printed outside brackets is the primary value
+ * and the bracketed one its conversion (dualSecondary), which is not read: its rounding must not win (PR #1042 review).
+ * When both sides are bracketed, which is primary is not known, and both are read, so the smaller reading wins. When
+ * neither order agrees (or, for values that small, both do), both stay unresolved. A fraction or a value with no
+ * decimals is not paired: its rounding says nothing about the other side.
  */
 function pairBareDualDimension(previous: ToleranceCandidate, current: ToleranceCandidate) {
   if (previous.suffix !== null || current.suffix !== null || previous.decimals === 0 || current.decimals === 0) {
@@ -1002,6 +1010,7 @@ function pairBareDualDimension(previous: ToleranceCandidate, current: ToleranceC
   const [inchSide, metricSide] = inchFirst ? [previous, current] : [current, previous];
   inchSide.pairedInch = true;
   metricSide.pairedMetric = true;
+  current.dualSecondary = !previous.bracketed;
 }
 
 function pairDualDimensions(candidates: ToleranceCandidate[], bothDeclared = false) {
@@ -1145,7 +1154,7 @@ function estimateTightestTolerance(sourceText: string, options: { dimensionsRead
   const bothDeclared = declared.inch && declared.metric;
   pairDualDimensions(candidates, bothDeclared);
 
-  const readings = candidates.map((candidate) =>
+  const readings = candidates.filter((candidate) => !candidate.dualSecondary).map((candidate) =>
     unresolvedRows.has(candidate) ? readUnresolvedRow(candidate, declared) : readCandidate(candidate, declared),
   );
   const resolved = readings
@@ -1175,7 +1184,7 @@ function estimateTightestTolerance(sourceText: string, options: { dimensionsRead
   const { candidate, unit } = resolved;
   if (titleBlockProof) {
     pairDualDimensions(allCandidates, bothDeclared);
-    const tightestRead = allCandidates.reduce((tightest, item) => {
+    const tightestRead = allCandidates.filter((item) => !item.dualSecondary).reduce((tightest, item) => {
       const reading = readCandidate(item, declared);
       return Math.min(tightest, reading.unit === null ? reading.smallestInches : reading.inches);
     }, Infinity);

@@ -66,6 +66,23 @@ describe("final extraction approval invariants", () => {
     expect(labelFirst.reasons).toContain("title_block_cell_proven");
   });
 
+  // PR #1042 review (BLOCKING): a label beside its own value is never approved as the description. (a) an empty TITLE
+  // cell with a 7 pt SCALE NTS or SHEET ONE OF ONE under a 6 pt TITLE label stays empty and flagged, as on main; (b) a
+  // title over a SCALE NONE cell in its columns is the title alone, as on main.
+  it("never proves a label and its own value under TITLE as the description", () => {
+    const sheet = (title: PdfWord[]) => pdf([box("TITLE", 100, 100, 6), ...title, box("SIZE", 100, 150, 6), ...phrase("DWG. NO.", 130, 150, 6)]);
+    for (const pair of ["SCALE NTS", "SHEET ONE OF ONE", "SCALE NONE", "DATE JAN 2024", "DATE JANUARY 2024", "WEIGHT LBS 2", "APPROVED BY JS"]) {
+      const read = infer(sheet(phrase(pair, 100, 118, 7))).description;
+      expect(read.value, pair).not.toBe(pair);
+      expect(read.reviewNeeded, pair).toBe(true);
+    }
+    const titled = (under: PdfWord[]) =>
+      pdf([box("TITLE:", 100, 100, 7), box("BRACKET", 110, 112, 9), ...under, box("SIZE", 100, 150, 6), ...phrase("DWG. NO.", 130, 150, 6)]);
+    expect(infer(titled(phrase("SCALE NONE", 110, 124, 9))).description).toMatchObject({ value: "BRACKET" });
+    // Not even a word that could start a title: a label under the title's first line is a label.
+    expect(infer(titled(phrase("SCALE MOUNT", 110, 124, 9))).description.value).toBe("BRACKET");
+  });
+
   it("model agreement at 0.99 cannot approve an incomplete 6061-T cell", async () => {
     const input = pdf([box("MATERIAL", 100, 100), box("6061-T", 100, 120), box("6", 100, 150)], "MATERIAL\n6061-T\n6");
     expect(infer(input).material).toMatchObject({ value: "6061-T", reviewNeeded: true });
