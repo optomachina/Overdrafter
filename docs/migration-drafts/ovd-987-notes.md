@@ -431,14 +431,22 @@ orphaned. Re-applying re-seeds the control at revision 0.
   `requested_quantity`. With the switch OFF nothing changes. With it ON, a
   Xometry beta result above quantity 1 that goes through this fenced acceptance
   would get `{"outcome":"stale"}` and never reach `finalize_free_quote_job`.
-  Nothing calls `accept_vendor_quote_result` yet (only its SQL, pgTAP and text
-  pin). This migration does not restate it, so its bytes and the reviewed md5s
+  The worker calls `accept_vendor_quote_result` (see the status below). This
+  migration does not restate it, so its bytes and the reviewed md5s
   stay as they are. **Hard prerequisite for switch-on (OVD-1000):** a follow-up
   migration must take that quantity from the permit's lane
   (`quote_request_lanes.requested_quantity`) instead of the literal, with an md5
   precondition and a pgTAP case for acceptance at quantity 5 with the switch ON,
   before the switch is turned on or before any caller starts using the fenced
   acceptance for Xometry beta results, whichever comes first.
+  **Status (2026-11-04):** the worker already settles every `run_vendor_quote`
+  result through this RPC (`worker/src/vendorQuoteOfferPersistence.ts`), so
+  this also blocks the OVD-1007 per-request grant run. Fixed, not yet applied,
+  by `supabase/migrations/20261104032000_ovd1000_accept_result_lane_quantity.sql`
+  (md5 `c72d8ca8…` to `c79ef702…`; rollback
+  `docs/migration-drafts/ovd-1000.rollback.sql`; pgTAP
+  `supabase/tests/ovd1000_accept_result_lane_quantity.sql`, accepted at
+  quantity 10 under a consumed grant with the switch off).
 - `node scripts/lint-security-definer.mjs` on the migration reports 0 failing
   and 0 baselined (7 SECURITY DEFINER functions). S1, S5 and S6 are owner-only
   private helpers; commit 892a7e9 added their owner-only
