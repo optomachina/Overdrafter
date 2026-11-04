@@ -577,7 +577,7 @@ export type WorkerConfig = {
   providerSessionNamespaceKey?: Uint8Array | null;
   /**
    * OVD-829: "on" reserves every live dispatch through the durable counter
-   * (api_worker_reserve_provider_dispatch). Default off until the ovd-828-s1
+   * (api_worker_reserve_provider_dispatch). Default off until the OVD-829
    * migration is applied; off keeps the kill switch and counts the cap in
    * process (see ProviderDispatchCapMode).
    */

@@ -293,6 +293,7 @@ insert into ovd736_authenticated_allowlist (sig, reason) values
   ('public.api_admin_set_founding_beta_enrollment(uuid,boolean,text,text)', 'signed in RPC: called from src/features/quotes/api/founding-beta-admin-api.ts'),
   ('public.api_admin_set_global_kill_switch(boolean,text,bigint)', 'signed in RPC: called from src/features/quotes/api/provider-kill-switch-api.ts (OVD-722, platform admin only)'),
   ('public.api_admin_set_provider_kill_switch(public.vendor_name,boolean,text,bigint)', 'signed in RPC: called from src/features/quotes/api/provider-kill-switch-api.ts (OVD-722, platform admin only)'),
+  ('public.api_admin_set_provider_settings(public.vendor_name,boolean,integer,text,bigint)', 'signed in RPC: called from src/features/quotes/api/provider-kill-switch-api.ts (OVD-829, platform admin with AAL2 only)'),
   ('public.api_approve_job_requirements(uuid,jsonb)', 'signed in RPC: called from src/features/quotes/api/extraction-api.ts'),
   ('public.api_archive_job(uuid)', 'signed in RPC: called from src/features/quotes/api/archive-api.ts'),
   ('public.api_archive_project(uuid)', 'signed in RPC: called from src/features/quotes/api/projects-api.ts'),

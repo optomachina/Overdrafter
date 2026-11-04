@@ -1,11 +1,9 @@
 -- OVD-828 S1 (OVD-829): universal per-supplier settings (on/off + daily cap).
 --
--- Targets the draft docs/migration-drafts/ovd-828-s1.sql,
--- applied on top of 20261013043100_ovd722_provider_kill_switch.sql.
--- PENDING: the draft is NOT applied (NEEDS BLAINE MIGRATION WINDOW). This file
--- carries a .pending suffix so the policy-test runner stages it but never
--- executes it. In the approved window, the draft is promoted and this file is
--- renamed to supabase/tests/ovd829_provider_settings.sql in the same change.
+-- Targets supabase/migrations/20261104032100_ovd829_provider_daily_quote_cap.sql
+-- (the promoted docs/migration-drafts/ovd-828-s1.sql), applied on top of
+-- 20261013043100 (OVD-722), 20261015221725 (OVD-771) and 20261016000156
+-- (OVD-767). The rollback drill is supabase/tests/ovd829_provider_settings_rollback.sql.
 -- Pre-apply observation: every assertion that references the new functions or
 -- columns fails with "does not exist".
 --
@@ -17,8 +15,14 @@
 --   * api_admin_set_provider_settings refuses anon, service_role, a non-admin,
 --     and an admin without AAL2; refuses cap <= 0; accepts null (unlimited);
 --     compare and set; writes one audit row with the cap
---   * api_admin_set_provider_kill_switch now refuses an admin without AAL2 and
---     preserves the cap
+--   * api_admin_set_provider_kill_switch still refuses an admin without AAL2
+--     exactly as OVD-767 does (same message, SQLSTATE P0001) and preserves the cap
+--   * api_service_set_provider_daily_quote_cap (the audited service-role cap
+--     setter): service_role only; refuses a missing operator, a short reason,
+--     a cap <= 0 and a missing or stale version; sets only the cap (never the
+--     on/off state); audits actor cli:service_role with the operator and the
+--     new and previous cap; the dispatch counter enforces the cap it set
+--     (Xometry, the runbook example)
 --   * api_worker_reserve_provider_dispatch: refuses at cap + 1, null never
 --     refuses, engaged (supplier or global) returns provider_disabled whatever
 --     the cap and counts nothing; a corrupt cap (<= 0) reads as no cap; counts per
@@ -31,7 +35,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(42);
+select plan(58);
 
 create function pg_temp.ovd829_as(p_user_id uuid, p_role text, p_aal text)
 returns void
@@ -107,7 +111,8 @@ select ok(
      'public.api_admin_set_provider_kill_switch(public.vendor_name, boolean, text, bigint)'::regprocedure,
      'public.api_admin_list_provider_kill_switches()'::regprocedure,
      'public.api_worker_reserve_provider_dispatch(public.vendor_name)'::regprocedure,
-     'public.api_worker_provider_settings_state(public.vendor_name)'::regprocedure)),
+     'public.api_worker_provider_settings_state(public.vendor_name)'::regprocedure,
+     'public.api_service_set_provider_daily_quote_cap(public.vendor_name, integer, text, text, bigint)'::regprocedure)),
   'every public settings RPC is SECURITY DEFINER with search_path = ''''');
 
 select ok(
@@ -130,6 +135,12 @@ select ok(
   not has_function_privilege('authenticated', 'private.write_provider_settings(uuid, public.vendor_name, boolean, boolean, integer, text, bigint)', 'EXECUTE')
     and not has_function_privilege('service_role', 'private.write_provider_settings(uuid, public.vendor_name, boolean, boolean, integer, text, bigint)', 'EXECUTE'),
   'no API role may call the shared writer directly');
+select ok(
+  not has_function_privilege('public', 'public.api_service_set_provider_daily_quote_cap(public.vendor_name, integer, text, text, bigint)', 'EXECUTE')
+    and not has_function_privilege('anon', 'public.api_service_set_provider_daily_quote_cap(public.vendor_name, integer, text, text, bigint)', 'EXECUTE')
+    and not has_function_privilege('authenticated', 'public.api_service_set_provider_daily_quote_cap(public.vendor_name, integer, text, text, bigint)', 'EXECUTE')
+    and has_function_privilege('service_role', 'public.api_service_set_provider_daily_quote_cap(public.vendor_name, integer, text, text, bigint)', 'EXECUTE'),
+  'only service_role may execute the service cap setter');
 select ok(
   not has_table_privilege('service_role', 'private.provider_daily_quote_usage', 'UPDATE')
     and not has_table_privilege('authenticated', 'private.provider_daily_quote_usage', 'SELECT'),
@@ -164,8 +175,8 @@ select throws_ok(
   'an admin without AAL2 is refused by the settings RPC');
 select throws_ok(
   $$select public.api_admin_set_provider_kill_switch('fictiv', true, 'admin without a second factor')$$,
-  '42501', 'Multi-factor authentication is required for provider kill switch administration.',
-  'an admin without AAL2 is now refused by the kill-switch RPC');
+  'P0001', 'Multi-factor authentication is required for provider kill switch administration.',
+  'an admin without AAL2 is still refused by the kill-switch RPC (OVD-767 message and SQLSTATE)');
 
 select pg_temp.ovd829_as('00000000-0000-4000-8000-000000829001', 'authenticated', 'aal2');
 select throws_ok(
@@ -315,6 +326,97 @@ set local role service_role;
 select is(
   public.api_worker_reserve_provider_dispatch('rmfg') ->> 'reason', 'provider_disabled',
   'the kill switch beats the cap: an engaged supplier at its cap is provider_disabled');
+reset role;
+
+-- ---------------------------------------------------------------------
+-- Audited service-role cap setter (the docs/migration-drafts/ovd-829-notes.md
+-- runbook: set a Xometry daily cap)
+-- ---------------------------------------------------------------------
+update private.provider_global_kill_switch set engaged = false where singleton;
+update private.provider_kill_switches set engaged = true, daily_quote_cap = null where provider = 'xometry';
+delete from private.provider_daily_quote_usage where provider = 'xometry';
+create temp table ovd829_xometry (version bigint) on commit drop;
+grant select on ovd829_xometry to service_role;
+insert into ovd829_xometry select version from private.provider_kill_switches where provider = 'xometry';
+
+set local role authenticated;
+select pg_temp.ovd829_as('00000000-0000-4000-8000-000000829001', 'authenticated', 'aal2');
+select throws_ok(
+  $$select public.api_service_set_provider_daily_quote_cap('xometry', 2, 'admin session is not the service role', 'ovd829-admin', 0)$$,
+  '42501', null, 'an AAL2 admin session cannot call the service cap setter');
+reset role;
+
+set local role service_role;
+select throws_ok(
+  pg_catalog.format($$select public.api_service_set_provider_daily_quote_cap('xometry', 2, 'OVD-829 test: no operator', ' ', %s)$$,
+    (select version from ovd829_xometry)),
+  '22023', 'operator_required', 'the service cap setter requires an operator name');
+select throws_ok(
+  pg_catalog.format($$select public.api_service_set_provider_daily_quote_cap('xometry', 2, 'short', 'ovd829-operator', %s)$$,
+    (select version from ovd829_xometry)),
+  '22023', 'reason_required_min_10_chars', 'the service cap setter requires a 10 character reason');
+select throws_ok(
+  pg_catalog.format($$select public.api_service_set_provider_daily_quote_cap('xometry', 0, 'OVD-829 test: zero cap', 'ovd829-operator', %s)$$,
+    (select version from ovd829_xometry)),
+  '22023', 'daily_quote_cap_must_be_positive', 'the service cap setter refuses a cap of 0');
+select throws_ok(
+  $$select public.api_service_set_provider_daily_quote_cap('xometry', 2, 'OVD-829 test: versionless cap', 'ovd829-operator', null)$$,
+  'P0001', 'kill_switch_version_conflict', 'the service cap setter refuses a missing version');
+select throws_ok(
+  pg_catalog.format($$select public.api_service_set_provider_daily_quote_cap('xometry', 2, 'OVD-829 test: stale cap', 'ovd829-operator', %s)$$,
+    (select version - 1 from ovd829_xometry)),
+  'P0001', 'kill_switch_version_conflict', 'the service cap setter refuses a stale version');
+select is(
+  (select p ->> 'version'
+   from pg_catalog.jsonb_array_elements(public.api_service_list_provider_kill_switches() -> 'providers') p
+   where p ->> 'provider' = 'xometry'),
+  (select version::text from ovd829_xometry),
+  'the service list reports the version the cap setter must name');
+select is(
+  public.api_service_set_provider_daily_quote_cap('xometry', 2, 'OVD-829 test: Xometry daily cap', ' ovd829-operator ',
+    (select version from ovd829_xometry)) - 'changedAt',
+  pg_catalog.jsonb_build_object(
+    'provider', 'xometry', 'engaged', true, 'dailyQuoteCap', 2, 'previousDailyQuoteCap', null,
+    'reason', 'OVD-829 test: Xometry daily cap', 'changedBy', 'cli:service_role',
+    'operator', 'ovd829-operator', 'version', (select version + 1 from ovd829_xometry)),
+  'the service role sets the Xometry cap to 2 and the on/off state is reported unchanged');
+reset role;
+
+select results_eq(
+  $$select engaged, daily_quote_cap, engaged_by from private.provider_kill_switches where provider = 'xometry'$$,
+  $$values (true, 2, null::uuid)$$,
+  'setting a cap never switched Xometry on');
+select results_eq(
+  $$select actor, operator, engaged, reason, daily_quote_cap, previous_daily_quote_cap
+    from private.provider_kill_switch_audit
+    where provider = 'xometry' and actor = 'cli:service_role' and reason = 'OVD-829 test: Xometry daily cap'$$,
+  $$values ('cli:service_role'::text, 'ovd829-operator'::text, true, 'OVD-829 test: Xometry daily cap'::text, 2, null::integer)$$,
+  'the cap change wrote exactly one audit row: cli:service_role, the operator, the new and previous cap');
+select is(
+  (select pg_catalog.count(*)::int from private.provider_kill_switch_audit
+   where provider = 'xometry' and reason like 'OVD-829 test:%' and reason <> 'OVD-829 test: Xometry daily cap'),
+  0, 'refused service calls wrote no audit rows');
+
+-- Released through the existing switch path, the counter enforces the cap the service role set.
+update private.provider_kill_switches set engaged = false where provider = 'xometry';
+update ovd829_xometry set version = (select version from private.provider_kill_switches where provider = 'xometry');
+set local role service_role;
+select is(
+  public.api_worker_provider_settings_state('xometry') - 'schema',
+  '{"provider": "xometry", "globalEngaged": false, "engaged": false, "dailyQuoteCap": 2, "usedToday": 0}'::jsonb,
+  'the worker settings read sees the Xometry cap');
+select is(
+  (select pg_catalog.array_agg(public.api_worker_reserve_provider_dispatch('xometry') ->> 'reason' order by n)
+   from pg_catalog.generate_series(1, 3) n),
+  array[null, null, 'provider_daily_cap_reached'],
+  'Xometry cap 2: two dispatches allowed, the third refused provider_daily_cap_reached');
+select is(
+  (public.api_service_set_provider_daily_quote_cap('xometry', null, 'OVD-829 test: Xometry unlimited again', 'ovd829-operator',
+    (select version from ovd829_xometry)) -> 'dailyQuoteCap'),
+  'null'::jsonb, 'the service role clears the cap (null = unlimited)');
+select is(
+  public.api_worker_reserve_provider_dispatch('xometry') ->> 'allowed', 'true',
+  'with the cap cleared Xometry dispatches again');
 reset role;
 
 update private.provider_kill_switches set engaged = false, daily_quote_cap = 50 where provider = 'fictiv';

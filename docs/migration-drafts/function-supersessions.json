@@ -14,18 +14,6 @@
       "reason": "OVD-723 contract draft (window 2): written against the body deployed today. Recorded as the baseline when this check was added; if a newer migration changes this function before the draft is promoted, this entry stops matching and the draft must be rebased onto it."
     },
     {
-      "signature": "public.api_admin_list_provider_kill_switches()",
-      "file": "docs/migration-drafts/ovd-828-s1.sql",
-      "supersedesSha256": "7d47562c683b3c167617c18b448148217d64a3b056657dce671f760dd898d5ef",
-      "reason": "OVD-828 S1 draft: written against the body deployed today. Recorded as the baseline when this check was added; if a newer migration changes this function before the draft is promoted, this entry stops matching and the draft must be rebased onto it."
-    },
-    {
-      "signature": "public.api_admin_set_provider_kill_switch(vendor_name,boolean,text,bigint)",
-      "file": "docs/migration-drafts/ovd-828-s1.sql",
-      "supersedesSha256": "e83daa7e9a381748d44d64c5fc9a8a725ab7af71f9c32ee21e6c5c71ead5cc61",
-      "reason": "OVD-828 S1 preserves the verified-auth, platform-admin and AAL2 guards from 20261016000156_ovd767_admin_write_aal2_guards.sql before delegating to the cap-preserving settings writer. Its AAL2 exception explicitly uses SQLSTATE 42501, as the pending OVD-829 test expects. This entry names the deployed OVD-767 body; the retired OVD-722 body is no longer a supersession target."
-    },
-    {
       "signature": "public.api_authorize_provider_worker_dispatch(uuid,uuid,jsonb,text,timestamptz)",
       "file": "docs/migration-drafts/ovd-723-contract.sql",
       "supersedesSha256": "59b32c6e5c96859299c5c02496f5aa04c0b18360f88959aa94477caccf8574e0",
