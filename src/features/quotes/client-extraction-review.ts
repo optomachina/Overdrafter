@@ -8,8 +8,12 @@ type PropertyValue = string | number | null | undefined;
 const TIMESTAMP_PATTERN =
   /^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}:\d{2})(\.\d+)?\s*(Z|[+-]\d{2}(?::?\d{2})?)$/i;
 
-/** Milliseconds since the epoch, or null when the value is absent, unzoned or unreadable. */
-export function parseZonedTimestampMs(value: string | null | undefined): number | null {
+/**
+ * Microseconds since the epoch, or null when the value is absent, unzoned or unreadable.
+ * Postgres keeps microseconds, so a save in the same millisecond as the drawing read
+ * still orders correctly. Epoch microseconds stay within Number.MAX_SAFE_INTEGER.
+ */
+export function parseZonedTimestampMicros(value: string | null | undefined): number | null {
   if (typeof value !== "string") {
     return null;
   }
@@ -21,7 +25,6 @@ export function parseZonedTimestampMs(value: string | null | undefined): number 
   }
 
   const [, date, time, fraction, zone] = match;
-  const milliseconds = fraction ? fraction.slice(0, 4).padEnd(4, "0") : "";
   let offset = zone.toUpperCase();
 
   if (offset !== "Z") {
@@ -29,8 +32,15 @@ export function parseZonedTimestampMs(value: string | null | undefined): number 
     offset = `${offset[0]}${digits.slice(0, 2)}:${digits.slice(2, 4) || "00"}`;
   }
 
-  const parsed = Date.parse(`${date}T${time}${milliseconds}${offset}`);
-  return Number.isFinite(parsed) ? parsed : null;
+  const wholeSecondsMs = Date.parse(`${date}T${time}${offset}`);
+
+  if (!Number.isFinite(wholeSecondsMs)) {
+    return null;
+  }
+
+  const micros = fraction ? Number(fraction.slice(1, 7).padEnd(6, "0")) : 0;
+  const result = wholeSecondsMs * 1000 + micros;
+  return Number.isSafeInteger(result) ? result : null;
 }
 
 function hasValue(field: string, value: PropertyValue) {
@@ -83,14 +93,14 @@ function savedAfterExtraction(
   diagnostics: ClientExtractionDiagnostics,
   propertyState: ClientPartPropertyState | null,
 ) {
-  const savedAt = parseZonedTimestampMs(propertyState?.updatedAt);
-  const extractedAt = parseZonedTimestampMs(diagnostics.extractedAt);
+  const savedAt = parseZonedTimestampMicros(propertyState?.updatedAt);
+  const extractedAt = parseZonedTimestampMicros(diagnostics.extractedAt);
 
   if (savedAt === null || extractedAt === null) {
     return false;
   }
 
-  const diagnosticsUpdatedAt = parseZonedTimestampMs(diagnostics.updatedAt);
+  const diagnosticsUpdatedAt = parseZonedTimestampMicros(diagnostics.updatedAt);
   const latestExtractionAt =
     diagnosticsUpdatedAt === null ? extractedAt : Math.max(extractedAt, diagnosticsUpdatedAt);
 
@@ -101,6 +111,10 @@ function savedAfterExtraction(
  * Applies the customer's saved request details to the drawing review lists shown on
  * the client part page (OVD-1165). The raw extraction review state is unchanged for
  * internal tooling; only a partial lifecycle is affected.
+ *
+ * A request save after the drawing read confirms the remaining Verify fields and
+ * acknowledges extraction warnings; Missing fields with no saved value stay listed.
+ * Without such a save, overrides only narrow the lists and warnings keep the notice.
  */
 export function resolveClientExtractionReview(
   diagnostics: ClientExtractionDiagnostics | null | undefined,
@@ -110,12 +124,7 @@ export function resolveClientExtractionReview(
     return null;
   }
 
-  const rawReviewFields = diagnostics.reviewFields ?? [];
-
-  if (
-    diagnostics.lifecycle !== "partial" ||
-    (diagnostics.missingFields.length === 0 && rawReviewFields.length === 0)
-  ) {
+  if (diagnostics.lifecycle !== "partial") {
     return diagnostics;
   }
 
@@ -126,11 +135,12 @@ export function resolveClientExtractionReview(
   );
   const reviewFields = confirmed
     ? []
-    : rawReviewFields.filter((field) => !hasCustomerOverride(state, field));
+    : (diagnostics.reviewFields ?? []).filter((field) => !hasCustomerOverride(state, field));
 
-  if (missingFields.length === 0 && reviewFields.length === 0) {
-    return { ...diagnostics, lifecycle: "succeeded", missingFields, reviewFields };
+  // Warnings alone keep the notice until the customer saves after the drawing read.
+  if (missingFields.length > 0 || reviewFields.length > 0 || (!confirmed && diagnostics.warningCount > 0)) {
+    return { ...diagnostics, missingFields, reviewFields };
   }
 
-  return { ...diagnostics, missingFields, reviewFields };
+  return { ...diagnostics, lifecycle: "succeeded", missingFields, reviewFields };
 }

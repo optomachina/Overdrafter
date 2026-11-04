@@ -316,6 +316,7 @@ vi.mock("@/components/quotes/ClientExtractionStatusNotice", () => ({
     diagnostics?: {
       lifecycle?: string;
       missingFields?: string[];
+      reviewFields?: string[];
       lastFailureMessage?: string | null;
     } | null;
   }) => {
@@ -332,6 +333,7 @@ vi.mock("@/components/quotes/ClientExtractionStatusNotice", () => ({
         <div>
           <div>Partial drawing metadata found</div>
           <div>Missing: {(diagnostics.missingFields ?? []).join(", ")}</div>
+          <div>Verify: {(diagnostics.reviewFields ?? []).join(", ")}</div>
         </div>
       );
     }
@@ -4215,7 +4217,7 @@ describe("ClientPart", () => {
           warningCount: 0,
           warnings: [],
           missingFields: ["material", "finish"],
-          reviewFields: ["partNumber"],
+          reviewFields: ["partNumber", "revision"],
           lastFailureCode: null,
           lastFailureMessage: null,
           extractedAt: "2026-03-01T01:00:00.123456+00:00",
@@ -4239,7 +4241,7 @@ describe("ClientPart", () => {
           requestedByDate: "2026-04-15",
           projectPartProperties: {
             defaults: { partNumber: "BRKT-001", finish: "Clear anodize" },
-            overrides: { material: "6061-T6" },
+            overrides: { material: "6061-T6", partNumber: "BRKT-002" },
             createdAt: "2026-03-01 00:30:00+00",
             updatedAt: propertyUpdatedAt,
           },
@@ -4257,6 +4259,7 @@ describe("ClientPart", () => {
     await waitFor(() => {
       expect(screen.getByText(/partial drawing metadata found/i)).toBeInTheDocument();
       expect(screen.getByText(/^missing: finish$/i)).toBeInTheDocument();
+      expect(screen.getByText(/^verify: revision$/i)).toBeInTheDocument();
     });
   });
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  parseZonedTimestampMs,
+  parseZonedTimestampMicros,
   resolveClientExtractionReview,
 } from "@/features/quotes/client-extraction-review";
 import type { ClientExtractionDiagnostics, ClientPartPropertyState } from "@/features/quotes/types";
@@ -168,10 +168,51 @@ describe("resolveClientExtractionReview (OVD-1165)", () => {
     },
   );
 
-  it("leaves a warnings-only partial notice unchanged", () => {
+  it("keeps a warnings-only notice until the customer saves after the drawing read", () => {
+    const raw = diagnostics({ reviewFields: [], warningCount: 1, warnings: ["Low confidence title block."] });
+    const result = resolveClientExtractionReview(raw, savedProperties({ updatedAt: SAVED_BEFORE }));
+
+    expect(result?.lifecycle).toBe("partial");
+    expect(result?.warningCount).toBe(1);
+  });
+
+  it("acknowledges warnings-only notices with a save after the drawing read", () => {
     const raw = diagnostics({ reviewFields: [], warningCount: 1, warnings: ["Low confidence title block."] });
 
-    expect(resolveClientExtractionReview(raw, savedProperties())).toBe(raw);
+    expect(resolveClientExtractionReview(raw, savedProperties())?.lifecycle).toBe("succeeded");
+  });
+
+  it("keeps the notice for remaining warnings when overrides cleared every field without a later save", () => {
+    const result = resolveClientExtractionReview(
+      diagnostics({ reviewFields: ["material"], warningCount: 2, warnings: ["a", "b"] }),
+      savedProperties({ updatedAt: SAVED_BEFORE }),
+    );
+
+    expect(result?.lifecycle).toBe("partial");
+    expect(result?.reviewFields).toEqual([]);
+    expect(result?.warningCount).toBe(2);
+  });
+
+  it("clears fields and warnings together once the customer saved after the drawing read", () => {
+    const result = resolveClientExtractionReview(
+      diagnostics({ warningCount: 2, warnings: ["a", "b"] }),
+      savedProperties(),
+    );
+
+    expect(result?.lifecycle).toBe("succeeded");
+  });
+
+  it("orders a save in the same millisecond as the drawing read by its microseconds", () => {
+    const sameMillisecond = { extractedAt: "2026-11-04T06:18:41.512345+00:00", updatedAt: "2026-11-04T06:18:41.512345+00:00" };
+
+    expect(
+      resolveClientExtractionReview(diagnostics(sameMillisecond), savedProperties({ updatedAt: "2026-11-04 06:18:41.512346+00" }))
+        ?.lifecycle,
+    ).toBe("succeeded");
+    expect(
+      resolveClientExtractionReview(diagnostics(sameMillisecond), savedProperties({ updatedAt: "2026-11-04 06:18:41.512344+00" }))
+        ?.reviewFields,
+    ).toEqual(["partNumber", "revision"]);
   });
 
   it("does not modify the raw diagnostics", () => {
@@ -183,20 +224,28 @@ describe("resolveClientExtractionReview (OVD-1165)", () => {
   });
 });
 
-describe("parseZonedTimestampMs", () => {
+describe("parseZonedTimestampMicros", () => {
   it("reads jsonb and text renderings of the same instant identically", () => {
-    const expected = Date.UTC(2026, 10, 4, 6, 25, 3, 104);
+    const expected = Date.UTC(2026, 10, 4, 6, 25, 3) * 1000 + 104512;
 
-    expect(parseZonedTimestampMs("2026-11-04 06:25:03.104512+00")).toBe(expected);
-    expect(parseZonedTimestampMs("2026-11-04T06:25:03.104512+00:00")).toBe(expected);
-    expect(parseZonedTimestampMs("2026-11-04T06:25:03.104Z")).toBe(expected);
-    expect(parseZonedTimestampMs("2026-11-04 11:55:03.104+0530")).toBe(expected);
+    expect(parseZonedTimestampMicros("2026-11-04 06:25:03.104512+00")).toBe(expected);
+    expect(parseZonedTimestampMicros("2026-11-04T06:25:03.104512+00:00")).toBe(expected);
+    expect(parseZonedTimestampMicros("2026-11-04T06:25:03.104512Z")).toBe(expected);
+    expect(parseZonedTimestampMicros("2026-11-04 11:55:03.104512+0530")).toBe(expected);
+  });
+
+  it("keeps microseconds and pads shorter fractions", () => {
+    const wholeSecond = Date.UTC(2026, 10, 4, 6, 25, 3) * 1000;
+
+    expect(parseZonedTimestampMicros("2026-11-04 06:25:03.104513+00")).toBe(wholeSecond + 104513);
+    expect(parseZonedTimestampMicros("2026-11-04 06:25:03.1+00")).toBe(wholeSecond + 100000);
+    expect(parseZonedTimestampMicros("2026-11-04 06:25:03+00")).toBe(wholeSecond);
   });
 
   it.each([null, undefined, "", "2026-11-04 06:25:03", "-infinity", "not a date"])(
     "returns null for %s",
     (value) => {
-      expect(parseZonedTimestampMs(value)).toBeNull();
+      expect(parseZonedTimestampMicros(value)).toBeNull();
     },
   );
 });
