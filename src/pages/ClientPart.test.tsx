@@ -4371,6 +4371,69 @@ describe("ClientPart", () => {
     expect(api.updateClientPartRequest).not.toHaveBeenCalled();
   });
 
+  it("does not restore the override a pending field reset removes when Rename is submitted (OVD-1155)", async () => {
+    const baseDetail = createPartDetail();
+    let persistedDescription = "Customer override description";
+    let persistedPartNumber = "BRKT-001";
+    api.fetchPartDetailByJobId.mockImplementation(async () =>
+      createPartDetail({
+        part: {
+          ...baseDetail.part,
+          clientRequirement: {
+            description: persistedDescription,
+            partNumber: persistedPartNumber,
+            revision: "A",
+            material: "6061-T6 aluminum",
+            finish: null,
+            tightestToleranceInch: null,
+            process: "CNC milling",
+            notes: null,
+            quantity: 10,
+            quoteQuantities: [10],
+            requestedByDate: "2026-04-15",
+          },
+        },
+      }));
+    const reset = createDeferredPromise<void>();
+    api.resetClientPartPropertyOverrides.mockImplementationOnce(async () => {
+      await reset.promise;
+      persistedDescription = "Extracted bracket description";
+    });
+    api.updateClientPartRequest.mockImplementation(async (input: ClientPartRequestUpdateInput) => {
+      persistedDescription = input.description ?? persistedDescription;
+      persistedPartNumber = input.partNumber ?? persistedPartNumber;
+    });
+    const { result } = renderPartControllerHook();
+    await waitFor(() => expect(result.current.effectiveRequestDraft?.description).toBe("Customer override description"));
+
+    act(() => result.current.handleResetField("description"));
+    await waitFor(() => expect(result.current.resetFieldMutation.isPending).toBe(true));
+    let rename: Promise<void> | undefined;
+    act(() => {
+      rename = result.current.handleRenamePart("job-1", "BRKT-002");
+    });
+    await act(async () => {
+      reset.resolve();
+      await rename;
+    });
+    await waitFor(() => expect(result.current.resetFieldMutation.isSuccess).toBe(true));
+    await waitFor(() => expect(result.current.effectiveRequestDraft?.description).toBe("Extracted bracket description"));
+    // The rename built from the pre-reset draft must not put the removed override back.
+    expect(api.updateClientPartRequest).not.toHaveBeenCalledWith(
+      expect.objectContaining({ description: "Customer override description" }),
+    );
+    expect(persistedDescription).toBe("Extracted bracket description");
+
+    // Once the reset lands, the rename goes through on the reset draft.
+    await act(async () => {
+      await result.current.handleRenamePart("job-1", "BRKT-002");
+    });
+    expect(api.updateClientPartRequest).toHaveBeenCalledWith(
+      expect.objectContaining({ partNumber: "BRKT-002", description: "Extracted bracket description" }),
+    );
+    expect(persistedDescription).toBe("Extracted bracket description");
+  });
+
   it("keeps saved packaging notes and other RFQ details when Save follows an unrelated edit (OVD-1151)", async () => {
     const baseDetail = createPartDetail();
     const savedRequestMetadata = {

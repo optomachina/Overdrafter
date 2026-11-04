@@ -1214,7 +1214,11 @@ const ClientPart = () => {
         submitLabel="Save"
         placeholder="Part name"
         isPending={isRenamingPart}
-        isSubmitDisabled={partRenameValue.trim().length === 0 || partRenameValue.trim() === currentPartName}
+        isSubmitDisabled={
+          resetFieldMutation.isPending ||
+          partRenameValue.trim().length === 0 ||
+          partRenameValue.trim() === currentPartName
+        }
         onSubmit={() => handleRenamePart(jobId, partRenameValue.trim())}
       />
 
