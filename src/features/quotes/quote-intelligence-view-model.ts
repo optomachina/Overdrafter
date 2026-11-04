@@ -147,11 +147,8 @@ function normalizeSearchText(value: string): string {
     .replace(/(\d)\s*"/g, "$1 in ")
     .replace(/(\d|\.)\s*(mm|cm|thou|in)\b/g, "$1 $2")
     .replace(new RegExp(`${ENGINEERING_NUMBER_PATTERN}\\s+diameter\\s+(mm|cm|m|in|thou)\\b`, "g"), "diameter $1 $2")
-    .replace(new RegExp(`${ENGINEERING_NUMBER_PATTERN}\\s+diameter\\b`, "g"), "diameter $1 in")
-    .replace(
-      new RegExp(`\\bdiameter\\s+${ENGINEERING_NUMBER_PATTERN}(?![\\d./]|[ -]+\\d+/)(?!\\s*(?:mm|cm|m|in|thou)\\b)`, "g"),
-      "diameter $1 in",
-    )
+    // A diameter typed without a unit gets no unit assumed: "12 dia" and "Ø12" both read "diameter 12".
+    .replace(new RegExp(`${ENGINEERING_NUMBER_PATTERN}\\s+diameter\\b`, "g"), "diameter $1")
     .replace(/[,:;=()[\]{}]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
