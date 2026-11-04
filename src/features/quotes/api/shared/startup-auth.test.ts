@@ -308,4 +308,37 @@ describe("startup auth helpers", () => {
     expect(authGetSessionMock).toHaveBeenCalledTimes(2);
     expect(isStartupBootstrapPending()).toBe(false);
   });
+
+  it("hands the rejection of a memoized startup read to a concurrent second caller", async () => {
+    let rejectSession!: (error: unknown) => void;
+    authGetSessionMock.mockReturnValueOnce(new Promise((_, reject) => { rejectSession = reject; }));
+
+    const first = readStartupSupabaseBootstrap();
+    const second = readStartupSupabaseBootstrap();
+    expect(isStartupBootstrapPending()).toBe(true);
+    rejectSession(new TypeError("Failed to fetch"));
+
+    await expect(first).rejects.toThrow("Failed to fetch");
+    await expect(second).rejects.toThrow("Failed to fetch");
+    expect(authGetSessionMock).toHaveBeenCalledTimes(1);
+    expect(isStartupBootstrapPending()).toBe(false);
+  });
+
+  it("clears the memoized startup user read when the startup read rejects", async () => {
+    storageMock.setItem(getSupabaseAuthStorageKey(), JSON.stringify({ access_token: "token-1" }));
+    const session = { access_token: "token-1", user: { id: "user-1" } };
+    authGetSessionMock.mockResolvedValue({ data: { session }, error: null });
+    authGetUserMock
+      .mockRejectedValueOnce(new TypeError("Failed to fetch"))
+      .mockResolvedValueOnce({ data: { user: { id: "user-1" } }, error: null });
+
+    await expect(readStartupSupabaseBootstrap()).rejects.toThrow("Failed to fetch");
+
+    // A reused rejected user read would fail this read too.
+    await expect(readStartupSupabaseBootstrap()).resolves.toMatchObject({
+      authState: "authenticated",
+      user: { id: "user-1" },
+    });
+    expect(authGetUserMock).toHaveBeenCalledTimes(2);
+  });
 });

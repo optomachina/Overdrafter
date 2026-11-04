@@ -161,8 +161,15 @@ export async function prefetchProjectPage(
 
   if (shouldPrefetchQuery(queryClient, projectKey, WORKSPACE_DETAIL_STALE_TIME_MS)) {
     try {
-      const project = await fetchProject(projectId);
-      queryClient.setQueryData(projectKey, project);
+      // fetchQuery joins a fetch already in flight for this key, so two prefetches of the
+      // same project (hover, then focus) send one request (OVD-1033 P2-11).
+      await queryClient.fetchQuery({
+        queryKey: projectKey,
+        queryFn: () => fetchProject(projectId),
+        staleTime: WORKSPACE_DETAIL_STALE_TIME_MS,
+        gcTime: WORKSPACE_GC_TIME_MS,
+        retry: false,
+      });
     } catch (error) {
       if (!isProjectNotFoundError(error)) {
         throw error;

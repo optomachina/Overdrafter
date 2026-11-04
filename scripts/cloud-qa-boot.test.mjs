@@ -8,8 +8,10 @@ import { afterEach, expect, test } from "vitest";
 // prepare_unprivileged_copy runs as root against the host's user database and
 // docker socket, so every command that would touch them is a stub on PATH. The
 // stubs log what ran and where; a state file stands for the running stack, and
-// the `supabase stop` stub removes it. The script is sourced, not executed, so
-// the function under test runs without the boot steps.
+// the `supabase stop` stub removes it. The `supabase start` stub models the CLI:
+// a no-op while the stack runs, otherwise it snapshots supabase/functions the way
+// edge-runtime's bind mount pins the directory it was started from. The script is
+// sourced, not executed, so the function under test runs without the boot steps.
 const script = resolve("scripts/cloud-qa-boot.sh");
 const PROJECT_ID = "stubproject";
 const dirs = [];
@@ -36,6 +38,7 @@ function fixture({ previousCopy = true, stackRunning = true, stopFails = false, 
     mkdirSync(join(root, "supabase/functions/hello"), { recursive: true });
     writeFileSync(join(root, "supabase/config.toml"), `project_id = "${PROJECT_ID}"\n`);
     writeFileSync(join(root, "HEAD_MARKER"), marker);
+    writeFileSync(join(root, "supabase/functions/hello/index.ts"), `export const head = "${marker}";\n`);
   };
   head(checkout, "new");
   if (previousCopy) head(copy, "old");
@@ -47,7 +50,11 @@ if [[ "$1" = ps ]]; then [[ -f "$STUB_STATE/running" ]] && echo c0ffee; exit 0; 
   stub(bin, "supabase", `echo "supabase $* cwd=$PWD head=$(cat HEAD_MARKER 2>/dev/null || echo none)" >> "$STUB_LOG"
 if [[ "$1" = stop ]]; then
   [[ -z "\${STUB_STOP_FAILS:-}" ]] || exit 1
-  [[ -n "\${STUB_STOP_LEAVES_CONTAINERS:-}" ]] || rm -f "$STUB_STATE/running"
+  [[ -n "\${STUB_STOP_LEAVES_CONTAINERS:-}" ]] || rm -rf "$STUB_STATE/running" "$STUB_STATE/mounted"
+fi
+if [[ "$1" = start && ! -f "$STUB_STATE/running" ]]; then
+  touch "$STUB_STATE/running"
+  cp -R supabase/functions "$STUB_STATE/mounted"
 fi
 exit 0`);
   // as_qa runs `sudo -u <user> -H env VAR=... bash -c "cd ... && ..."`: drop the
@@ -57,8 +64,10 @@ exec "$@"`);
   for (const name of ["useradd", "usermod", "groupadd", "chgrp", "chmod", "chown"]) {
     stub(bin, name, `echo "${name} $*" >> "$STUB_LOG"`);
   }
-  const run = () => {
-    const result = spawnSync("bash", ["-c", 'source "$1" && prepare_unprivileged_copy', "harness", script], {
+  // `start` also runs main's next step, `supabase start` as qa from the new copy.
+  const run = ({ start = false } = {}) => {
+    const command = `source "$1" && prepare_unprivileged_copy${start ? ' && as_qa "supabase start"' : ""}`;
+    const result = spawnSync("bash", ["-c", command, "harness", script], {
       cwd: checkout,
       encoding: "utf8",
       env: {
@@ -77,7 +86,13 @@ exec "$@"`);
     return { status: result.status, output: result.stdout + result.stderr, calls };
   };
   const marker = () => (existsSync(join(copy, "HEAD_MARKER")) ? readFileSync(join(copy, "HEAD_MARKER"), "utf8") : null);
-  return { run, marker, copy };
+  // The function source the running edge runtime serves, or null when none runs.
+  const served = () => {
+    const file = join(state, "mounted/hello/index.ts");
+    return existsSync(file) ? readFileSync(file, "utf8") : null;
+  };
+  const checkoutHead = (name) => head(checkout, name);
+  return { run, marker, copy, served, checkoutHead };
 }
 
 const PS = `docker ps -q --filter label=com.supabase.cli.project=${PROJECT_ID}`;
@@ -98,6 +113,21 @@ test("stops the previous copy's running stack, as qa from that copy, before repl
   // The stack was re-checked after the stop, and the copy now holds the new head.
   expect(calls.filter((call) => call === PS)).toHaveLength(2);
   expect(marker()).toBe("new");
+}, 20_000);
+
+test("OVD-1146: a second run at a new head in one container serves the new head's edge functions", () => {
+  const { run, marker, copy, served, checkoutHead } = fixture({ previousCopy: false, stackRunning: false });
+  checkoutHead("first");
+  const first = run({ start: true });
+  expect(first.status, first.output).toBe(0);
+  expect(served()).toBe('export const head = "first";\n');
+  checkoutHead("second");
+  const second = run({ start: true });
+  expect(second.status, second.output).toBe(0);
+  expect(marker()).toBe("second");
+  // The first head's stack was stopped from its own copy, so start mounted the new copy.
+  expect(stopCall(second.calls)).toBe(`supabase stop --project-id ${PROJECT_ID} cwd=${copy} head=first`);
+  expect(served()).toBe('export const head = "second";\n');
 }, 20_000);
 
 test("does not call supabase stop when no stack is running", () => {

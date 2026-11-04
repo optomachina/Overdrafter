@@ -109,6 +109,7 @@ type StartupAuthBootstrapResult =
       user: User;
     };
 
+let verifiedUser: { accessToken: string; user: User } | null = null;
 let startupSessionReadPromise: Promise<StartupSessionReadResult> | null = null;
 let startupUserReadPromise: Promise<StartupUserReadResult> | null = null;
 let startupAuthBootstrapPromise: Promise<StartupAuthBootstrapResult> | null = null;
@@ -149,6 +150,56 @@ export function getStoredSupabaseAccessToken(): string | null {
   }
 }
 
+function readAccessTokenClaims(accessToken: string): { sub?: unknown; exp?: unknown } | null {
+  try {
+    const payload = accessToken.split(".")[1];
+    if (!payload) {
+      return null;
+    }
+    const base64 = payload.replace(/-/g, "+").replace(/_/g, "/");
+    const claims = JSON.parse(atob(base64.padEnd(Math.ceil(base64.length / 4) * 4, "="))) as unknown;
+    return claims && typeof claims === "object" ? claims as { sub?: unknown; exp?: unknown } : null;
+  } catch {
+    return null;
+  }
+}
+
+// The token's own subject pins the token-to-user mapping, and an expired token
+// must go back through supabase-js (which refreshes it) and the network.
+function isUnexpiredTokenForUser(accessToken: string, userId: string): boolean {
+  const claims = readAccessTokenClaims(accessToken);
+  return claims?.sub === userId && typeof claims.exp === "number" && claims.exp * 1000 > Date.now();
+}
+
+/**
+ * Records a user that `supabase.auth.getUser()` verified over the network for
+ * `accessToken`, so later reads for the same stored token can reuse it instead
+ * of queueing another serialised getUser() behind supabase-js's auth lock.
+ *
+ * Ignored unless `accessToken` is still the stored browser token, is unexpired
+ * and names `user` as its subject.
+ */
+export function rememberVerifiedUser(accessToken: string, user: User): void {
+  if (accessToken !== getStoredSupabaseAccessToken() || !isUnexpiredTokenForUser(accessToken, user.id)) {
+    return;
+  }
+  verifiedUser = { accessToken, user };
+}
+
+/**
+ * Returns the network-verified user for the currently stored browser access
+ * token, or `null` when none was verified for exactly that token (sign-out,
+ * account switch, token refresh) or the token has expired.
+ */
+export function getVerifiedUserForStoredToken(): User | null {
+  const accessToken = getStoredSupabaseAccessToken();
+  if (!verifiedUser || !accessToken || verifiedUser.accessToken !== accessToken ||
+      !isUnexpiredTokenForUser(accessToken, verifiedUser.user.id)) {
+    return null;
+  }
+  return verifiedUser.user;
+}
+
 /**
  * Removes the Supabase session payload and related helper keys from browser
  * localStorage.
@@ -159,6 +210,7 @@ export function getStoredSupabaseAccessToken(): string | null {
  * - removes `${getSupabaseAuthStorageKey()}-user`
  */
 export function removeStoredSupabaseSession() {
+  verifiedUser = null;
   try {
     const storageKey = getSupabaseAuthStorageKey();
     window.localStorage.removeItem(storageKey);
@@ -438,6 +490,7 @@ async function readSupabaseBootstrap(options: {
       };
     }
 
+    rememberVerifiedUser(sessionRead.session.access_token, userRead.user);
     return {
       authState: "authenticated",
       hadStoredAccessToken: sessionRead.hadStoredAccessToken,
@@ -517,6 +570,7 @@ export async function readLiveSupabaseBootstrap(): Promise<StartupAuthBootstrapR
  * startup scenarios in one process.
  */
 export function resetStartupAuthBootstrapForTests() {
+  verifiedUser = null;
   startupSessionReadPromise = null;
   startupUserReadPromise = null;
   startupAuthBootstrapPromise = null;

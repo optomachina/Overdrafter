@@ -66,7 +66,7 @@ import { fetchPublishedPackagesByJobIds } from "./packages-api";
 import { toClientIntakeCompatibilityError } from "./compatibility-api";
 import { fetchAppSessionData } from "./session-api";
 
-type JobFileSummaryRow = {
+export type JobFileSummaryRow = {
   job_id: string;
   normalized_name: string;
   original_name: string;
@@ -93,7 +93,7 @@ type JobRequestMetadata = {
 
 type SelectedOfferSummary = Pick<VendorQuoteOfferRecord, "supplier" | "total_price_usd" | "lead_time_business_days">;
 
-type JobSelectionState = {
+export type JobSelectionState = {
   selectedOffersByJobId: Map<string, SelectedOfferSummary>;
   requestByJobId: Map<string, JobRequestMetadata>;
 };
@@ -185,7 +185,7 @@ function buildNormalizedJobRequestMetadata(job: Partial<JobSelectedOfferRow> | n
   };
 }
 
-function emptyJobSelectionState(): JobSelectionState {
+export function emptyJobSelectionState(): JobSelectionState {
   return {
     selectedOffersByJobId: new Map<string, VendorQuoteOfferRecord>(),
     requestByJobId: new Map<string, JobRequestMetadata>(),
@@ -238,11 +238,22 @@ async function fetchJobSelectionRows(scope: JobSelectionScope): Promise<JobSelec
   return jobsWithSelection;
 }
 
+/** Packages arrive newest first (published_at desc), so the first one per job is the latest. */
+export function latestPublishedPackageByJobId<T extends Pick<PublishedQuotePackageRecord, "job_id">>(
+  packages: readonly T[],
+): Map<string, T> {
+  const latestByJobId = new Map<string, T>();
+  for (const pkg of packages) {
+    if (!latestByJobId.has(pkg.job_id)) latestByJobId.set(pkg.job_id, pkg);
+  }
+  return latestByJobId;
+}
+
 function resolveSelectedOffersByJobId(
-  jobsWithSelection: JobSelectedOfferRow[],
+  jobsWithSelection: JobSelectionSourceRows["jobsWithSelection"],
   latestPackageByJobId: Map<string, PublishedQuotePackageRecord>,
-  options: PublishedQuoteOptionRecord[],
-  selections: ClientSelectionRecord[],
+  options: readonly PublishedQuoteOptionRecord[],
+  selections: readonly ClientSelectionRecord[],
   quoteWorkspaceByJobId: Map<string, ClientQuoteWorkspaceProjection>,
 ) {
   const selectedOffersByJobId = new Map<string, SelectedOfferSummary>();
@@ -267,6 +278,29 @@ function resolveSelectedOffersByJobId(
   return selectedOffersByJobId;
 }
 
+export type JobSelectionSourceRows = {
+  jobsWithSelection: ReadonlyArray<Partial<JobSelectedOfferRow> & Pick<JobSelectedOfferRow, "id">>;
+  packages: readonly PublishedQuotePackageRecord[];
+  options: readonly PublishedQuoteOptionRecord[];
+  selections: readonly ClientSelectionRecord[];
+  quoteWorkspaceByJobId: Map<string, ClientQuoteWorkspaceProjection>;
+};
+
+/** Pure: callers that already hold these rows (the quote workspace read) reuse them. */
+export function buildJobSelectionState(rows: JobSelectionSourceRows): JobSelectionState {
+  const latestPackageByJobId = latestPublishedPackageByJobId(rows.packages);
+  const selectedOffersByJobId = resolveSelectedOffersByJobId(
+    rows.jobsWithSelection, latestPackageByJobId, rows.options, rows.selections, rows.quoteWorkspaceByJobId,
+  );
+
+  return {
+    selectedOffersByJobId,
+    requestByJobId: new Map(
+      rows.jobsWithSelection.map((job) => [job.id, buildNormalizedJobRequestMetadata(job)]),
+    ),
+  };
+}
+
 async function fetchJobSelectionState(scope: JobSelectionScope): Promise<JobSelectionState> {
   if (scope.kind === "jobIds" && scope.jobIds.length === 0) {
     return emptyJobSelectionState();
@@ -275,10 +309,7 @@ async function fetchJobSelectionState(scope: JobSelectionScope): Promise<JobSele
   const jobsWithSelection = await fetchJobSelectionRows(scope);
   const jobIds = jobsWithSelection.map((job) => job.id);
   const packages = await fetchPublishedPackagesByJobIds(jobIds);
-  const latestPackageByJobId = new Map<string, PublishedQuotePackageRecord>();
-  for (const pkg of packages) {
-    if (!latestPackageByJobId.has(pkg.job_id)) latestPackageByJobId.set(pkg.job_id, pkg);
-  }
+  const latestPackageByJobId = latestPublishedPackageByJobId(packages);
   const packageIds = [...latestPackageByJobId.values()].map((pkg) => pkg.id);
   const [optionsResult, selectionsResult, quoteWorkspaceByJobId] = await Promise.all([
     packageIds.length
@@ -291,18 +322,14 @@ async function fetchJobSelectionState(scope: JobSelectionScope): Promise<JobSele
       ? fetchClientQuoteWorkspaceProjectionByJobIds(jobIds)
       : Promise.resolve(new Map<string, ClientQuoteWorkspaceProjection>()),
   ]);
-  const options = ensureData(optionsResult.data, optionsResult.error) as PublishedQuoteOptionRecord[];
-  const selections = ensureData(selectionsResult.data, selectionsResult.error) as ClientSelectionRecord[];
-  const selectedOffersByJobId = resolveSelectedOffersByJobId(
-    jobsWithSelection, latestPackageByJobId, options, selections, quoteWorkspaceByJobId,
-  );
 
-  return {
-    selectedOffersByJobId,
-    requestByJobId: new Map(
-      jobsWithSelection.map((job) => [job.id, buildNormalizedJobRequestMetadata(job)]),
-    ),
-  };
+  return buildJobSelectionState({
+    jobsWithSelection,
+    packages,
+    options: ensureData(optionsResult.data, optionsResult.error) as PublishedQuoteOptionRecord[],
+    selections: ensureData(selectionsResult.data, selectionsResult.error) as ClientSelectionRecord[],
+    quoteWorkspaceByJobId,
+  });
 }
 
 async function fetchJobSelectionStateByJobIds(jobIds: string[]) {
@@ -506,33 +533,21 @@ function withSelectedOffers(
   });
 }
 
-export async function fetchJobPartSummariesByOrganization(
-  organizationId: string,
-): Promise<JobPartSummary[]> {
-  const [partsResult, filesResult, metadataRows, jobSelectionState] = await Promise.all([
-    supabase
-      .from("parts")
-      .select("id, job_id, quantity")
-      .eq("organization_id", organizationId)
-      .order("created_at", { ascending: true }),
-    supabase
-      .from("job_files")
-      .select("job_id, normalized_name, original_name, file_kind")
-      .eq("organization_id", organizationId)
-      .order("created_at", { ascending: true }),
-    fetchClientPartMetadataByJobIds(
-      (await fetchJobsByOrganization(organizationId)).map((job) => job.id),
-    ),
-    fetchJobSelectionStateByOrganization(organizationId),
-  ]);
+export type JobPartSummarySourceRows = {
+  parts: ReadonlyArray<Pick<PartRecord, "job_id" | "quantity">>;
+  fileRows: readonly JobFileSummaryRow[];
+  metadataRows: readonly ClientPartMetadataRecord[];
+  jobSelectionState: JobSelectionState;
+};
 
-  const parts = ensureData(
-    partsResult.data as Array<Pick<PartRecord, "id" | "job_id" | "quantity">> | null,
-    partsResult.error,
-  );
-  const fileRows = ensureData(filesResult.data as unknown as JobFileSummaryRow[] | null, filesResult.error);
+/** Pure: builds part summaries from rows a caller already fetched, so no read repeats them. */
+export function buildJobPartSummaries({
+  parts,
+  fileRows,
+  metadataRows,
+  jobSelectionState,
+}: JobPartSummarySourceRows): JobPartSummary[] {
   const { selectedOffersByJobId, requestByJobId } = jobSelectionState;
-
   const summariesByJobId = new Map<string, JobPartSummary>();
 
   for (const metadata of metadataRows) {
@@ -628,6 +643,37 @@ export async function fetchJobPartSummariesByOrganization(
   return withSelectedOffers(summariesByJobId.values(), selectedOffersByJobId);
 }
 
+export async function fetchJobPartSummariesByOrganization(
+  organizationId: string,
+): Promise<JobPartSummary[]> {
+  const [partsResult, filesResult, metadataRows, jobSelectionState] = await Promise.all([
+    supabase
+      .from("parts")
+      .select("id, job_id, quantity")
+      .eq("organization_id", organizationId)
+      .order("created_at", { ascending: true }),
+    supabase
+      .from("job_files")
+      .select("job_id, normalized_name, original_name, file_kind")
+      .eq("organization_id", organizationId)
+      .order("created_at", { ascending: true }),
+    fetchClientPartMetadataByJobIds(
+      (await fetchJobsByOrganization(organizationId)).map((job) => job.id),
+    ),
+    fetchJobSelectionStateByOrganization(organizationId),
+  ]);
+
+  return buildJobPartSummaries({
+    parts: ensureData(
+      partsResult.data as Array<Pick<PartRecord, "id" | "job_id" | "quantity">> | null,
+      partsResult.error,
+    ),
+    fileRows: ensureData(filesResult.data as unknown as JobFileSummaryRow[] | null, filesResult.error),
+    metadataRows,
+    jobSelectionState,
+  });
+}
+
 export async function fetchJobPartSummariesByJobIds(jobIds: string[]): Promise<JobPartSummary[]> {
   const fixtureGateway = getActiveClientWorkspaceGateway();
 
@@ -654,105 +700,15 @@ export async function fetchJobPartSummariesByJobIds(jobIds: string[]): Promise<J
     fetchJobSelectionStateByJobIds(jobIds),
   ]);
 
-  const parts = ensureData(
-    partsResult.data as Array<Pick<PartRecord, "id" | "job_id" | "quantity">> | null,
-    partsResult.error,
-  );
-  const fileRows = ensureData(filesResult.data as unknown as JobFileSummaryRow[] | null, filesResult.error);
-  const { selectedOffersByJobId, requestByJobId } = jobSelectionState;
-  const summariesByJobId = new Map<string, JobPartSummary>();
-
-  for (const metadata of metadataRows) {
-    const requestDefaults = requestByJobId.get(metadata.jobId) ?? {
-      requestedServiceKinds: [],
-      primaryServiceKind: null,
-      serviceNotes: null,
-      requestedQuoteQuantities: [],
-      requestedByDate: null,
-    };
-    summariesByJobId.set(metadata.jobId, {
-      ...buildJobPartSummaryFromMetadata({
-        metadata,
-        existing: summariesByJobId.get(metadata.jobId),
-        requestedServiceKinds: requestDefaults.requestedServiceKinds,
-        primaryServiceKind: requestDefaults.primaryServiceKind,
-        serviceNotes: requestDefaults.serviceNotes,
-        requestedQuoteQuantities: requestDefaults.requestedQuoteQuantities,
-        requestedByDate: requestDefaults.requestedByDate,
-      }),
-    });
-  }
-
-  for (const row of parts) {
-    const existingSummary = summariesByJobId.get(row.job_id);
-
-    if (existingSummary) {
-      continue;
-    }
-
-    const requestDefaults = requestByJobId.get(row.job_id) ?? {
-      requestedServiceKinds: [],
-      primaryServiceKind: null,
-      serviceNotes: null,
-      requestedQuoteQuantities: [],
-      requestedByDate: null,
-    };
-
-    summariesByJobId.set(row.job_id, {
-      jobId: row.job_id,
-      partNumber: null,
-      revision: null,
-      description: null,
-      requestedServiceKinds: requestDefaults.requestedServiceKinds,
-      primaryServiceKind: requestDefaults.primaryServiceKind,
-      serviceNotes: requestDefaults.serviceNotes,
-      quantity: row.quantity ?? null,
-      requestedQuoteQuantities: requestDefaults.requestedQuoteQuantities,
-      requestedByDate: requestDefaults.requestedByDate,
-      importedBatch: null,
-      selectedSupplier: null,
-      selectedPriceUsd: null,
-      selectedLeadTimeBusinessDays: null,
-    });
-  }
-
-  for (const row of fileRows) {
-    const existingSummary = summariesByJobId.get(row.job_id);
-
-    if (existingSummary?.partNumber) {
-      continue;
-    }
-
-    const parsedReference =
-      parsePartReference(row.normalized_name) ?? parsePartReference(row.original_name);
-
-    if (!parsedReference && existingSummary) {
-      continue;
-    }
-
-    summariesByJobId.set(row.job_id, {
-      jobId: row.job_id,
-      partNumber: parsedReference?.partNumber ?? existingSummary?.partNumber ?? null,
-      revision: parsedReference?.revision ?? existingSummary?.revision ?? null,
-      description: existingSummary?.description ?? null,
-      requestedServiceKinds:
-        existingSummary?.requestedServiceKinds ?? requestByJobId.get(row.job_id)?.requestedServiceKinds ?? [],
-      primaryServiceKind:
-        existingSummary?.primaryServiceKind ?? requestByJobId.get(row.job_id)?.primaryServiceKind ?? null,
-      serviceNotes:
-        existingSummary?.serviceNotes ?? requestByJobId.get(row.job_id)?.serviceNotes ?? null,
-      quantity: existingSummary?.quantity ?? null,
-      requestedQuoteQuantities:
-        existingSummary?.requestedQuoteQuantities ?? requestByJobId.get(row.job_id)?.requestedQuoteQuantities ?? [],
-      requestedByDate: existingSummary?.requestedByDate ?? requestByJobId.get(row.job_id)?.requestedByDate ?? null,
-      importedBatch: existingSummary?.importedBatch ?? null,
-      selectedSupplier: existingSummary?.selectedSupplier ?? null,
-      selectedPriceUsd: existingSummary?.selectedPriceUsd ?? null,
-      selectedLeadTimeBusinessDays: existingSummary?.selectedLeadTimeBusinessDays ?? null,
-    });
-  }
-
-  return withSelectedOffers(summariesByJobId.values(), selectedOffersByJobId);
+  return buildJobPartSummaries({
+    parts: ensureData(
+      partsResult.data as Array<Pick<PartRecord, "id" | "job_id" | "quantity">> | null,
+      partsResult.error,
+    ),
+    fileRows: ensureData(filesResult.data as unknown as JobFileSummaryRow[] | null, filesResult.error),
+    metadataRows,
+    jobSelectionState,
+  });
 }
 
 export async function fetchJobAggregate(jobId: string): Promise<JobAggregate> {

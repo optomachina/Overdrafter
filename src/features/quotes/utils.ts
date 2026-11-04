@@ -426,16 +426,26 @@ const TOLERANCE_VALUE_UNREAD_HINT =
  * `unit = "unknown"` when it cannot resolve a tolerance, and the beta gate
  * denies a null value until the user enters one. Re-parsing the raw text here
  * would turn "±0.1 mm" into 0.1 or "±1/64" into 1 and defeat that gate, so the
- * raw text is exposed only as a hint. A numeric `valueInch` is used as stored,
- * including legacy payloads that carry no `unit`.
+ * raw text is exposed only as a hint.
+ *
+ * A numeric `valueInch` is used only when the payload records the unit it was
+ * converted from (OVD-1012). Extractions stored before the unit-aware parser
+ * (OVD-976) carry no `unit`, and their number may be a millimetre, micron or
+ * mil value read as inches, which is looser than the drawing and would pass the
+ * beta gate. Such a value is treated as unresolved, like `unit = "unknown"`.
  */
+const RESOLVED_TOLERANCE_UNITS: ReadonlySet<string> = new Set(["in", "mm", "um", "mil"]);
+
 function resolveStoredTolerance(
   tolerances: Record<string, unknown>,
 ): Omit<DrawingExtractionData["tightestTolerance"], "confidence"> {
   const raw = asStringOrNull(tolerances.tightest);
   const unit = asStringOrNull(tolerances.unit);
   const storedValue =
-    typeof tolerances.valueInch === "number" && Number.isFinite(tolerances.valueInch)
+    typeof tolerances.valueInch === "number" &&
+    Number.isFinite(tolerances.valueInch) &&
+    unit !== null &&
+    RESOLVED_TOLERANCE_UNITS.has(unit)
       ? tolerances.valueInch
       : null;
   const hasRaw = raw !== null && raw.trim().length > 0;

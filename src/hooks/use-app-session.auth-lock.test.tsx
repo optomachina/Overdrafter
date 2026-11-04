@@ -5,7 +5,7 @@ import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Session } from "@supabase/supabase-js";
 import { getSupabaseAuthStorageKey, useAppSession } from "@/hooks/use-app-session";
-import { supabase } from "@/integrations/supabase/client";
+import { requireCurrentUser, resetCurrentUserReadForTests } from "@/features/quotes/api/shared/auth";
 import {
   resetStartupAuthBootstrapForTests,
   STARTUP_AUTH_TIMEOUT_MS,
@@ -23,6 +23,8 @@ const auth = vi.hoisted(() => ({
   lock: Promise.resolve() as Promise<unknown>,
   network: "slow" as "slow" | "hung",
   held: [] as Array<() => void>,
+  // Per-call latency overrides for getUser(), consumed in order.
+  userDelays: [] as number[],
   log: [] as Array<{ call: string; at: number }>,
   session: null as Session | null,
 }));
@@ -35,8 +37,9 @@ function withLock<T>(fn: () => T | Promise<T>): Promise<T> {
 
 function roundTrip<T>(call: string, value: T): Promise<T> {
   auth.log.push({ call, at: Date.now() });
+  const latency = (call === "getUser" ? auth.userDelays.shift() : undefined) ?? LATENCY_MS;
   return new Promise<T>((resolve) => {
-    const respond = () => setTimeout(() => resolve(value), LATENCY_MS);
+    const respond = () => setTimeout(() => resolve(value), latency);
     if (auth.network === "hung") auth.held.push(respond);
     else respond();
   });
@@ -89,9 +92,14 @@ vi.mock("@/integrations/supabase/client", () => {
   };
 });
 
+function makeAccessToken(sub: string): string {
+  const encode = (value: object) => btoa(JSON.stringify(value)).replace(/=+$/, "").replace(/\+/g, "-").replace(/\//g, "_");
+  return `${encode({ alg: "HS256", typ: "JWT" })}.${encode({ sub, exp: Math.floor(Date.now() / 1000) + 3600 })}.signature`;
+}
+
 function makeSession(): Session {
   return {
-    access_token: "token-1",
+    access_token: makeAccessToken("user-1"),
     refresh_token: "refresh-token-1",
     expires_in: 3600,
     expires_at: Math.floor(Date.now() / 1000) + 3600,
@@ -121,18 +129,28 @@ function Probe({ name }: { name: string }) {
   );
 }
 
-// Workspace reads on /parts start once a user is seeded; each one calls
-// requireCurrentUser(), that is supabase.auth.getUser(), behind the same lock.
+// Workspace reads on /parts start once a user is seeded; each one calls the
+// real requireCurrentUser() and then makes its own REST round trip.
 function useWorkspaceRead(key: string, userId: string | undefined) {
-  return useQuery({ queryKey: ["workspace", key, userId], queryFn: () => supabase.auth.getUser(), enabled: Boolean(userId) });
+  return useQuery({
+    queryKey: ["workspace", key, userId],
+    queryFn: async () => {
+      const user = await requireCurrentUser();
+      await restRequest(`rest:${key}`, []);
+      return user.id;
+    },
+    enabled: Boolean(userId),
+  });
 }
 
 function WorkspaceReads() {
   const { user } = useAppSession();
-  useWorkspaceRead("projects", user?.id);
-  useWorkspaceRead("archived-projects", user?.id);
-  useWorkspaceRead("sidebar-pins", user?.id);
-  return null;
+  const reads = [
+    useWorkspaceRead("projects", user?.id),
+    useWorkspaceRead("archived-projects", user?.id),
+    useWorkspaceRead("sidebar-pins", user?.id),
+  ];
+  return <span data-testid="workspace-loaded">{reads.filter((read) => read.data === user?.id && read.isSuccess).length}</span>;
 }
 
 // The real app mounts more observers once the seeded identity appears (shell
@@ -188,8 +206,10 @@ describe("useAppSession against a serialised supabase-js auth lock", () => {
     auth.lock = Promise.resolve();
     auth.network = "slow";
     auth.held = [];
+    auth.userDelays = [];
     auth.log = [];
     auth.session = makeSession();
+    resetCurrentUserReadForTests();
     window.localStorage.setItem(getSupabaseAuthStorageKey(), JSON.stringify({ access_token: auth.session.access_token }));
     resetStartupAuthBootstrapForTests();
   });
@@ -224,6 +244,24 @@ describe("useAppSession against a serialised supabase-js auth lock", () => {
     expect(screen.getByTestId("page-auth-state")).toHaveTextContent("authenticated");
   });
 
+  it("loads the workspace on the restore's verified user instead of one serialised getUser() per query", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(renderApp(queryClient));
+
+    let loadedAt: number | null = null;
+    for (let at = 100; at <= 20_000 && loadedAt === null; at += 100) {
+      await advance(100);
+      if (screen.getByTestId("workspace-loaded").textContent === "3") loadedAt = at;
+    }
+
+    // The restore's one getUser() verified this token; workspace queries reuse
+    // it instead of each holding the auth lock for its own 2 s round trip.
+    expect(countCalls("getUser")).toBe(1);
+    expect(loadedAt).not.toBeNull();
+    expect(loadedAt!).toBeLessThanOrEqual(4_500);
+    expect(screen.getByTestId("page-memberships")).toHaveTextContent("1");
+  });
+
   it("leaves the splash for every observer at the deadline when the restore hangs, then restores on Retry under 2 s latency", async () => {
     auth.network = "hung";
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -252,6 +290,43 @@ describe("useAppSession against a serialised supabase-js auth lock", () => {
     expect(screen.getByTestId("page-memberships")).toHaveTextContent("1");
     expect(screen.getByTestId("page-email")).toHaveTextContent("client@example.com");
     expect(countCalls("rest:organization_memberships") - before).toBeGreaterThanOrEqual(1);
+  });
+
+  it("adopts a timed-out restore that lands late instead of reseeding the splash from queued INITIAL_SESSION replays", async () => {
+    // The first /auth/v1/user hangs until 5.2 s; every later round trip takes 2 s.
+    auth.userDelays = [5_200];
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(renderApp(queryClient));
+
+    await advance(STARTUP_AUTH_TIMEOUT_MS + 100);
+    expect(screen.getByTestId("page-initializing")).toHaveTextContent("no");
+    expect(screen.getByTestId("page-auth-state")).toHaveTextContent("session_error");
+
+    // The getUser() lands at 5.2 s and releases the queued INITIAL_SESSION
+    // replays. They carry the session that restore already read, so the splash
+    // stays down for every observer while the late restore completes.
+    const reopened: number[] = [];
+    let restoredAt: number | null = null;
+    for (let at = STARTUP_AUTH_TIMEOUT_MS + 200; at <= 15_000; at += 100) {
+      await advance(100);
+      for (const probe of screen.queryAllByTestId(/-initializing$/)) {
+        if (probe.textContent === "yes") reopened.push(at);
+      }
+      if (restoredAt === null && screen.getByTestId("page-memberships").textContent === "1") restoredAt = at;
+    }
+    expect(reopened).toEqual([]);
+    // 5.2 s user read, then one 2 s round trip for the membership read.
+    expect(restoredAt).not.toBeNull();
+    expect(restoredAt!).toBeLessThanOrEqual(7_500);
+
+    // No Retry: the restore that was still pending at the deadline is adopted.
+    for (const name of ["page", "chrome"]) {
+      expect(screen.getByTestId(`${name}-auth-state`)).toHaveTextContent("authenticated");
+      expect(screen.getByTestId(`${name}-memberships`)).toHaveTextContent("1");
+      expect(screen.getByTestId(`${name}-email`)).toHaveTextContent("client@example.com");
+    }
+    // The late success is the restore; nothing queues a second one.
+    expect(countCalls("rest:organization_memberships")).toBe(1);
   });
 
   it("goes straight to anonymous without a stored token or any network read", async () => {

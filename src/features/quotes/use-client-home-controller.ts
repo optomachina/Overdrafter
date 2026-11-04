@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getUserFacingErrorMessage } from "@/lib/error-message";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "react-router-dom";
@@ -92,7 +92,20 @@ function createProjectStorageKey(organizationId?: string, userEmail?: string): s
   return `${PROJECT_STORAGE_PREFIX}:${organizationId}:${userEmail.toLowerCase()}`;
 }
 
-export function useClientHomeController({ loadPublishedWorkspace = false }: { loadPublishedWorkspace?: boolean } = {}) {
+// A fixed empty list keeps the warm effect's dependencies stable while pins are loading.
+const NO_PINNED_IDS: string[] = [];
+
+export function useClientHomeController({
+  loadPublishedWorkspace = false,
+  warmWorkspaceNavigation = true,
+}: {
+  loadPublishedWorkspace?: boolean;
+  /**
+   * Prefetch full part and project detail shortly after landing. Pages that list many rows
+   * prefetch on row hover or focus instead (OVD-1033 P2-11).
+   */
+  warmWorkspaceNavigation?: boolean;
+} = {}) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const composerRef = useRef<PromptComposerHandle>(null);
@@ -339,12 +352,15 @@ export function useClientHomeController({ loadPublishedWorkspace = false }: { lo
     },
   });
 
-  const resolveSidebarProjectIdsForJob = (job: { id: string; project_id: string | null; source: string }) => {
-    return resolveWorkspaceProjectIdsForJob({
-      job,
-      sidebarProjectIdsByJobId,
-    });
-  };
+  // Stable across renders so the warm effect does not re-arm on every render (OVD-1033 P2-11).
+  const resolveSidebarProjectIdsForJob = useCallback(
+    (job: { id: string; project_id: string | null; source: string }) =>
+      resolveWorkspaceProjectIdsForJob({
+        job,
+        sidebarProjectIdsByJobId,
+      }),
+    [sidebarProjectIdsByJobId],
+  );
 
   useEffect(() => {
     if (authIntent === "signin" || authIntent === "signup" || authIntent === "forgot-password") {
@@ -567,7 +583,8 @@ export function useClientHomeController({ loadPublishedWorkspace = false }: { lo
     user,
   ]);
 
-  const shouldWarmWorkspaceNavigation = Boolean(user) && authState === "authenticated" && !isLoading;
+  const shouldWarmWorkspaceNavigation =
+    warmWorkspaceNavigation && Boolean(user) && authState === "authenticated" && !isLoading;
 
   useWarmClientWorkspaceNavigation({
     enabled: shouldWarmWorkspaceNavigation,
@@ -575,8 +592,8 @@ export function useClientHomeController({ loadPublishedWorkspace = false }: { lo
     canPrefetchProjects: !projectCollaborationUnavailable,
     projects: sidebarProjects,
     jobs: navigationModel.parts,
-    pinnedProjectIds: sidebarPinsQuery.data?.projectIds ?? [],
-    pinnedJobIds: sidebarPinsQuery.data?.jobIds ?? [],
+    pinnedProjectIds: sidebarPinsQuery.data?.projectIds ?? NO_PINNED_IDS,
+    pinnedJobIds: sidebarPinsQuery.data?.jobIds ?? NO_PINNED_IDS,
     resolveProjectIdsForJob: resolveSidebarProjectIdsForJob,
   });
 
