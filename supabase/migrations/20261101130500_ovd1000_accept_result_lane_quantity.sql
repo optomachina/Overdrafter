@@ -24,7 +24,8 @@
 -- md5(prosrc): c72d8ca87d6da4d3ae0448497b14e52f / 13052 (20261029165751)
 --           -> c79ef7028326dbe470428af844af1bbd / 13250 (this file)
 --
--- Apply as one transaction after 20261101130300. Production apply follows
+-- Apply as one transaction after 20261101130300 (and 20261101130400, OVD-1012,
+-- when present; neither touches this function). Production apply follows
 -- merge and requires Blaine's authorized migration window.
 -- Rollback: docs/migration-drafts/ovd-1000.rollback.sql.
 -- pgTAP: supabase/tests/ovd1000_accept_result_lane_quantity.sql.
