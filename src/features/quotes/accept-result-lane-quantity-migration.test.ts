@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { readdirSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
-const filename = "20261101130500_ovd1000_accept_result_lane_quantity.sql";
+const filename = "20261104032000_ovd1000_accept_result_lane_quantity.sql";
 const migration = readFileSync(`supabase/migrations/${filename}`, "utf8");
 const previous = readFileSync("supabase/migrations/20261029165751_reconcile_claim_fence.sql", "utf8");
 const rollback = readFileSync("docs/migration-drafts/ovd-1000.rollback.sql", "utf8");

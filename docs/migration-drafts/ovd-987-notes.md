@@ -442,7 +442,7 @@ orphaned. Re-applying re-seeds the control at revision 0.
   **Status (2026-11-04):** the worker already settles every `run_vendor_quote`
   result through this RPC (`worker/src/vendorQuoteOfferPersistence.ts`), so
   this also blocks the OVD-1007 per-request grant run. Fixed, not yet applied,
-  by `supabase/migrations/20261101130500_ovd1000_accept_result_lane_quantity.sql`
+  by `supabase/migrations/20261104032000_ovd1000_accept_result_lane_quantity.sql`
   (md5 `c72d8ca8…` to `c79ef702…`; rollback
   `docs/migration-drafts/ovd-1000.rollback.sql`; pgTAP
   `supabase/tests/ovd1000_accept_result_lane_quantity.sql`, accepted at
