@@ -52,24 +52,33 @@ describe("final extraction approval invariants", () => {
     expect(result.reviewFields).not.toContain("description");
   });
 
-  // OVD-1009 follow-ups (PR #1020 review): a smaller unruled line under the title is no longer proven as part of it, and a
-  // title whose first word is a fence label (SHEET) is read from the TITLE cell and proven like any other title.
-  it("flags a title joined with a smaller line under it, and proves a title that starts with a label word", () => {
+  // OVD-1009 follow-ups (PR #1020 review): a smaller unruled line under the title is no longer proven as part of it. A
+  // title whose first word is a fence label (SHEET) stays flagged, as on main.
+  it("flags a title joined with a smaller line under it, and never reads a label word as the title", () => {
     const sheet = (title: PdfWord[], text: string) =>
       pdf([box("TITLE:", 100, 100, 7), ...title, box("SIZE", 100, 150, 6), ...phrase("DWG. NO.", 130, 150, 6)], text);
     const subLine = infer(sheet([...phrase("SAMPLE PART", 130, 115, 14), ...phrase("QTY 4", 130, 132, 9)],
       "TITLE:\n      SAMPLE PART\n      QTY 4\nSIZE  DWG. NO.")).description;
     expect(subLine).toMatchObject({ reviewNeeded: true });
     expect(subLine.value).not.toBe("SAMPLE PART QTY 4");
-    // Read whole as the suggestion, but never proven: it cannot be told from a label beside its own value (PR #1042).
+    // A label word in the TITLE cell is a label, as on main: the description is never this text (PR #1042 review).
     const labelFirst = infer(sheet(phrase("SHEET METAL BRACKET", 130, 115, 14), "TITLE:\n      SHEET METAL BRACKET\nSIZE  DWG. NO.")).description;
-    expect(labelFirst).toMatchObject({ value: "SHEET METAL BRACKET", reviewNeeded: true });
-    expect(labelFirst.reasons).toContain("title_starts_with_label_word");
-    expect(labelFirst.reasons).not.toContain("title_block_cell_proven");
+    expect(labelFirst.value).not.toBe("SHEET METAL BRACKET");
+    expect(labelFirst.reviewNeeded).toBe(true);
   });
 
-  // PR #1042 re-review: a fence label and its own value of four letters or more reads like a title that starts with a
-  // label word ("NAME SMITH", "SCALE FULL-SIZE"). Such a title may be the suggestion; it is never proven or approved.
+  // PR #1042 review (BLOCKING, round 3): a fence label on the TITLE label's row, far to the right, under an empty MATERIAL,
+  // is that cell's fence. Taking it out of the labels uncapped MATERIAL and approved "SHEET COVER" as the material.
+  it.each(["SHEET COVER", "NAME SMITH"])("never reads %s on the TITLE row as the empty MATERIAL above it", (printed) => {
+    const words = [box("MATERIAL", 1060, 600, 6), box("TITLE:", 700, 650, 7), ...phrase("SAMPLE PART", 760, 665, 14),
+      ...phrase(printed, 1060, 648, 10), box("SIZE", 700, 720, 6), ...phrase("DWG. NO.", 725, 720, 6)];
+    const signals = infer(pdf(words));
+    expect(signals.material.value).not.toBe(printed);
+    expect(signals.material.reasons).not.toContain("title_block_cell_proven");
+  });
+
+  // PR #1042 reviews: a fence label and its own value ("NAME SMITH", "SCALE FULL-SIZE"), or a title that starts with a
+  // label word, is never proven or approved as the description, from the cell or from a model that agrees.
   it.each([
     ["SCALE FULL-SIZE", 7, 10], ["NAME SMITH", 6, 8], ["PROJECT ALPHA", 6, 9], ["WEIGHT APPROX 2 LB", 6, 9], ["SHEET COVER", 6, 9],
     ["SIZE LARGE", 6, 9], ["SIZE ANSI B", 6, 9], ["SIZE LETTER", 6, 9], ["DATE TODAY", 6, 9], ["SHEET ELEVEN", 6, 9],
@@ -80,7 +89,6 @@ describe("final extraction approval invariants", () => {
     const signal = infer(pdf(words)).description;
     expect(signal.reviewNeeded).toBe(true);
     expect(signal.reasons).not.toContain("title_block_cell_proven");
-    if (signal.value === printed) expect(signal.reasons).toContain("title_starts_with_label_word");
     // Nor through model merging: a model that agrees does not approve it.
     const result = await hybrid(pdf(words), model({ description: printed }));
     expect(result.reviewFields).toContain("description");

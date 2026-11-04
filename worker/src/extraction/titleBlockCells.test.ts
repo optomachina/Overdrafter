@@ -2064,91 +2064,33 @@ describe("title block cells", () => {
         expect(wordRead(block([...phrase("SAMPLE", 760, 665, 14), ...phrase("PART", 760, 684, 13)]), "description").value).toBeNull();
       });
 
-      // PR #1020 review note 2: a title whose first word is a fence label of the vocabulary (SHEET, SCALE, NAME, SIZE)
-      // was read as that label with the rest of the title as its value, and the TITLE cell was left empty.
-      it.each(["SHEET METAL BRACKET", "SCALE MOUNT", "NAME PLATE", "SIZE ADAPTER", "DATE CODE STAMP"])(
-        "reads the title %s, whose first word is a label of the vocabulary, set as a title under TITLE",
-        (title) => {
-          expect(wordRead(block(phrase(title, 760, 665, 14)), "description")).toMatchObject({ status: "value", value: title, reason: null });
+      // PR #1042 review: every word of a line that would continue the title is measured against the title's first line, not
+      // only the tallest word of the line: a 9 pt word beside 14 pt words is another cell's text.
+      it("measures every word of a continuation line, not only its tallest", () => {
+        const under = (words: PdfWord[]) => wordRead(block([...phrase("BRACKET", 760, 665, 14), ...words]), "description");
+        expect(under([box("QTY", 760, 684, 9), box("FOUR", 782, 684, 14)])).toMatchObject({ status: "ambiguous", value: null });
+        expect(under([box("QTY", 760, 684, 14), box("4", 795, 684, 9)])).toMatchObject({ status: "ambiguous", value: null });
+        // 5 percent of the first line's size, inclusive: 13.3 pt under 14 pt is the same size.
+        expect(under(phrase("MOUNT", 760, 684, 13.3)).value).toBe("BRACKET MOUNT");
+        expect(under(phrase("MOUNT", 760, 684, 13.2)).value).toBeNull();
+      });
+
+      // PR #1042 review: a label word in the TITLE cell is a label, as on main ("SHEET METAL BRACKET" is flagged and left
+      // empty). Reading such a title opened a new hole in every round, so it is not attempted (docs/drawing-extraction.md).
+      it.each(["SHEET METAL BRACKET", "SCALE MOUNT", "NAME PLATE", "SCALE NTS", "SHEET ONE OF ONE", "NAME SMITH", "SHEET COVER", "FINISH PLATE"])(
+        "never reads %s, which starts with a label word, as the title",
+        (printed) => {
+          expect(wordRead(block(phrase(printed, 760, 665, 14)), "description").value).toBeNull();
         },
       );
 
-      it("keeps a label word under TITLE a label when it is set as a label, or reads as one", () => {
-        // Set at the TITLE label's own size: the next row of cells, not a title.
-        expect(wordRead(block(phrase("SHEET METAL BRACKET", 760, 665, 7)), "description").value).toBeNull();
-        // Followed by a value, not by more words of a title.
-        expect(wordRead(block(phrase("SCALE 1:1", 760, 665, 14)), "description").value).toBeNull();
-        expect(wordRead(block(phrase("SIZE B", 760, 665, 14)), "description").value).toBeNull();
-        // Alone on its line, or ending in a colon.
-        expect(wordRead(block(phrase("SHEET", 760, 665, 14)), "description").value).toBeNull();
-        expect(wordRead(block(phrase("NOTES: SEE SHEET 2", 760, 665, 14)), "description").value).toBeNull();
-        // Its next word set apart from it, as a value is from its label.
-        expect(wordRead(block([box("SHEET", 760, 665, 14), box("METAL", 840, 665, 14)]), "description").value).toBeNull();
-      });
-
-      // PR #1042 review: a label word is a title's first word only as the first text of the TITLE cell, and never with a
-      // value of that label after it.
-      it.each(["SCALE NTS", "SCALE NONE", "SCALE FULL", "SHEET ONE OF ONE", "SHEET FOUR OF FIVE", "DATE JAN 2024", "DATE JANUARY 2024",
-        "WEIGHT LBS 2", "WEIGHT POUNDS", "NAME JS", "APPROVED BY JS", "DRAWN SMITH"])("keeps %s under TITLE a label and its value", (pair) => {
-        expect(wordRead(block(phrase(pair, 760, 665, 14)), "description").value).toBeNull();
-      });
-
-      // PR #1042 re-review: a title read with its label word is marked for review, never proven (titleBlockApproval.test.ts).
-      it("marks a title read with its first word a label word, and only such a title", () => {
-        expect(wordRead(block(phrase("SHEET METAL BRACKET", 760, 665, 14)), "description")).toMatchObject({
-          status: "value", value: "SHEET METAL BRACKET", reviewReason: "title_starts_with_label_word",
-        });
-        expect(wordRead(block(phrase("SAMPLE PART", 760, 665, 14)), "description").reviewReason).toBeUndefined();
-      });
-
-      it("pins each test of a label word that starts a title", () => {
-        const title = (words: PdfWord[]) => wordRead(block(words), "description");
-        // Set taller than the TITLE label, but less than 1.3 times as tall (7 pt label, 8.5 pt words).
-        expect(title(phrase("SHEET METAL BRACKET", 760, 665, 8.5)).value).toBeNull();
-        expect(title(phrase("SHEET METAL BRACKET", 760, 665, 9.5)).value).toBe("SHEET METAL BRACKET");
-        // A next word that passes the word tests, followed by OF.
-        expect(title(phrase("SHEET ELEVEN OF TWELVE", 760, 665, 14)).value).toBeNull();
-        expect(title(phrase("SHEET ELEVEN", 760, 665, 14)).value).toBe("SHEET ELEVEN");
-        // A word of the title's cell before it on a line between, or before it on its own line.
-        const between = title([box("COVER", 760, 650, 14), ...phrase("SHEET METAL BRACKET", 760, 668, 14)]);
-        expect(between.value ?? "").not.toMatch(/SHEET/);
-        const leftOnItsLine = title([box("NEW", 745, 665, 14), ...phrase("SHEET METAL BRACKET", 800, 665, 14)]);
-        expect(leftOnItsLine.value ?? "").not.toMatch(/SHEET/);
-      });
-
-      it("keeps a label word under a title printed on the TITLE label's own line a label", () => {
-        const words = [box("TITLE:", 700, 650, 7), box("COVER", 735, 647, 9.5), ...phrase("SHEET METAL BRACKET", 735, 659, 9.5),
-          box("SIZE", 700, 720, 6), ...phrase("DWG. NO.", 725, 720, 6)];
-        expect(wordRead(words, "description")).toMatchObject({ status: "value", value: "COVER" });
-        expect(wordRead(words, "description").reviewReason).toBeUndefined();
-      });
-
-      it("keeps a label word after other text of the title's first line a label", () => {
-        // Set taller than TITLE, the words are a line of their own under it: COVER is before SHEET on that line.
-        const words = [box("TITLE:", 700, 650, 7), box("COVER", 735, 650, 14), ...phrase("SHEET METAL", 790, 650, 14),
-          box("SIZE", 700, 720, 6), ...phrase("DWG. NO.", 725, 720, 6)];
-        expect(wordRead(words, "description")).toMatchObject({ status: "value", value: "COVER" });
-        expect(wordRead(words, "description").reviewReason).toBeUndefined();
-      });
-
-      it("keeps a label word after other text on the TITLE label's own line a label", () => {
-        const words = [box("TITLE:", 700, 650, 7), box("COVER", 735, 647, 9.5), ...phrase("SHEET METAL", 790, 647, 9.5),
-          box("SIZE", 700, 720, 6), ...phrase("DWG. NO.", 725, 720, 6)];
-        expect(wordRead(words, "description")).toMatchObject({ status: "value", value: "COVER" });
-        expect(wordRead(words, "description").reviewReason).toBeUndefined();
-      });
-
-      it("keeps a label word that follows the title's first line a label", () => {
+      it("reads the title above a label word in its columns, and nothing of the label's cell", () => {
         const title = [...phrase("BRACKET", 760, 665, 14), ...phrase("SCALE MOUNT", 760, 684, 14)];
         expect(wordRead(block(title), "description")).toMatchObject({ status: "value", value: "BRACKET" });
       });
-
-      it("still flags a title whose first word is a field's label, rather than reading two cells as one", () => {
-        expect(wordRead(block(phrase("FINISH PLATE", 760, 665, 14)), "description").value).toBeNull();
-      });
     });
 
-    it("on layout text, which has no sizes, still leaves a title that starts with a label word empty and flagged", () => {
+    it("on layout text a title that starts with a label word is left empty and flagged", () => {
       expect(cell(template("SHEET METAL BRACKET"), "description")).toMatchObject({ status: "empty", value: null });
     });
   });

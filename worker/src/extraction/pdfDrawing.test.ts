@@ -1579,6 +1579,10 @@ describe("pdfDrawing tightest tolerance units (OVD-976)", () => {
       expect(tolerance([DUAL_INCH, "TOLERANCES ±.01 [±0.25]"])).toMatchObject({ valueInch: 0.01, unit: "in" });
       expect(tolerance([DUAL_INCH, "BORE ±.0005 [±0.01]"])).toMatchObject({ valueInch: 0.0005, unit: "in" });
       expect(tolerance(["DIMENSIONS IN MILLIMETERS [INCHES]", "TOLERANCES ±0.25 [±.01]"])).toMatchObject({ valueInch: 0.0098, unit: "mm" });
+      // PR #1042 review: a bracket on the next line is not the other side of the value above it. ±.010 is unresolved on a
+      // drawing that declares both systems, as on main, and the bracketed value of the next line stays bare too.
+      expect(tolerance([DUAL_INCH, "BORE ±.010", "[±0.25] FEATURE"])).toMatchObject({ valueInch: null, unit: "unknown" });
+      expect(tolerance([DUAL_INCH, "BORE ±.010 [±0.25]"])).toMatchObject({ valueInch: 0.01, unit: "in" });
       // Both sides bracketed: which one is primary is not known, so the smaller reading is stored.
       expect(tolerance([DUAL_INCH, "TOLERANCES [±.01] [±0.25]"])).toMatchObject({ valueInch: 0.0098, unit: "mm" });
     });

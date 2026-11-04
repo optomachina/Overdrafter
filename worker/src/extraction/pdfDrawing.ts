@@ -1013,7 +1013,7 @@ function pairBareDualDimension(previous: ToleranceCandidate, current: ToleranceC
   current.dualSecondary = !previous.bracketed;
 }
 
-function pairDualDimensions(candidates: ToleranceCandidate[], bothDeclared = false) {
+function pairDualDimensions(candidates: ToleranceCandidate[], bothDeclared = false, text = "") {
   for (let index = 1; index < candidates.length; index += 1) {
     const previous = candidates[index - 1]!;
     const current = candidates[index]!;
@@ -1024,7 +1024,8 @@ function pairDualDimensions(candidates: ToleranceCandidate[], bothDeclared = fal
       current.pairedInch = true;
     } else if (previous.suffix === null && isDualDimensionPair(previous, current)) {
       previous.pairedInch = true;
-    } else if (bothDeclared) {
+    } else if (bothDeclared && !/[\r\n]/.test(text.slice(previous.end, current.start))) {
+      // A bare pair is printed on one line: a bracket on the next line belongs to another callout (PR #1042 review).
       pairBareDualDimension(previous, current);
     }
   }
@@ -1152,7 +1153,7 @@ function estimateTightestTolerance(sourceText: string, options: { dimensionsRead
   // the tightest reading as a review-only suggestion, with all numeric safeguards.
   const candidates = applicableCandidates.length > 0 ? applicableCandidates : allCandidates;
   const bothDeclared = declared.inch && declared.metric;
-  pairDualDimensions(candidates, bothDeclared);
+  pairDualDimensions(candidates, bothDeclared, text);
 
   const readings = candidates.filter((candidate) => !candidate.dualSecondary).map((candidate) =>
     unresolvedRows.has(candidate) ? readUnresolvedRow(candidate, declared) : readCandidate(candidate, declared),
@@ -1183,7 +1184,7 @@ function estimateTightestTolerance(sourceText: string, options: { dimensionsRead
 
   const { candidate, unit } = resolved;
   if (titleBlockProof) {
-    pairDualDimensions(allCandidates, bothDeclared);
+    pairDualDimensions(allCandidates, bothDeclared, text);
     const tightestRead = allCandidates.filter((item) => !item.dualSecondary).reduce((tightest, item) => {
       const reading = readCandidate(item, declared);
       return Math.min(tightest, reading.unit === null ? reading.smallestInches : reading.inches);

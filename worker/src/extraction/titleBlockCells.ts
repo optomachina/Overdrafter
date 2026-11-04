@@ -174,12 +174,6 @@ export type CellRead = {
   complete: boolean;
   geometryRegion?: GeometryBounds;
   revisionRole?: "current" | "history" | "ambiguous";
-  /**
-   * OVD-1009, PR #1042 review: the value may be the suggestion but can never be proven, and why. A title read with its
-   * first word a fence label of the vocabulary ("SHEET METAL BRACKET") cannot be told from that label beside its own
-   * value ("NAME SMITH", "SCALE FULL-SIZE"): see titleWordsReadAsLabels.
-   */
-  reviewReason?: "title_starts_with_label_word";
   /** Independent evidence survives a rejected suggestion; it can veto but never grant approval. */
   observations?: Array<{ value: string; binding: "label_owned" | "unresolved" }>;
 
@@ -1130,19 +1124,25 @@ function tallestOf(runs: readonly Run[]): number | undefined {
 }
 
 /**
- * How far apart two lines of one title may be in size (PR #1042 review): the jitter of word boxes set at one size (13.9 pt
- * against 14 pt), not the step to the next size (12.5 pt under 14 pt).
+ * How far a word of a title's later line may be from the size of the title's first line, as a share of that size,
+ * inclusive (PR #1042 review): the jitter of word boxes set at one size (13.3 pt under 14 pt), not the step to the next
+ * size (12.5 pt) and not a small word beside the title's size ("QTY" at 9 pt by "FOUR" at 14 pt).
  */
-const TITLE_SIZE_JITTER = 1.05;
+const TITLE_SIZE_JITTER = 0.05;
 
 /**
- * Whether two runs of text are set at one size: neither's tallest word is `ratio` times the other's. True when either has
- * no height (layout text), so only word boxes can tell two sizes apart.
+ * Whether every word of `runs` is set at the size of the title's first line (`first`): no word is more than
+ * TITLE_SIZE_JITTER of the first line's tallest word away from it. True when the sizes are not known (layout text), so
+ * only word boxes can tell two sizes apart.
  */
-function sameSize(left: readonly Run[], right: readonly Run[], ratio: number): boolean {
-  const a = tallestOf(left);
-  const b = tallestOf(right);
-  return a === undefined || b === undefined || (a <= ratio * b && b <= ratio * a);
+function atTitleSize(first: readonly Run[], runs: readonly Run[]): boolean {
+  const size = tallestOf(first);
+  if (size === undefined) {
+    return true;
+  }
+  // A tiny allowance so 5 percent exactly is inside the band despite binary rounding.
+  const band = TITLE_SIZE_JITTER * size * (1 + 1e-9);
+  return runs.every((run) => run.height === undefined || Math.abs(run.height - size) <= band);
 }
 
 /**
@@ -1346,11 +1346,11 @@ function wrapColumnOf(stackOf: Label, line: number, runs: readonly Run[]): numbe
  * the page, is not joined and there is no value (`far`): it may be the rest of the value set far under it or the text of
  * another cell, and which one is not known. The value is not read without it either, which would cut it short.
  *
- * With `title` (the TITLE or DESCRIPTION cell, OVD-1009): a title is printed at one size, so a line that would continue
- * it but is set smaller or taller than the title's first line, by more than TITLE_SIZE_JITTER (a 9 or 12.5 pt "QTY 4"
- * under a 14 pt "SAMPLE PART", with no rule between them), may as well be an unlisted cell stacked under the title as the
- * title's own second line, and there is no value (`stackedLabel`). Every line is measured against the first, so sizes
- * that drift a step per line are caught too. Layout text has no sizes and is read as before.
+ * With `title` (the TITLE or DESCRIPTION cell, OVD-1009): a title is printed at one size, so a line that would continue it
+ * with any word set at another size than the title's first line, by more than TITLE_SIZE_JITTER (a 9 or 12.5 pt "QTY 4"
+ * under a 14 pt "SAMPLE PART", a 9 pt "QTY" by a 14 pt "FOUR"), may as well be an unlisted cell stacked under the title
+ * as the title's own second line, and there is no value (`stackedLabel`). Every line is measured against the first, so
+ * sizes that drift a step per line are caught too. Layout text has no sizes and is read as before.
  */
 function chooseValueLines(byLine: ReadonlyMap<number, Run[]>, stackOf: Label | null, title = false): ValueChoice {
   const lines = [...byLine.keys()].sort((left, right) => left - right);
@@ -1382,7 +1382,8 @@ function chooseValueLines(byLine: ReadonlyMap<number, Run[]>, stackOf: Label | n
     if (previous !== undefined && joins && lineRuns[0]!.y - previous.runs[0]!.y > MAX_LINE_GAP) {
       return { lines: chosen, stackedLabel: false, far: true, stoppedAt: Number.POSITIVE_INFINITY };
     }
-    if (title && previous !== undefined && joins && !sameSize(chosen[0]!.runs, runs, TITLE_SIZE_JITTER)) {
+    // Every word of the line, not only the ones that overlap the title: a small word beside it is another cell's.
+    if (title && previous !== undefined && joins && !atTitleSize(chosen[0]!.runs, lineRuns)) {
       return flagged();
     }
     if (previous === undefined || joins) {
@@ -2002,136 +2003,15 @@ function continueWrappedRuns(ownership: PageOwnership, caps: ReadonlyMap<Label, 
   }
 }
 
-/** The fence labels a title may start with ("SHEET METAL BRACKET", "SCALE MOUNT"); an approvals label never does. */
-const TITLE_LEAD_LABEL = /^(?:SHEET|SCALE|SIZE|NAME|DATE|WEIGHT|MASS|PROJECT|ZONE|PAGES?|CAGE)$/i;
-/**
- * The words that are the value of such a label rather than the next word of a title: "SCALE NONE", "SCALE FULL",
- * "SHEET FOUR OF FIVE", "DATE JANUARY 2024", "WEIGHT POUNDS". Shorter values (NTS, ONE, JAN, LBS, initials) are refused
- * by their length (TITLE_NEXT_WORD).
- */
-const TITLE_LEAD_VALUE_WORD = new RegExp(
-  "^(?:" +
-    [
-      "NONE", "FULL", "HALF", "DOUBLE", "SAME", "VARIES", "NOTED", "SHOWN", "SPECIFIED", "REFERENCE", "ZERO", "FOUR", "FIVE",
-      "NINE", "THREE", "SEVEN", "EIGHT", "TWELVE", "JANUARY", "FEBRUARY", "MARCH", "APRIL", "JUNE", "JULY", "AUGUST", "SEPT",
-      "SEPTEMBER", "OCTOBER", "NOVEMBER", "DECEMBER", "INCH", "INCHES", "POUND", "POUNDS", "GRAM", "GRAMS", "KILOGRAMS?",
-      "KILOS?", "OUNCES?", "MILLIMET(?:ER|RE)S?", "METRIC", "IMPERIAL",
-    ].join("|") +
-    ")$",
-  "i",
-);
-/** The next word of a title after such a label: four letters or more ("METAL", "MOUNT", "PLATE", "ADAPTER", "CODE"). */
-const TITLE_NEXT_WORD = /^[A-Z][A-Z-]{3,}$/i;
-/** A title is set clearly larger than its TITLE label: a label beside it in the next row of cells is not. */
-const TITLE_TALLER_THAN_LABEL = 1.3;
-
-/**
- * Word boxes only (OVD-1009): the labels of the vocabulary that are the first word of a title, not a label. A title is
- * free text, and its first word may be one a fence label spells ("SHEET METAL BRACKET", "SCALE MOUNT", "NAME PLATE");
- * read as a label, that word takes the rest of the title as its own value and the TITLE cell is left empty. A label beside
- * its own value looks the same ("SCALE NONE", "SHEET ONE OF ONE", "DATE JAN 2024"), and must never be read as the title
- * (PR #1042 review). Such a word is the first word of the title only when all of these hold:
- *  - it is one of the fence labels a title may start with (TITLE_LEAD_LABEL); an approvals label (DRAWN, CHECKED,
- *    APPROVED BY), a field's label and a label with a colon never are;
- *  - it is the first text of a TITLE or DESCRIPTION label's cell (opensTitleOf): in the label's columns, as a value
- *    would be, with no word and no label between them, or right after that label on the label's own line;
- *  - it is set clearly taller than the TITLE label (TITLE_TALLER_THAN_LABEL): a title is set larger than its label, and
- *    the labels of a block at one size, so SIZE or SCALE under TITLE in the next row of cells stays a label;
- *  - no other label is on its line from the TITLE cell's left edge on, and the next word on its line follows it one
- *    word space later (not set apart as a cell's value is from its label), at its size, is four letters or more
- *    (TITLE_NEXT_WORD: not NTS, ONE, JAN, LBS or initials), is not a value of such a label (TITLE_LEAD_VALUE_WORD:
- *    NONE, FULL, FOUR, JANUARY, POUNDS) and is not followed by OF ("SHEET FOUR OF FIVE").
- * Layout text has no sizes, so a title that starts with a label word there is still read as a label and the field is
- * flagged. So is anything that fails one of the tests above: the price is a title such as "SCALE ARM", flagged.
- * A title read this way is only ever the suggestion (CellRead.reviewReason): a label beside a value of four letters or
- * more that no list can name ("NAME SMITH", "SCALE FULL-SIZE", "PROJECT ALPHA") passes every test above, so the field is
- * always flagged for review, never proven (PR #1042 re-review).
- */
-function titleWordsReadAsLabels(labels: readonly Label[], pageLines: readonly TitleBlockTextLine[]): Set<Label> {
-  const titleWords = new Set<Label>();
-  const titles = labels.filter((label) => label.field === "description" && label.fromWords && label.height !== undefined);
-  if (titles.length === 0) {
-    return titleWords;
-  }
-  const lineOf = new Map(pageLines.map((line) => [line.lineNumber, line]));
-  const byLine = groupByLine(labels);
-  for (const word of labels) {
-    if (word.field !== null || !word.fromWords || word.height === undefined || !TITLE_LEAD_LABEL.test(word.text)) {
-      continue;
-    }
-    const title = titles.find((candidate) => word.height! > TITLE_TALLER_THAN_LABEL * candidate.height! &&
-      opensTitleOf(word, candidate, labels, lineOf));
-    if (title === undefined) {
-      continue;
-    }
-    // Labels left of the TITLE cell are other cells on the same row of text (CHECKED in the approvals column).
-    if ((byLine.get(word.line) ?? []).some((other) => other !== word && other !== title && other.end > title.start - title.slack)) {
-      continue;
-    }
-    const line = lineOf.get(word.line);
-    const nextIndex = line?.words?.findIndex((candidate) => candidate.from >= word.charEnd) ?? -1;
-    const next = nextIndex < 0 ? undefined : line!.words![nextIndex];
-    if (line === undefined || next === undefined || setApartAt(line.raw, next.from) || next.height === undefined) {
-      continue;
-    }
-    const nextText = line.raw.slice(next.from, next.to);
-    const after = line.words![nextIndex + 1];
-    const followedByOf = after !== undefined && /^OF$/i.test(line.raw.slice(after.from, after.to));
-    const oneSize = next.height <= VALUE_TEXT_TALLER_THAN_LABEL * word.height && word.height <= VALUE_TEXT_TALLER_THAN_LABEL * next.height;
-    if (oneSize && TITLE_NEXT_WORD.test(nextText) && !TITLE_LEAD_VALUE_WORD.test(nextText) && !followedByOf) {
-      titleWords.add(word);
-    }
-  }
-  return titleWords;
-}
-
-/** Whether a word of `line` lies in the columns of the TITLE label `title`'s cell, as its value would. */
-function inTitleColumns(title: Label, x0: number, x1: number): boolean {
-  return (x0 + x1) / 2 >= title.start - title.slack && x0 <= title.end + title.reach;
-}
-
-/**
- * Whether `word` is where the value of the TITLE label `title` starts, the first text of its cell: see
- * titleWordsReadAsLabels. Any word or label printed between them, on the label's line after it, on a line between, or
- * before `word` on its own line, in the cell's columns, is the start of the title instead ("BRACKET" over "SCALE NONE").
- */
-function opensTitleOf(word: Label, title: Label, labels: readonly Label[], lineOf: ReadonlyMap<number, TitleBlockTextLine>): boolean {
-  const before = (line: number, upTo: number) => (lineOf.get(line)?.words ?? []).some((other) =>
-    other.x0 >= title.end - 1 && other.x0 < upTo && inTitleColumns(title, other.x0, other.x1));
-  if (word.line === title.line) {
-    return word.start >= title.end - 1 && !before(word.line, word.start - 0.5);
-  }
-  const dy = word.line - title.line;
-  if (dy < 1 || dy > MAX_DY || word.y - title.y > MAX_DY || !inTitleColumns(title, word.start, word.end)) {
-    return false;
-  }
-  if (before(title.line, Number.POSITIVE_INFINITY)) {
-    return false;
-  }
-  for (let line = title.line + 1; line < word.line; line += 1) {
-    if ((lineOf.get(line)?.words ?? []).some((other) => inTitleColumns(title, other.x0, other.x1))) {
-      return false;
-    }
-  }
-  const leftOfWord = (lineOf.get(word.line)?.words ?? []).some((other) =>
-    other.x1 <= word.start + 0.5 && inTitleColumns(title, other.x0, other.x1));
-  return !leftOfWord && !labels.some((other) => other !== word && other.line > title.line && other.line < word.line &&
-    other.end > title.start - title.slack && other.start < title.end + title.reach);
-}
-
 /** The labels and the runs of one page, or null when a cap is passed: a hostile page costs its cap, not its size. */
-function readPageGeometry(
-  pageLines: readonly TitleBlockTextLine[],
-): { labels: Label[]; labelsByLine: Map<number, Label[]>; runs: Run[]; titleWords: ReadonlySet<Label> } | null {
-  const found: Label[] = [];
+function readPageGeometry(pageLines: readonly TitleBlockTextLine[]): { labels: Label[]; labelsByLine: Map<number, Label[]>; runs: Run[] } | null {
+  const labels: Label[] = [];
   for (const line of pageLines) {
-    findLabels(line, found, MAX_LABELS_PER_PAGE);
-    if (found.length > MAX_LABELS_PER_PAGE) {
+    findLabels(line, labels, MAX_LABELS_PER_PAGE);
+    if (labels.length > MAX_LABELS_PER_PAGE) {
       return null;
     }
   }
-  const titleWords = titleWordsReadAsLabels(found, pageLines);
-  const labels = titleWords.size === 0 ? found : found.filter((label) => !titleWords.has(label));
   const labelsByLine = groupByLine(labels);
   // Header words alone cannot establish that a DESCRIPTION/DATE row is historical.
   // Keep its value as ambiguous evidence; an explicit current cell wins across the document.
@@ -2159,7 +2039,7 @@ function readPageGeometry(
       return null;
     }
   }
-  return { labels, labelsByLine, runs, titleWords };
+  return { labels, labelsByLine, runs };
 }
 
 /**
@@ -2370,7 +2250,7 @@ function readPage(page: number, pageText: readonly TitleBlockTextLine[]): CellRe
   if (geometry === null) {
     return null;
   }
-  const { labels, labelsByLine, runs, titleWords } = geometry;
+  const { labels, labelsByLine, runs } = geometry;
   const caps = computeCapLines(labels);
   const ownership = newPageOwnership();
   const runsByLine = groupByLine(runs);
@@ -2412,11 +2292,6 @@ function readPage(page: number, pageText: readonly TitleBlockTextLine[]): CellRe
       }));
     }
     if (label.field === "revision") read.revisionRole = label.revisionRole;
-    // A title read with a label word that was taken as its first word is never proven (titleWordsReadAsLabels).
-    if (label.field === "description" && read.status === "value" &&
-      [...titleWords].some((word) => read.valueLines.includes(word.line))) {
-      read.reviewReason = "title_starts_with_label_word";
-    }
     read.complete = accountsForCellGeometry(label, read, candidateLines, labelsByLine, ownership, caps);
     reads.push(read);
   }
