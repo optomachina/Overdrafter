@@ -313,6 +313,7 @@ describe("quotes utils", () => {
           tolerances: {
             tightest: "0.002",
             valueInch: 0.002,
+            unit: "in",
           },
         },
       }),
@@ -1247,19 +1248,50 @@ describe("tolerance without re-parsing raw drawing text (OVD-984)", () => {
     expect(buildRequirementDraft(partWithTolerances(tolerances)).tightestToleranceInch).toBe(0.002);
   });
 
-  it("prefills a legacy payload with a numeric valueInch and no unit, as before", () => {
-    const tolerances = { tightest: "±0.003", valueInch: 0.003 };
-    const extraction = normalizeDrawingExtraction(
-      makeExtractionRecord({ extraction: { tolerances } }),
-      "part-1",
-    );
+  // OVD-1012: extractions stored before the unit-aware parser (OVD-976) carry a number but no
+  // `unit`. A metric drawing's ±0.1 mm was stored as 0.1, which reads as a loose 0.1 in and
+  // would pass the beta's 0.005 in gate, so a unit-blind number is never used.
+  const legacyUnitBlindCases: Array<[string, Record<string, string | number | null>]> = [
+    ["a metric ±0.1 mm read as inches", { tightest: "±0.1", valueInch: 0.1, confidence: 0.68 }],
+    ["a micron value read as inches", { tightest: "±25", valueInch: 25, confidence: 0.68 }],
+    ["an inch-looking value", { tightest: "±0.003", valueInch: 0.003 }],
+    ["a null unit", { tightest: "±0.1", valueInch: 0.1, unit: null }],
+    ["an unrecognised unit", { tightest: "±0.1", valueInch: 0.1, unit: "cm" }],
+  ];
 
-    expect(extraction.tightestTolerance).toMatchObject({
-      valueInch: 0.003,
-      unit: null,
-      hint: null,
-    });
-    expect(buildRequirementDraft(partWithTolerances(tolerances)).tightestToleranceInch).toBe(0.003);
+  it.each(legacyUnitBlindCases)(
+    "never prefills a legacy unit-blind valueInch (%s)",
+    (_label, tolerances) => {
+      const extraction = normalizeDrawingExtraction(
+        makeExtractionRecord({ extraction: { tolerances } }),
+        "part-1",
+      );
+
+      expect(extraction.tightestTolerance.valueInch).toBeNull();
+      expect(extraction.tightestTolerance.raw).toBe(tolerances.tightest);
+      expect(extraction.tightestTolerance.hint).toBe(
+        `Check the drawing: the units could not be determined. Extracted text: ${String(tolerances.tightest)}`,
+      );
+      expect(buildRequirementDraft(partWithTolerances(tolerances)).tightestToleranceInch).toBeNull();
+    },
+  );
+
+  it.each(["in", "mm", "um", "mil"])(
+    "prefills a stored valueInch converted from unit %j",
+    (unit) => {
+      const tolerances = { tightest: "±0.1", valueInch: 0.0039, unit };
+
+      expect(buildRequirementDraft(partWithTolerances(tolerances)).tightestToleranceInch).toBe(0.0039);
+    },
+  );
+
+  it("still prefers a stored client or approved value over a legacy unit-blind extraction", () => {
+    const tolerances = { tightest: "±0.1", valueInch: 0.1 };
+    const clientPart = partWithTolerances(tolerances, {
+      clientRequirement: { tightestToleranceInch: 0.004 },
+    } as Partial<PartAggregate>);
+
+    expect(buildRequirementDraft(clientPart).tightestToleranceInch).toBe(0.004);
   });
 
   it("lets a stored client or approved value outrank an unresolved extraction", () => {
