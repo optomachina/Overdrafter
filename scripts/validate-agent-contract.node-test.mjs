@@ -117,6 +117,128 @@ test("a workflow on: the matrix cannot read fails closed instead of reading as n
   assert.deepEqual(parseWorkflow(".github/workflows/s.yml", "on:\n  schedule:\n    - cron: '0 * * * *'\n").events, ["schedule"]);
 });
 
+test("OVD-1157: a leading BOM still parses, and a workflow with no top-level on: fails closed", () => {
+  const matrix = { version: 1, workflows: [] };
+  const bom = parseWorkflow(".github/workflows/w.yml", "﻿on:\n  merge_group:\n    types: [checks_requested]\njobs: {}\n");
+  assert.equal(bom.parseError, null);
+  assert.deepEqual(bom.events, ["merge_group"]);
+  assert.deepEqual(bom.mergeGroupTypes, ["checks_requested"]);
+  const bomErrors = diffEventMatrix({ files: [bom], matrix, requiredWorkflows: [], commentFilter: "unused", doc: "" });
+  assert.ok(bomErrors.some((error) => error.includes("missing from")), JSON.stringify(bomErrors));
+  for (const text of ["name: no triggers\njobs: {}\n", "", "﻿"]) {
+    const parsed = parseWorkflow(".github/workflows/w.yml", text);
+    assert.ok(parsed.parseError, JSON.stringify(text));
+    const errors = diffEventMatrix({ files: [parsed], matrix, requiredWorkflows: [], commentFilter: "unused", doc: "" });
+    assert.ok(errors.some((error) => error.includes(".github/workflows/w.yml") && error.includes("no top-level on:")), `${JSON.stringify(text)} -> ${JSON.stringify(errors)}`);
+  }
+});
+
+test("OVD-1157: a CRLF required workflow keyed on head.sha passes the concurrency check", () => {
+  const file = ".github/workflows/required.yml";
+  const lf = [
+    "on:",
+    "  merge_group:",
+    "    types: [checks_requested]",
+    "concurrency:",
+    "  group: required-${{ github.event.pull_request.head.sha || github.sha }}",
+    "  cancel-in-progress: true",
+    "jobs: {}",
+    "",
+  ].join("\n");
+  const matrix = { version: 1, workflows: [{ file, events: ["merge_group"], mergeGroupTypes: ["checks_requested"], required: true }] };
+  const run = (text) => diffEventMatrix({ files: [parseWorkflow(file, text)], matrix, requiredWorkflows: [file], commentFilter: "unused", doc: file });
+  assert.deepEqual(run(lf), []);
+  assert.deepEqual(run(lf.replaceAll("\n", "\r\n")), []);
+  // A raw CRLF text handed straight to diffEventMatrix is read the same way.
+  const raw = { file, events: ["merge_group"], mergeGroupTypes: ["checks_requested"], text: lf.replaceAll("\n", "\r\n"), parseError: null };
+  assert.deepEqual(diffEventMatrix({ files: [raw], matrix, requiredWorkflows: [file], commentFilter: "unused", doc: file }), []);
+  // Dropping head.sha is still an error with either line ending.
+  const unkeyed = lf.replace("github.event.pull_request.head.sha || ", "");
+  for (const text of [unkeyed, unkeyed.replaceAll("\n", "\r\n")]) {
+    assert.ok(run(text).some((error) => error.includes("must key concurrency")), JSON.stringify(text));
+  }
+});
+
+test("OVD-1157: merge_group with a trailing comment, trailing whitespace or an inline map reads its types", () => {
+  const types = (text) => parseWorkflow(".github/workflows/w.yml", `on:\n${text}jobs: {}\n`);
+  for (const text of [
+    "  merge_group: # the queue\n    types: [checks_requested]\n",
+    "  merge_group:   \n    types: [checks_requested]\n",
+    "  merge_group:\t\n    types:\n      - checks_requested\n",
+    "  'merge_group': # quoted\n    types: # one type\n      - checks_requested # the only one\n",
+    "  merge_group: { types: [checks_requested] }\n",
+    "  merge_group: {types: [checks_requested]} # inline\n",
+    "  merge_group:\n    types: [checks_requested]\n  pull_request:\n",
+    "  merge_group:\n    types:\n      - checks_requested\n  pull_request:\n",
+  ]) {
+    const parsed = types(text);
+    assert.equal(parsed.parseError, null, JSON.stringify(text));
+    assert.deepEqual(parsed.mergeGroupTypes, ["checks_requested"], JSON.stringify(text));
+  }
+  // Comment and blank lines inside the nested list do not end it early.
+  for (const text of [
+    "  merge_group:\n    types:\n      - checks_requested\n      # a note\n      - destroyed\n",
+    "  merge_group:\n    types:\n      # first\n      - checks_requested\n\n      - destroyed\n  pull_request:\n",
+  ]) {
+    const parsed = types(text);
+    assert.equal(parsed.parseError, null, JSON.stringify(text));
+    assert.deepEqual(parsed.mergeGroupTypes, ["checks_requested", "destroyed"], JSON.stringify(text));
+  }
+  // A list item at another indent, or a nested line that is not an item, fails closed.
+  for (const text of [
+    "  merge_group:\n    types:\n    - checks_requested\n",
+    "  merge_group:\n    types:\n      - checks_requested\n        - destroyed\n",
+    "  merge_group:\n    types:\n      - checks_requested\n      destroyed: true\n",
+  ]) {
+    assert.ok(types(text).parseError, JSON.stringify(text));
+  }
+  assert.deepEqual(types("  merge_group:\n    types:\n      - checks_requested\n    branches: [main]\n").mergeGroupTypes, ["checks_requested"]);
+  assert.equal(types("  merge_group: null\n").mergeGroupTypes, null);
+  assert.equal(types("  merge_group: ~\n").mergeGroupTypes, null);
+  assert.equal(types("  merge_group: # no types\n").mergeGroupTypes, null);
+  assert.equal(types("  merge_group: {}\n").mergeGroupTypes, null);
+  // An inline value this module cannot read fails closed instead of reading as absent.
+  const odd = types("  merge_group: checks_requested\n");
+  assert.ok(odd.parseError, JSON.stringify(odd));
+  // A paths filter behind a comment or inside an inline map is still caught.
+  const file = ".github/workflows/w.yml";
+  const matrix = { version: 1, workflows: [{ file, events: ["merge_group"], mergeGroupTypes: ["checks_requested"] }] };
+  for (const text of [
+    "  merge_group: # queue\n    types: [checks_requested]\n    paths: [src/**]\n",
+    "  merge_group: { types: [checks_requested], paths-ignore: [docs/**] }\n",
+  ]) {
+    const errors = diffEventMatrix({ files: [types(text)], matrix, requiredWorkflows: [], commentFilter: "unused", doc: file });
+    assert.ok(errors.some((error) => error.includes("filters merge_group with paths")), `${JSON.stringify(text)} -> ${JSON.stringify(errors)}`);
+  }
+});
+
+test("OVD-1157: the fsync lint ignores fast-glob and cross-spawn .sync( calls", () => {
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), "agent-contract-fsync-like-"));
+  try {
+    const unit = path.join(temp, "scripts/glob.test.mjs");
+    fs.mkdirSync(path.dirname(unit), { recursive: true });
+    fs.writeFileSync(unit, "const files = fg.sync([\"**/*.ts\"], { cwd });\nconst result = spawn.sync(\"git\", [\"status\"]);\nconst g = glob.sync(pattern);\n");
+    assert.deepEqual(testDeterminismErrors(temp), []);
+    // A comment before a real argument, or a later comment, does not turn a library call into an fsync.
+    fs.writeFileSync(unit, "const files = fg.syn" + "c(/* globs */ patterns);\nrun(/* later */);\nconst g = glob.syn" + "c(pattern /* x */);\n");
+    assert.deepEqual(testDeterminismErrors(temp), []);
+    // FileHandle sync and datasync take no arguments; those still fail, with or without spaces or optional chaining.
+    for (const call of [
+      "await handle.syn" + "c();\n",
+      "await handle?.syn" + "c( );\n",
+      "await fh.datasyn" + "c();\n",
+      "await handle.syn" + "c(undefined);\n",
+      "await handle.syn" + "c(/* journal */);\n",
+      "await fh.datasyn" + "c( /* a */ undefined /* b */ );\n",
+    ]) {
+      fs.writeFileSync(unit, call);
+      assert.ok(testDeterminismErrors(temp).some((error) => error.includes("scripts/glob.test.mjs")), call);
+    }
+  } finally {
+    fs.rmSync(temp, { recursive: true, force: true });
+  }
+});
+
 test("a callback fsync and a worker test are covered by the fsync lint", () => {
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), "agent-contract-fsync-"));
   const unit = path.join(temp, "scripts/cb.test.mjs");

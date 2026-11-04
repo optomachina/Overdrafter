@@ -287,6 +287,16 @@ test('OVD-462 a rollback queued behind a pending revoke neither deadlocks nor dr
   assert.throws(() => acceptRollbackBehindRevoke(fence, occupantRefusal, true, false));
 });
 
+test('OVD-1012 pgTAP fixtures are byte copies of the migration and rollback they drill', () => {
+  assert.deepEqual(readFileSync(join(source, 'fixtures/ovd1012_legacy_tolerance_unit_unknown.inc')),
+    readFileSync(fileURLToPath(new URL('../supabase/migrations/20261101130400_ovd1012_legacy_tolerance_unit_unknown.sql', import.meta.url))));
+  assert.deepEqual(readFileSync(join(source, 'fixtures/ovd1012_legacy_tolerance_unit_unknown_rollback.inc')),
+    readFileSync(fileURLToPath(new URL('../docs/migration-drafts/ovd-1012.rollback.sql', import.meta.url))));
+  const suite = readFileSync(join(source, 'ovd1012_legacy_tolerance_unit_unknown.sql'), 'utf8');
+  assert.match(suite, /\\ir fixtures\/ovd1012_legacy_tolerance_unit_unknown\.inc\n/);
+  assert.match(suite, /\\ir fixtures\/ovd1012_legacy_tolerance_unit_unknown_rollback\.inc\n/);
+});
+
 test('OVD-1011 pgTAP fixture is a byte copy of the rollback it drills', () => {
   assert.deepEqual(readFileSync(join(source, 'fixtures/ovd1011_client_part_metadata_defaults_rollback.inc')),
     readFileSync(fileURLToPath(new URL('../docs/migration-drafts/ovd-1011.rollback.sql', import.meta.url))));
