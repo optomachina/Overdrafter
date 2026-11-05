@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
-import { pdfSourceGeometryIssues, readSvgGeometry } from "./pdfVectorGeometry";
+import { displayedPageSize, pdfSourceGeometryIssues, readSvgGeometry, wordsFitFrame } from "./pdfVectorGeometry";
 import { inferDrawingSignalsFromPdf, type PdfTextExtraction } from "./pdfDrawing";
 import { box, phrase } from "../../test-support/pdfWordBoxes";
 
@@ -97,6 +97,62 @@ describe("I7 complete vector geometry", () => {
       expect(field.reviewNeeded).toBe(true);
       expect(field.reasons).toContain("geometry_coordinate_frame_mismatch");
     }
+  });
+
+  // OVD-1169: poppler's SVG and word boxes are in the displayed frame; pdftotext prints the stored size.
+  it.each([[90, true], [270, true], [-90, true], [450, true], [0, false], [180, false], [null, false]] as const)(
+    "a /Rotate %s page is compared in its displayed frame (swapped: %s)", (rotation, swapped) => {
+      const frame = displayedPageSize({ width: 600, height: 800 }, rotation);
+      expect(frame).toEqual(swapped ? { width: 800, height: 600 } : { width: 600, height: 800 });
+      const landscape = readSvgGeometry(svg("", "0 0 800 600"), frame).vectorGeometry;
+      expect(landscape.complete).toBe(swapped);
+      expect(landscape.issues.some((issue) => issue.cause === "coordinate_frame_mismatch")).toBe(!swapped);
+    });
+
+  it("the swapped size of a rotated page still vetoes a viewBox that differs from it", () => {
+    const data = input("");
+    Object.assign(data.pages[0]!, readSvgGeometry(svg("", "0 0 800 590"), displayedPageSize({ width: 600, height: 800 }, 90)));
+    expect(data.pages[0]!.vectorGeometry?.complete).toBe(false);
+    expect(infer(data).material.reasons).toContain("geometry_coordinate_frame_mismatch");
+  });
+
+  it("a word box outside the displayed frame keeps the frame unproven", () => {
+    const frame = displayedPageSize({ width: 600, height: 800 }, 90);
+    expect(wordsFitFrame([box("MATERIAL", 100, 100), box("EDGE", 700, 580)], frame)).toBe(true);
+    expect(wordsFitFrame([box("MATERIAL", 100, 100), box("PAST", 700, 700)], frame)).toBe(false);
+    expect(wordsFitFrame([box("PAST", 790, 100)], { width: 600, height: 800 })).toBe(false);
+  });
+
+  // OVD-1169: arcs and circles drawn as short polylines are diagonal segments. They are not rules, so they neither
+  // count toward the 2,000-rule cap nor veto a cell, while the cap still applies to real horizontal and vertical rules.
+  const polygon = (cx: number, cy: number, radius: number, segments: number) =>
+    "M " + Array.from({ length: segments + 1 }, (_, index) => {
+      const angle = (2 * Math.PI * index) / segments;
+      return `${(cx + radius * Math.cos(angle)).toFixed(3)} ${(cy + radius * Math.sin(angle)).toFixed(3)}`;
+    }).join(" L ");
+
+  it("a 3,000-segment polyline circle crossing the cell neither trips the rule cap nor vetoes it", () => {
+    const data = input(path(polygon(200, 120, 60, 3_000)) + rule);
+    const geometry = data.pages[0]!.vectorGeometry!;
+    expect(geometry.complete).toBe(true);
+    expect(geometry.issues).toEqual([]);
+    expect(geometry.rules!.length).toBeLessThan(2_000);
+    expect(geometry.rules!.every((r) => Math.abs(r.x0 - r.x1) < 0.01 || Math.abs(r.y0 - r.y1) < 0.01)).toBe(true);
+    expect(data.pages[0]!.borders).toContainEqual({ x0: 90, x1: 350, y: 120 });
+    const away = input(path(polygon(400, 600, 60, 3_000)));
+    expect(away.pages[0]!.vectorGeometry?.complete).toBe(true);
+    expect(infer(away).material.reviewNeeded).toBe(false);
+  });
+
+  it.each([
+    ["horizontal", (x: number, y: number) => `M ${x} ${y} L ${x + 3} ${y}`],
+    ["vertical", (x: number, y: number) => `M ${x} ${y} L ${x} ${y + 3}`],
+  ] as const)("2,100 short %s ticks still trip the rule cap", (_name, tick) => {
+    const ticks = Array.from({ length: 2_100 }, (_, index) => tick(10 + (index % 70) * 8, 300 + Math.floor(index / 70) * 10)).join(" ");
+    const data = input(path(ticks));
+    expect(data.pages[0]!.vectorGeometry?.complete).toBe(false);
+    expect(data.pages[0]!.vectorGeometry?.issues.map((issue) => issue.cause)).toContain("border_limit");
+    expect(infer(data).material.reasons).toContain("geometry_border_limit");
   });
 
   it("missing or partial SVG geometry cannot prove an empty region", () => {

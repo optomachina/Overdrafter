@@ -16,7 +16,7 @@ import {
   type TitleBlockBorder,
 } from "./titleBlockCells.js";
 
-import { pdfSourceGeometryIssues, readSvgGeometry, type PageVectorGeometry } from "./pdfVectorGeometry.js";
+import { displayedPageSize, pdfSourceGeometryIssues, readSvgGeometry, wordsFitFrame, type PageVectorGeometry } from "./pdfVectorGeometry.js";
 import { finalizeExtractionApproval } from "./extractionApproval.js";
 
 const execFileAsync = promisify(execFile);
@@ -1939,12 +1939,15 @@ async function getPdfPageCount(localPath: string): Promise<number | null> {
   }
 }
 
-/** CropBox size of one page, which is what pdfinfo prints as the page size. */
+/**
+ * CropBox size of one page, which is what pdfinfo prints as the page size, and the page's /Rotate (null when pdfinfo
+ * did not print it). The size is the stored one: a page rotated a quarter turn is shown with width and height swapped.
+ */
 async function getPdfPageSize(
   localPath: string,
   page: number,
   timeoutMs = PDF_TOOL_TIMEOUT_MS,
-): Promise<{ widthPoints: number; heightPoints: number } | null> {
+): Promise<{ widthPoints: number; heightPoints: number; rotation: number | null } | null> {
   try {
     const { stdout } = await execFileAsync("pdfinfo", ["-f", String(page), "-l", String(page), localPath], {
       maxBuffer: 4 * 1024 * 1024,
@@ -1960,9 +1963,15 @@ async function getPdfPageSize(
       return null;
     }
 
+    const rotationMatch =
+      stdout.match(new RegExp(`^Page\\s+${page} rot:\\s+(-?\\d+)\\s*$`, "m")) ??
+      (page === 1 ? stdout.match(/^Page rot:\s+(-?\d+)\s*$/m) : null);
+    const rotation = rotationMatch ? Number.parseInt(rotationMatch[1]!, 10) : null;
+
     return {
       widthPoints,
       heightPoints,
+      rotation: rotation !== null && Number.isFinite(rotation) ? rotation : null,
     };
   } catch {
     return null;
@@ -2078,12 +2087,26 @@ async function readWordBoxes(localPath: string, layerTexts: readonly string[]): 
       );
       const words = parseBboxWords(typeof stdout === "string" ? stdout : "");
       totalWords += words.length;
-      boxes.push(words.length > 0 && totalWords <= MAX_WORDS_TOTAL
-        ? { words, wordGeometryComplete: words.length === [...stdout.matchAll(/<word\b/g)].length,
-          ...await readPageBorders(localPath, index + 1, deadline, {
-            width: Number(/<page\b[^>]*\bwidth="([^"]+)"/.exec(stdout)?.[1]),
-            height: Number(/<page\b[^>]*\bheight="([^"]+)"/.exec(stdout)?.[1]),
-          }) } : undefined);
+      if (words.length === 0 || totalWords > MAX_WORDS_TOTAL) {
+        boxes.push(undefined);
+        continue;
+      }
+      // OVD-1169: pdftotext prints the stored page size, but its words and Cairo's SVG are in the displayed frame.
+      const stored = {
+        width: Number(/<page\b[^>]*\bwidth="([^"]+)"/.exec(stdout)?.[1]),
+        height: Number(/<page\b[^>]*\bheight="([^"]+)"/.exec(stdout)?.[1]),
+      };
+      const rotationTimeout = remainingBudgetMs(deadline, PDF_TOOL_TIMEOUT_MS);
+      const rotation = rotationTimeout > 0 ? (await getPdfPageSize(localPath, index + 1, rotationTimeout))?.rotation ?? null : null;
+      const frame = displayedPageSize(stored, rotation);
+      const page = { words, wordGeometryComplete: words.length === [...stdout.matchAll(/<word\b/g)].length,
+        ...await readPageBorders(localPath, index + 1, deadline, frame) };
+      // A swapped frame is trusted only while every word box lies inside it; otherwise the mismatch stays (fail closed).
+      if (frame !== stored && !wordsFitFrame(words, frame)) {
+        page.vectorGeometry.complete = false;
+        page.vectorGeometry.issues.push({ cause: "coordinate_frame_mismatch", bounds: null });
+      }
+      boxes.push(page);
     } catch {
       boxes.push(undefined);
     }
@@ -2373,9 +2396,12 @@ export async function renderPdfTitleBlockCrop(
     return null;
   }
 
+  // OVD-1169: pdftoppm renders the page as it is shown, so a page stored with /Rotate 90 or 270 is cropped from its
+  // displayed (swapped) size, not the stored one pdfinfo prints.
+  const displayed = displayedPageSize({ width: pageSize.widthPoints, height: pageSize.heightPoints }, pageSize.rotation);
   const renderDpi = 150;
-  const pageWidthPixels = Math.max(1, Math.round((pageSize.widthPoints / 72) * renderDpi));
-  const pageHeightPixels = Math.max(1, Math.round((pageSize.heightPoints / 72) * renderDpi));
+  const pageWidthPixels = Math.max(1, Math.round((displayed.width / 72) * renderDpi));
+  const pageHeightPixels = Math.max(1, Math.round((displayed.height / 72) * renderDpi));
   const cropX = Math.floor(pageWidthPixels * 0.48);
   const cropY = Math.floor(pageHeightPixels * 0.58);
   const cropWidth = Math.max(1, pageWidthPixels - cropX);

@@ -83,8 +83,13 @@ function hasBinary(name: string, args: string[]): boolean {
 // read at all, so the suite is reported as skipped rather than as a pass.
 const hasPoppler = hasBinary("pdfinfo", ["-v"]) && hasBinary("pdftotext", ["-v"]);
 const fullyRead = hasBinary("tesseract", ["-v"]);
-// This rotated PDF reports different bbox and SVG dimensions. I7 requires review even with OCR.
-const expectedReviewFields = ["description", "partNumber", "revision", "material", "finish"];
+const ALL_CELL_FIELDS = ["description", "partNumber", "revision", "material", "finish"];
+// OVD-1169 (deliberate change): this page is stored 612 x 792 with /Rotate 90. Its word boxes and its SVG are both in the
+// displayed 792 x 612 frame, which the reader now compares against the rotated page size, so every cell is proven from
+// its own cell when the whole drawing was read (OCR included). It used to be flagged geometry_coordinate_frame_mismatch.
+const expectedReviewFields = fullyRead ? [] : ALL_CELL_FIELDS;
+// Layout text alone never proves a cell.
+const layoutReviewFields = ALL_CELL_FIELDS;
 
 describe.skipIf(!hasPoppler)("sample drawing 1093-05589-02, deterministic PDF-text extraction", () => {
   let pdfText: PdfTextExtraction | null;
@@ -145,8 +150,9 @@ describe.skipIf(!hasPoppler)("sample drawing 1093-05589-02, deterministic PDF-te
 
   it("extracts the material printed in the title block", () => {
     expect(extraction.material.raw).toBe(TRUTH.material);
-    expect(extraction.material.reviewNeeded).toBe(true);
-    expect(extraction.material.reasons).toContain("geometry_coordinate_frame_mismatch");
+    expect(extraction.material.reviewNeeded).toBe(!fullyRead);
+    expect(extraction.material.reasons).not.toContain("geometry_coordinate_frame_mismatch");
+    if (fullyRead) expect(extraction.material.reasons).toContain("title_block_cell_proven");
   });
 
   it("extracts the finish printed in the title block", () => {
@@ -249,7 +255,7 @@ describe.skipIf(!hasPoppler)("sample drawing 1093-05589-02, deterministic PDF-te
     expect(result.revision).toBe(TRUTH.revision);
     expect(result.material.raw).toBe(TRUTH.material);
     expect(result.finish.raw).toBe(extraction.finish.raw);
-    expect(result.reviewFields).toEqual(expectedReviewFields);
+    expect(result.reviewFields).toEqual(layoutReviewFields);
     expect(result.tightestTolerance.raw).toBe(extraction.tightestTolerance.raw);
     expect(result.tightestTolerance.valueInch).toBeNull();
   });
@@ -263,7 +269,7 @@ describe.skipIf(!hasPoppler)("sample drawing 1093-05589-02, deterministic PDF-te
     expect(result.revision).toBe(TRUTH.revision);
     expect(result.material.raw).toBe(TRUTH.material);
     expect(result.finish.raw).toBe(TRUTH.finish);
-    expect(result.reviewFields).toEqual(expectedReviewFields);
+    expect(result.reviewFields).toEqual(layoutReviewFields);
     expect(result.status).toBe("needs_review");
   });
 
@@ -316,8 +322,9 @@ describe.skipIf(!hasPoppler)("sample drawing 1093-05589-02, deterministic PDF-te
     });
   });
 
-  it("reads correct title-block values but reviews the rotated frame mismatch", () => {
+  it("proves the correct title-block values on the rotated page", () => {
     expect(extraction.reviewFields).toEqual(expectedReviewFields);
+    for (const field of [extraction.material, extraction.finish]) expect(field.reasons).not.toContain("geometry_coordinate_frame_mismatch");
     expect(extraction.tightestTolerance.valueInch).toBe(fullyRead ? TRUTH.tightestLinearToleranceInch : null);
     expect(modelCalls).toHaveLength(0);
   });
