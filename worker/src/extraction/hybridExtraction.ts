@@ -23,6 +23,7 @@ import {
   inferDrawingSignalsFromPdf,
   normalizeQuoteDescription,
   normalizeQuoteFinish,
+  normalizeQuoteMaterial,
   type ExtractedDrawingSignals,
   type ExtractedFieldSignal,
   type PdfTextExtraction,
@@ -404,7 +405,8 @@ export async function runHybridExtraction(
     reviewFields,
     material: {
       raw: mergedFields.material.value,
-      normalized: mergedFields.material.value,
+      // OVD-1166: normalization only; the raw text, confidence and review state stay the drawing reader's.
+      normalized: normalizeQuoteMaterial(mergedFields.material.value),
       confidence: mergedFields.material.value
         ? mergedFields.material.confidence
         : input.drawingFile

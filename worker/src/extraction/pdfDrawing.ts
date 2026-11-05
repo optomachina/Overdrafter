@@ -1911,6 +1911,83 @@ export function normalizeQuoteDescription(raw: string | null) {
   return normalized;
 }
 
+/**
+ * OVD-1166: 6061 written without a temper ("6061", "6061 Alloy", "Al 6061", "Aluminum 6061", "6061 aluminum",
+ * "Alloy 6061") is 6061-T6, the owner's rule the OVD-1163 Xometry beta gate already applies. The key and the
+ * accepted words are the gate's own (supabase/migrations/20261104032300_ovd1163_beta_6061_and_quote_as_machined.sql:
+ * lower case with every character outside [a-z0-9] removed), less its temper group, so a value is rewritten only
+ * when it names nothing but untempered 6061. A stated temper (T6, T651, T6511, T6/T651, or any other such as O, F,
+ * T4, T451, T62) and 6061 written beside any other word are kept as read. quoteNormalization.test.ts pins the
+ * agreement with the gate and with worker/src/adapters/xometryConstraints.ts.
+ */
+const UNTEMPERED_6061_KEY = /^(?:aluminum|aluminium|al)?(?:alloy)?6061(?:aluminum|aluminium|al)?(?:alloy)?$/;
+export const NORMALIZED_UNTEMPERED_6061 = "6061-T6 Aluminum";
+
+export function normalizeQuoteMaterial(raw: string | null) {
+  if (!raw) {
+    return null;
+  }
+
+  const normalized = normalizeWhitespace(raw);
+
+  if (!normalized) {
+    return null;
+  }
+
+  return UNTEMPERED_6061_KEY.test(normalized.toLowerCase().replace(/[^a-z0-9]/g, ""))
+    ? NORMALIZED_UNTEMPERED_6061
+    : normalized;
+}
+
+const ANODIZE_SPEC_PATTERN = /\bMIL-?A-?8625[A-Z]?\b/gi;
+const ANODIZE_TYPE_PATTERN = /\bTYPE[\s-]*(III|II|I|3|2|1)\b/gi;
+const ANODIZE_CLASS_PATTERN = /\bCLASS[\s-]*[12]\b/gi;
+const ANODIZE_TYPES: Record<string, string> = { i: "I", "1": "I", ii: "II", "2": "II", iii: "III", "3": "III" };
+const ANODIZE_COLOURS = new Set([
+  "black", "clear", "natural", "red", "blue", "gold", "green", "grey", "gray", "bronze", "orange", "purple",
+  "violet", "yellow", "silver", "brown",
+]);
+const ANODIZE_WORDS = new Set(["anodize", "anodized", "anodise", "anodised", "per", "color", "colour", "dyed"]);
+
+/**
+ * OVD-1166: an anodize callout is normalized to "<Colour> Anodize, Type <I|II|III>" when it says nothing but the
+ * anodize, at most one colour, at most one type, the MIL-A-8625 spec and its class, in any order and spelling
+ * ("ANODIZE, BLACK, MIL-A-8625F, TYPE II CLASS 2", "Type 2 anodize, black", "MIL-A-8625 TYPE III, BLACK"). The
+ * colour and the type are only ever the drawing's own: with no colour it is "Anodize, Type II"; with no type the
+ * spec is kept ("Black Anodize, MIL-A-8625"). A callout that says anything else (masking, a note, a choice of two
+ * types or colours, a hard coat) is kept as read so nothing it says is lost.
+ */
+function normalizeAnodizeCallout(value: string) {
+  let hasSpec = false;
+  const types: string[] = [];
+  const rest = value
+    .replace(ANODIZE_SPEC_PATTERN, () => {
+      hasSpec = true;
+      return " ";
+    })
+    .replace(ANODIZE_TYPE_PATTERN, (_match, type: string) => {
+      types.push(ANODIZE_TYPES[type.toLowerCase()]);
+      return " ";
+    })
+    .replace(ANODIZE_CLASS_PATTERN, " ");
+  const words = rest.toLowerCase().split(/[\s,;:.()]+/).filter(Boolean);
+  const colours = words.filter((word) => ANODIZE_COLOURS.has(word));
+  const anodized = words.some((word) => word.startsWith("anodi")) || hasSpec;
+
+  if (
+    !anodized ||
+    types.length > 1 ||
+    colours.length > 1 ||
+    words.some((word) => !ANODIZE_COLOURS.has(word) && !ANODIZE_WORDS.has(word))
+  ) {
+    return null;
+  }
+
+  const colour = colours[0] ? `${colours[0][0].toUpperCase()}${colours[0].slice(1)} ` : "";
+  const qualifier = types[0] ? `, Type ${types[0]}` : hasSpec ? ", MIL-A-8625" : "";
+  return `${colour}Anodize${qualifier}`;
+}
+
 export function normalizeQuoteFinish(raw: string | null) {
   if (!raw) {
     return null;
@@ -1918,11 +1995,11 @@ export function normalizeQuoteFinish(raw: string | null) {
 
   const normalized = normalizeWhitespace(raw);
 
-  if (/ANODIZE/i.test(normalized) && /BLACK/i.test(normalized) && /TYPE\s*II/i.test(normalized)) {
-    return "Black Anodize, Type II";
+  if (!normalized) {
+    return null;
   }
 
-  return normalized;
+  return normalizeAnodizeCallout(normalized) ?? normalized;
 }
 
 async function getPdfPageCount(localPath: string): Promise<number | null> {
