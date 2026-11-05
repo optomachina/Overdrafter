@@ -1978,6 +1978,27 @@ async function getPdfPageSize(
   }
 }
 
+/**
+ * OVD-1169: the /Rotate of pages 1..pageCount from one bounded pdfinfo call. A page pdfinfo did not report is absent,
+ * so its rotation is unknown and the reader keeps its stored size.
+ */
+async function getPdfPageRotations(localPath: string, pageCount: number, timeoutMs: number): Promise<Map<number, number>> {
+  const rotations = new Map<number, number>();
+  if (pageCount <= 0 || timeoutMs <= 0) return rotations;
+  try {
+    const { stdout } = await execFileAsync("pdfinfo", ["-f", "1", "-l", String(pageCount), localPath], {
+      maxBuffer: 4 * 1024 * 1024,
+      timeout: timeoutMs,
+    });
+    for (const match of stdout.matchAll(/^Page\s+(\d+) rot:\s+(-?\d+)\s*$/gm)) {
+      rotations.set(Number.parseInt(match[1]!, 10), Number.parseInt(match[2]!, 10));
+    }
+  } catch {
+    // Unknown rotations: every page keeps its stored size (fail closed for rotated pages).
+  }
+  return rotations;
+}
+
 export async function extractPdfText(localPath: string): Promise<PdfTextExtraction | null> {
   const detectedPageCount = await getPdfPageCount(localPath);
   const pageCount = detectedPageCount ?? 1;
@@ -2068,6 +2089,11 @@ async function readWordBoxes(localPath: string, layerTexts: readonly string[]): 
   } catch {
     sourceIssues = [{ cause: "pdf_source_unavailable", bounds: null }];
   }
+  // One document-level pdfinfo call within the same deadline, rather than one per page.
+  // Only pages with a text layer get word boxes, so a document without one needs no rotations.
+  const rotations = layerTexts.some((text) => text.trim().length > 0)
+    ? await getPdfPageRotations(localPath, layerTexts.length, remainingBudgetMs(deadline, PDF_TOOL_TIMEOUT_MS))
+    : new Map<number, number>();
   // Keep pages sequential: each scan consumes the shared word budget and deadline.
   // Parallel processes would change which pages receive geometry and multiply peak memory.
   let totalWords = 0;
@@ -2096,9 +2122,7 @@ async function readWordBoxes(localPath: string, layerTexts: readonly string[]): 
         width: Number(/<page\b[^>]*\bwidth="([^"]+)"/.exec(stdout)?.[1]),
         height: Number(/<page\b[^>]*\bheight="([^"]+)"/.exec(stdout)?.[1]),
       };
-      const rotationTimeout = remainingBudgetMs(deadline, PDF_TOOL_TIMEOUT_MS);
-      const rotation = rotationTimeout > 0 ? (await getPdfPageSize(localPath, index + 1, rotationTimeout))?.rotation ?? null : null;
-      const frame = displayedPageSize(stored, rotation);
+      const frame = displayedPageSize(stored, rotations.get(index + 1) ?? null);
       const page = { words, wordGeometryComplete: words.length === [...stdout.matchAll(/<word\b/g)].length,
         ...await readPageBorders(localPath, index + 1, deadline, frame) };
       // A swapped frame is trusted only while every word box lies inside it; otherwise the mismatch stays (fail closed).

@@ -649,6 +649,19 @@ describe.skipIf(!hasPoppler)("synthetic sheets through poppler", { timeout: 60_0
       expect(signals.partNumber).toMatchObject({ value: "ABC-1001", reviewNeeded: !fullyRead });
     });
 
+    // poppler clips a word to the page it shows, but keeps the box of one that starts on it: here "OFFP", running past
+    // the displayed width. A swapped frame is trusted only while every word box fits inside it.
+    it("keeps the frame mismatch when a word box of a rotated page runs past the displayed page", async () => {
+      const { pdfText, signals } = await read({ extra: [{ x: 1205, y: 400, size: 9, text: "OFFPAGE" }] }, { rotate: 90 });
+      expect(Math.max(...(pdfText.pages[0]?.words ?? []).map((word) => word.xMax))).toBeGreaterThan(1225);
+      expect(pdfText.pages[0]?.vectorGeometry?.complete).toBe(false);
+      for (const field of ["partNumber", "revision", "material", "finish"] as const) {
+        expect(signals[field].reviewNeeded, field).toBe(true);
+        expect(signals[field].reasons, field).toContain("geometry_coordinate_frame_mismatch");
+      }
+      expect(signals.material.value).toBe("AL 6061-T6");
+    });
+
     // pdftoppm renders the displayed page, so the title block crop of a rotated sheet has the size of the same crop of
     // the sheet stored unrotated, not the size the stored (portrait) page would give.
     it("crops the title block preview of a page stored with /Rotate 90 from its displayed size", async () => {
