@@ -316,6 +316,7 @@ vi.mock("@/components/quotes/ClientExtractionStatusNotice", () => ({
     diagnostics?: {
       lifecycle?: string;
       missingFields?: string[];
+      reviewFields?: string[];
       lastFailureMessage?: string | null;
     } | null;
   }) => {
@@ -332,6 +333,7 @@ vi.mock("@/components/quotes/ClientExtractionStatusNotice", () => ({
         <div>
           <div>Partial drawing metadata found</div>
           <div>Missing: {(diagnostics.missingFields ?? []).join(", ")}</div>
+          <div>Verify: {(diagnostics.reviewFields ?? []).join(", ")}</div>
         </div>
       );
     }
@@ -4204,6 +4206,71 @@ describe("ClientPart", () => {
       expect(screen.getByText(/partial drawing metadata found/i)).toBeInTheDocument();
       expect(screen.getByText(/missing: material, finish/i)).toBeInTheDocument();
     });
+  });
+
+  function createReviewedExtractionDetail(propertyUpdatedAt: string) {
+    return createPartDetail({
+      part: {
+        ...createPartDetail().part,
+        clientExtraction: {
+          lifecycle: "partial",
+          warningCount: 0,
+          warnings: [],
+          missingFields: ["material", "finish"],
+          reviewFields: ["partNumber", "revision"],
+          lastFailureCode: null,
+          lastFailureMessage: null,
+          extractedAt: "2026-03-01T01:00:00.123456+00:00",
+          failedAt: null,
+          updatedAt: "2026-03-01T01:00:00.123456+00:00",
+          pageCount: 2,
+          hasCadFile: false,
+          hasDrawingFile: true,
+        },
+        clientRequirement: {
+          description: "Bracket",
+          partNumber: "BRKT-001",
+          revision: "A",
+          material: "6061-T6",
+          finish: "Clear anodize",
+          tightestToleranceInch: null,
+          process: null,
+          notes: null,
+          quantity: 10,
+          quoteQuantities: [10],
+          requestedByDate: "2026-04-15",
+          projectPartProperties: {
+            defaults: { partNumber: "BRKT-001", finish: "Clear anodize" },
+            overrides: { material: "6061-T6", partNumber: "BRKT-002" },
+            createdAt: "2026-03-01 00:30:00+00",
+            updatedAt: propertyUpdatedAt,
+          },
+        },
+      },
+    });
+  }
+
+  it("drops fields the customer entered from the partial notice (OVD-1165)", async () => {
+    api.fetchPartDetailByJobId.mockResolvedValueOnce(
+      createReviewedExtractionDetail("2026-03-01 00:45:00+00"),
+    );
+
+    await renderClientPartOnTab("Request");
+    await waitFor(() => {
+      expect(screen.getByText(/partial drawing metadata found/i)).toBeInTheDocument();
+      expect(screen.getByText(/^missing: finish$/i)).toBeInTheDocument();
+      expect(screen.getByText(/^verify: revision$/i)).toBeInTheDocument();
+    });
+  });
+
+  it("clears the partial notice once request details were saved after the drawing was read (OVD-1165)", async () => {
+    api.fetchPartDetailByJobId.mockResolvedValueOnce(
+      createReviewedExtractionDetail("2026-03-01 01:05:00.5+00"),
+    );
+
+    await renderClientPartOnTab("Request");
+    await waitFor(() => expect(screen.getByLabelText("Description")).toHaveValue("Bracket"));
+    expect(screen.queryByText(/partial drawing metadata found/i)).not.toBeInTheDocument();
   });
 
   it("preserves unsaved request edits until a process patch refresh is acknowledged", async () => {
