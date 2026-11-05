@@ -66,6 +66,7 @@ import { useQuoteAccess } from "@/features/quotes/quote-access";
 import { isProjectCollaborationSchemaUnavailable } from "@/features/quotes/api/shared/schema-runtime";
 import { uploadFilesToJob } from "@/features/quotes/api/uploads-api";
 import { shouldPollClientWorkspaceState } from "@/features/quotes/client-workspace-polling";
+import { resolveClientExtractionReview } from "@/features/quotes/client-extraction-review";
 import {
   fetchClientActivityEventsByJobIds,
   fetchPartDetailByJobId,
@@ -965,7 +966,13 @@ export function useClientPartController(
   const extraction = partDetail?.part
     ? normalizeDrawingExtraction(partDetail.part.extraction, partDetail.part.id)
     : null;
-  const extractionDiagnostics = partDetail?.part?.clientExtraction ?? null;
+  const rawExtractionDiagnostics = partDetail?.part?.clientExtraction ?? null;
+  const savedPropertyState = partDetail?.part?.clientRequirement?.projectPartProperties ?? null;
+  // OVD-1165: the client banner reflects what the customer saved; internal views keep the raw review state.
+  const extractionDiagnostics = useMemo(
+    () => resolveClientExtractionReview(rawExtractionDiagnostics, savedPropertyState),
+    [rawExtractionDiagnostics, savedPropertyState],
+  );
   const drawingPreview = partDetail?.drawingPreview ?? null;
   const drawingFile = partDetail?.files.find((file) => file.file_kind === "drawing") ?? null;
   const drawingViewerMode = useMemo(() => resolveStoredFileViewerMode(drawingFile), [drawingFile]);
