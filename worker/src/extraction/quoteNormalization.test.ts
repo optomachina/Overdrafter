@@ -169,6 +169,8 @@ describe("normalizeQuoteFinish anodize spellings (OVD-1166)", () => {
     ["CLEAR ANODIZE TYPE II CLASS 1", "Clear Anodize, Type II"],
     ["ANODIZE, DYED, TYPE II, CL 2", "Anodize, Type II, Class 2"],
     ["ANODIZE, DYED BLACK, TYPE II", "Black Anodize, Type II"],
+    ["SULFURIC ANODIZE TYPE II", "Anodize, Type II"],
+    ["SULPHURIC ANODIZE, TYPE III", "Anodize, Type III"],
   ])("normalizes %j to %j", (raw, expected) => {
     expect(normalizeQuoteFinish(raw)).toBe(expected);
   });
@@ -198,6 +200,10 @@ describe("normalizeQuoteFinish anodize spellings (OVD-1166)", () => {
     "ANODIZE, DYED, TYPE II, CL 1",
     "ANODIZE, DYED, TYPE II",
     "ANODIZE DYED",
+    "SULFURIC ANODIZE",
+    "SULFURIC ANODIZE, BLACK",
+    "SULFURIC ANODIZE TYPE I",
+    "ANODIZE TYPE II CLASS 1 CLASS 2",
     "CLEAR ANODIZE TYPE II CL 2",
     "NATURAL ANODIZE TYPE II CLASS 2",
     "ANODIZE TYPE II, BLACK - CLEAR",

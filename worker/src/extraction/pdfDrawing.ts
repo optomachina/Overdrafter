@@ -1947,7 +1947,9 @@ const ANODIZE_COLOURS = new Set([
   "black", "clear", "natural", "red", "blue", "gold", "green", "grey", "gray", "bronze", "orange", "purple",
   "violet", "yellow", "silver", "brown",
 ]);
-const ANODIZE_WORDS = new Set(["anodize", "anodized", "anodise", "anodised", "per", "color", "colour", "dyed", "sulfuric", "sulphuric"]);
+// Sulfuric is the Type II (or III) process; it is absorbed only beside such a type, since Type I is chromic acid.
+const ANODIZE_SULFURIC = new Set(["sulfuric", "sulphuric"]);
+const ANODIZE_WORDS = new Set(["anodize", "anodized", "anodise", "anodised", "per", "color", "colour", "dyed"]);
 
 /** Class 1 is undyed and class 2 is dyed, so an explicit class that contradicts the colour or dye is a conflict. */
 function classConflicts(anodizeClass: string | undefined, colour: string | undefined, dyed: boolean) {
@@ -1967,7 +1969,7 @@ function classConflicts(anodizeClass: string | undefined, colour: string | undef
  * ("Black Anodize, MIL-A-8625"). A callout that says anything else (masking, a note, a choice of two types or
  * colours, a hard coat) is kept as read so nothing it says is lost. So is one whose class contradicts its colour
  * (Class 1 with a dyed colour or "dyed", Class 2 with clear or natural), and a bare "dyed" with no colour and no
- * Class 2, because the dye would otherwise be dropped.
+ * Class 2, because the dye would otherwise be dropped. "Sulfuric" is absorbed only beside Type II or III.
  */
 function normalizeAnodizeCallout(value: string) {
   let hasSpec = false;
@@ -1996,9 +1998,10 @@ function normalizeAnodizeCallout(value: string) {
     types.length > 1 ||
     new Set(classes).size > 1 ||
     classConflicts(classes[0], colours[0], words.includes("dyed")) ||
+    (words.some((word) => word === "sulfuric" || word === "sulphuric") && !(types.length === 1 && types[0] !== "I")) ||
     (words.includes("dyed") && !colours[0] && classes[0] !== "2") ||
     colours.length > 1 ||
-    words.some((word) => !ANODIZE_COLOURS.has(word) && !ANODIZE_WORDS.has(word))
+    words.some((word) => !ANODIZE_COLOURS.has(word) && !ANODIZE_WORDS.has(word) && !ANODIZE_SULFURIC.has(word))
   ) {
     return null;
   }
