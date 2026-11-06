@@ -17,7 +17,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { dimensionField, minimalPdf, syntheticSheet, type MinimalPdfOptions, type PdfTextItem, type SyntheticSheetOptions } from "../../test-support/minimalPdf";
 import type { JobFileRecord, PartRecord } from "../types";
 import { runHybridExtraction } from "./hybridExtraction";
-import { extractPdfText, inferDrawingSignalsFromPdf, type PdfTextExtraction } from "./pdfDrawing";
+import { extractPdfText, inferDrawingSignalsFromPdf, renderPdfTitleBlockCrop, type PdfTextExtraction } from "./pdfDrawing";
 
 function hasBinary(name: string): boolean {
   try {
@@ -615,18 +615,111 @@ describe.skipIf(!hasPoppler)("synthetic sheets through poppler", { timeout: 60_0
       expect(signals.tightestToleranceValueInch).toBe(ROW_DROPPED);
     });
 
-    it("reads a landscape sheet stored upright with /Rotate 90, whose words run past the width poppler gives the page", async () => {
-      const { pdfText, signals } = await read({}, { rotate: 90 });
+    // OVD-1169 (deliberate change): this sheet used to be flagged with geometry_coordinate_frame_mismatch. poppler prints
+    // the stored page size (792 x 1224) in its bbox markup, but the words and Cairo's SVG are both at displayed
+    // positions (1224 x 792); the reader now swaps the stored size for the quarter turn pdfinfo reports.
+    it.each([90, 270] as const)("proves a landscape sheet stored upright with /Rotate %s, whose words run past the width poppler gives the page", async (rotate) => {
+      const { pdfText, signals } = await read({}, { rotate });
       const words = pdfText.pages[0]?.words ?? [];
       expect(words.length).toBeGreaterThan(50);
-      // poppler prints the stored page size (792 x 1224) in its markup; the words are at displayed positions.
       expect(Math.max(...words.map((word) => word.xMax))).toBeGreaterThan(792);
-      expect(signals.partNumber).toMatchObject({ value: "ABC-1001", reviewNeeded: true });
-      expect(signals.revision).toMatchObject({ value: "B", reviewNeeded: true });
-      expect(signals.material).toMatchObject({ value: "AL 6061-T6", reviewNeeded: true });
-      expect(signals.finish).toMatchObject({ value: "AS MACHINED", reviewNeeded: true });
+      expect(pdfText.pages[0]?.vectorGeometry).toMatchObject({ complete: true, width: 1224, height: 792 });
+      expect(signals.partNumber).toMatchObject({ value: "ABC-1001", reviewNeeded: !fullyRead });
+      expect(signals.revision).toMatchObject({ value: "B", reviewNeeded: !fullyRead });
+      expect(signals.material).toMatchObject({ value: "AL 6061-T6", reviewNeeded: !fullyRead });
+      expect(signals.finish).toMatchObject({ value: "AS MACHINED", reviewNeeded: !fullyRead });
       expect(signals.tightestToleranceValueInch).toBe(ROW_DROPPED);
-      expect(signals.material.reasons).toContain("geometry_coordinate_frame_mismatch");
+      for (const field of ["partNumber", "revision", "material", "finish"] as const) {
+        expect(signals[field].reasons, field).not.toContain("geometry_coordinate_frame_mismatch");
+        if (fullyRead) expect(signals[field].reasons, field).toContain("title_block_cell_proven");
+      }
+    });
+
+    // The swap is not a way around the cell boundary proof: a rule between MATERIAL and its value, given in displayed
+    // positions and drawn on the rotated stored page, is read back in the displayed frame and still vetoes the binding.
+    it.each([90, 270] as const)("keeps the divider veto between MATERIAL and its value on a page stored with /Rotate %s", async (rotate) => {
+      const { pdfText, signals } = await read({}, { rotate, rules: [{ x0: 320, x1: 500, y0: 729, y1: 729 }] });
+      expect(pdfText.pages[0]?.vectorGeometry?.complete).toBe(true);
+      expect(pdfText.pages[0]?.borders?.some((border) =>
+        Math.abs(border.x0 - 320) < 0.01 && Math.abs(border.x1 - 500) < 0.01 && Math.abs(border.y - 729) < 0.01)).toBe(true);
+      expect(signals.material.reviewNeeded).toBe(true);
+      expect(signals.material.reasons).not.toContain("geometry_coordinate_frame_mismatch");
+      expect(signals.material.reasons).not.toContain("title_block_cell_proven");
+      // The rest of the title block is still proven on the same page.
+      expect(signals.partNumber).toMatchObject({ value: "ABC-1001", reviewNeeded: !fullyRead });
+    });
+
+    // poppler clips a word to the page it shows, but keeps the box of one that starts on it: here "OFFP", running past
+    // the displayed width. A swapped frame is trusted only while every word box fits inside it.
+    it("keeps the frame mismatch when a word box of a rotated page runs past the displayed page", async () => {
+      const { pdfText, signals } = await read({ extra: [{ x: 1205, y: 400, size: 9, text: "OFFPAGE" }] }, { rotate: 90 });
+      expect(Math.max(...(pdfText.pages[0]?.words ?? []).map((word) => word.xMax))).toBeGreaterThan(1225);
+      expect(pdfText.pages[0]?.vectorGeometry?.complete).toBe(false);
+      for (const field of ["partNumber", "revision", "material", "finish"] as const) {
+        expect(signals[field].reviewNeeded, field).toBe(true);
+        expect(signals[field].reasons, field).toContain("geometry_coordinate_frame_mismatch");
+      }
+      expect(signals.material.value).toBe("AL 6061-T6");
+    });
+
+    // pdftoppm renders the displayed page, so the title block crop of a rotated sheet has the size of the same crop of
+    // the sheet stored unrotated, not the size the stored (portrait) page would give.
+    it("crops the title block preview of a page stored with /Rotate 90 from its displayed size", async () => {
+      const pngSize = (file: string) => {
+        const header = fs.readFileSync(file);
+        return { width: header.readUInt32BE(16), height: header.readUInt32BE(20) };
+      };
+      const crop = async (options: MinimalPdfOptions) => {
+        counter += 1;
+        const file = path.join(directory, `crop-${counter}.pdf`);
+        fs.writeFileSync(file, minimalPdf(syntheticSheet(), options));
+        const asset = await renderPdfTitleBlockCrop(file, path.join(directory, `crop-${counter}.png`));
+        expect(asset).not.toBeNull();
+        return pngSize(asset!.localPath);
+      };
+      const upright = await crop({});
+      // 1224 x 792 pt at 150 dpi is 2550 x 1650 px; the crop is its lower right 52% x 42%.
+      expect(upright).toEqual({ width: 1326, height: 694 });
+      expect(await crop({ rotate: 90 })).toEqual(upright);
+    });
+  });
+
+  // OVD-1169: arcs and circles drawn as short polylines are thousands of diagonal segments. Only horizontal and vertical
+  // segments can be rules, so only they count toward the 2,000-rule cap; a page with more real rules still trips it.
+  describe("arc-heavy drawings", () => {
+    const circle = (cx: number, cy: number, radius: number, segments: number): Array<[number, number]> =>
+      Array.from({ length: segments + 1 }, (_, index) => {
+        const angle = (2 * Math.PI * index) / segments;
+        return [Number((cx + radius * Math.cos(angle)).toFixed(3)), Number((cy + radius * Math.sin(angle)).toFixed(3))];
+      });
+    const arcs = [circle(220, 380, 80, 3000)];
+
+    it.each([0, 90] as const)("proves the title block of a sheet with a 3,000-segment polyline circle, rotation %s", async (rotate) => {
+      const { pdfText, signals } = await read({}, { rotate, polylines: arcs });
+      const geometry = pdfText.pages[0]?.vectorGeometry;
+      expect(geometry?.issues.map((issue) => issue.cause)).not.toContain("border_limit");
+      expect(geometry?.complete).toBe(true);
+      expect(geometry?.rules?.length ?? 0).toBeLessThan(2_000);
+      expect(signals.partNumber).toMatchObject({ value: "ABC-1001", reviewNeeded: !fullyRead });
+      expect(signals.revision).toMatchObject({ value: "B", reviewNeeded: !fullyRead });
+      expect(signals.material).toMatchObject({ value: "AL 6061-T6", reviewNeeded: !fullyRead });
+      expect(signals.finish).toMatchObject({ value: "AS MACHINED", reviewNeeded: !fullyRead });
+      if (fullyRead) expect(signals.material.reasons).toContain("title_block_cell_proven");
+    });
+
+    // Negative control: the cap itself is unchanged. 2,100 short real rules (horizontal or vertical ticks) still trip it.
+    it.each(["horizontal", "vertical"] as const)("still trips the rule cap on 2,100 short %s ticks", async (direction) => {
+      const ticks = Array.from({ length: 2_100 }, (_, index) => {
+        const x = 60 + (index % 70) * 6, y = 100 + Math.floor(index / 70) * 10;
+        return direction === "horizontal" ? { x0: x, x1: x + 3, y0: y, y1: y } : { x0: x, x1: x, y0: y, y1: y + 3 };
+      });
+      const { pdfText, signals } = await read({}, { rules: ticks, polylines: arcs });
+      expect(pdfText.pages[0]?.vectorGeometry?.complete).toBe(false);
+      expect(pdfText.pages[0]?.vectorGeometry?.issues.map((issue) => issue.cause)).toContain("border_limit");
+      for (const field of ["partNumber", "revision", "material", "finish"] as const) {
+        expect(signals[field].reviewNeeded, field).toBe(true);
+        expect(signals[field].reasons, field).toContain("geometry_border_limit");
+      }
     });
   });
 

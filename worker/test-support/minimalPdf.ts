@@ -11,8 +11,13 @@ export type MinimalPdfOptions = {
   paintAfter?: string;
   formPaint?: string;
   cropBox?: [number, number, number, number];
-  /** Real vector rules, for testing the cell-boundary proof through Poppler. */
+  /**
+   * Real vector rules, for testing the cell-boundary proof through Poppler. Like the text, their positions are the
+   * displayed ones (y from the TOP), mapped to the stored page when it is rotated.
+   */
   rules?: Array<{ x0: number; y0: number; x1: number; y1: number; gray?: number }>;
+  /** Stroked open polylines (one path each, black, 0.5 pt), in displayed positions like `rules`: arcs drawn as segments. */
+  polylines?: Array<ReadonlyArray<readonly [number, number]>>;
   /** Opaque white paint after rules, to exercise erased-border evidence. */
   erase?: Array<{ x: number; y: number; width: number; height: number; strokeWidth?: number }>;
   /** The size of the page as it is shown, in points. */
@@ -22,9 +27,9 @@ export type MinimalPdfOptions = {
    * 90 stores the page upright (MediaBox height by width) with /Rotate 90 and text drawn along the page's
    * height, which is how a landscape sheet is often stored. The positions of the items are still the
    * displayed ones. poppler then prints the page with the size of the stored page and the coordinates of the
-   * displayed one: the words run past the width its markup gives.
+   * displayed one: the words run past the width its markup gives. 270 stores it the same way, turned the other way.
    */
-  rotate?: 0 | 90;
+  rotate?: 0 | 90 | 270;
 };
 
 function escapeText(text: string): string {
@@ -35,19 +40,30 @@ function escapeText(text: string): string {
 export function minimalPdf(items: readonly PdfTextItem[], options: MinimalPdfOptions = {}): Buffer {
   const width = options.width ?? 1224;
   const height = options.height ?? 792;
-  const rotated = options.rotate === 90;
-  const operators = items.map((item) =>
-    rotated
-      ? `BT /F1 ${item.size} Tf 0 1 -1 0 ${item.y + item.size} ${item.x} Tm (${escapeText(item.text)}) Tj ET`
-      : `BT /F1 ${item.size} Tf ${item.x} ${height - item.y - item.size} Td (${escapeText(item.text)}) Tj ET`,
-  );
+  const rotation = options.rotate ?? 0;
+  const rotated = rotation !== 0;
+  // A displayed position (x from the left, y from the top) in the stored page's PDF coordinates (y up). The stored
+  // page of a rotated sheet is `height` wide and `width` tall.
+  const stored = (x: number, y: number): string => {
+    if (rotation === 90) return `${y} ${x}`;
+    if (rotation === 270) return `${height - y} ${width - x}`;
+    return `${x} ${height - y}`;
+  };
+  const operators = items.map((item) => {
+    const origin = stored(item.x, item.y + item.size);
+    if (rotation === 90) return `BT /F1 ${item.size} Tf 0 1 -1 0 ${origin} Tm (${escapeText(item.text)}) Tj ET`;
+    if (rotation === 270) return `BT /F1 ${item.size} Tf 0 -1 1 0 ${origin} Tm (${escapeText(item.text)}) Tj ET`;
+    return `BT /F1 ${item.size} Tf ${origin} Td (${escapeText(item.text)}) Tj ET`;
+  });
   const rules = (options.rules ?? []).map(({ x0, y0, x1, y1, gray = 0 }) =>
-    `${gray} G 0.5 w ${x0} ${height - y0} m ${x1} ${height - y1} l S`);
+    `${gray} G 0.5 w ${stored(x0, y0)} m ${stored(x1, y1)} l S`);
+  const polylines = (options.polylines ?? []).map((points) =>
+    `0 G 0.5 w ${points.map(([x, y], index) => `${stored(x, y)} ${index === 0 ? "m" : "l"}`).join(" ")} S`);
   const erase = (options.erase ?? []).map((rect) =>
     `q 1 g 1 G ${rect.strokeWidth ?? 0} w ${rect.x} ${height - rect.y - rect.height} ${rect.width} ${rect.height} re ${rect.strokeWidth ? "B" : "f"} Q`);
-  const stream = Buffer.from([...rules, options.paint ?? "", ...erase, ...operators, options.paintAfter ?? "", options.formPaint ? "/Fm1 Do" : ""].join("\n"), "latin1");
+  const stream = Buffer.from([...rules, ...polylines, options.paint ?? "", ...erase, ...operators, options.paintAfter ?? "", options.formPaint ? "/Fm1 Do" : ""].join("\n"), "latin1");
   const crop = options.cropBox ? ` /CropBox [${options.cropBox.join(" ")}]` : "";
-  const rotate = rotated ? " /Rotate 90" : "";
+  const rotate = rotated ? ` /Rotate ${rotation}` : "";
   const mediaBox = rotated ? `[0 0 ${height} ${width}]` : `[0 0 ${width} ${height}]`;
   const objects: Buffer[] = [
     Buffer.from("<< /Type /Catalog /Pages 2 0 R >>"),

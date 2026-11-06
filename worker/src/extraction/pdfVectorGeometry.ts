@@ -9,6 +9,7 @@ export type PageVectorGeometry = {
   issues: GeometryIssue[];
   width?: number;
   height?: number;
+  /** Horizontal and vertical stroked rules only (OVD-1169): a diagonal is never a cell border. */
   rules?: GeometryBounds[];
 };
 type Matrix = [number, number, number, number, number, number];
@@ -45,6 +46,28 @@ function rectangle(bounds: GeometryBounds, m: Matrix): GeometryBounds | null {
     .map(([x, y]) => point(x!, y!, m)));
 }
 type PathSegment = { bounds: GeometryBounds; rule?: GeometryBounds };
+/** The tolerance the reader has always used for an axis-aligned segment. */
+const axisAligned = (r: GeometryBounds) => Math.abs(r.x0-r.x1) < 0.01 || Math.abs(r.y0-r.y1) < 0.01;
+
+/**
+ * OVD-1169: the frame poppler gives the word boxes and the SVG is the displayed page. A page stored with /Rotate 90 or
+ * 270 shows its stored width as its height, so the stored size is swapped before it is compared with the SVG viewBox.
+ * A rotation that is unknown (null) or not a quarter turn leaves the stored size, so a rotated page keeps its mismatch.
+ */
+export function displayedPageSize(stored: { width: number; height: number }, rotation: number | null): { width: number; height: number } {
+  if (rotation === null || !Number.isInteger(rotation)) return stored;
+  const quarter = ((rotation % 360) + 360) % 360;
+  return quarter === 90 || quarter === 270 ? { width: stored.height, height: stored.width } : stored;
+}
+
+/** How far past the displayed page a word box may reach (glyph boxes overhang a little). */
+const FRAME_SLACK_POINTS = 1;
+
+/** A swapped frame is trusted only while every word box lies inside it; poppler clips words to the shown page. */
+export function wordsFitFrame(words: ReadonlyArray<{ xMin: number; yMin: number; xMax: number; yMax: number }>, frame: { width: number; height: number }): boolean {
+  return words.every((word) => word.xMin >= -FRAME_SLACK_POINTS && word.yMin >= -FRAME_SLACK_POINTS &&
+    word.xMax <= frame.width + FRAME_SLACK_POINTS && word.yMax <= frame.height + FRAME_SLACK_POINTS);
+}
 type Subpath = { points: [number, number][]; segments: PathSegment[] };
 /** Cairo uses absolute M/L/C/Q/Z paths. Keep subpaths and curve control hulls separate. */
 function pathGeometry(data: string, matrix: Matrix | null) {
@@ -270,7 +293,7 @@ export function readSvgGeometry(svg: string, pageSize: { width: number; height: 
     for (const subpath of parsed) {
       const fillBounds = hull(subpath.points)!;
       const thinBar = hasFill && black(fill) && subpath.segments.length === 4 &&
-        subpath.segments.every(({ rule: r }) => r && (Math.abs(r.x0-r.x1) < 0.01 || Math.abs(r.y0-r.y1) < 0.01)) &&
+        subpath.segments.every(({ rule: r }) => r && axisAligned(r)) &&
         Math.min(fillBounds.x1-fillBounds.x0, fillBounds.y1-fillBounds.y0) <= 2;
       if (hasFill) issue("fill", fillBounds);
       for (const segment of subpath.segments) {
@@ -281,7 +304,9 @@ export function readSvgGeometry(svg: string, pageSize: { width: number; height: 
           if (colour === "white") issue("white_stroke", bounds);
           if (colour === "unknown") issue("unclassified_stroke", bounds);
         }
-        if (!clip && !uncertain && bounds && segment.rule && ((hasStroke && colour === "colour") || thinBar)) {
+        // OVD-1169: arcs drawn as thousands of short diagonal segments are not rules and do not count toward the cap;
+        // a diagonal never vetoed a cell (borders are horizontal) and still does not.
+        if (!clip && !uncertain && bounds && segment.rule && axisAligned(segment.rule) && ((hasStroke && colour === "colour") || thinBar)) {
           if (rules.length >= 2_000) { geometry.complete = false; issue("border_limit"); break; }
           rules.push(segment.rule);
         }
