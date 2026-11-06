@@ -1939,27 +1939,42 @@ export function normalizeQuoteMaterial(raw: string | null) {
     : normalized;
 }
 
-const ANODIZE_SPEC_PATTERN = /\bMIL-?A-?8625[A-Z]?\b/gi;
+const ANODIZE_SPEC_PATTERN = /\bMIL[\s-]*(?:PRF|A)[\s-]*8625(?:[A-Z]\b|\s*\([A-Z]\))?/gi;
 const ANODIZE_TYPE_PATTERN = /\bTYPE[\s-]*(III|II|I|3|2|1)\b/gi;
-const ANODIZE_CLASS_PATTERN = /\bCLASS[\s-]*[12]\b/gi;
+const ANODIZE_CLASS_PATTERN = /\b(?:CLASS|CL)[\s-]*([12])\b/gi;
 const ANODIZE_TYPES: Record<string, string> = { i: "I", "1": "I", ii: "II", "2": "II", iii: "III", "3": "III" };
 const ANODIZE_COLOURS = new Set([
   "black", "clear", "natural", "red", "blue", "gold", "green", "grey", "gray", "bronze", "orange", "purple",
   "violet", "yellow", "silver", "brown",
 ]);
+// Sulfuric is the Type II (or III) process; it is absorbed only beside such a type, since Type I is chromic acid.
+const ANODIZE_SULFURIC = new Set(["sulfuric", "sulphuric"]);
 const ANODIZE_WORDS = new Set(["anodize", "anodized", "anodise", "anodised", "per", "color", "colour", "dyed"]);
+
+/** Class 1 is undyed and class 2 is dyed, so an explicit class that contradicts the colour or dye is a conflict. */
+function classConflicts(anodizeClass: string | undefined, colour: string | undefined, dyed: boolean) {
+  if (anodizeClass === "1") {
+    return dyed || Boolean(colour && colour !== "clear" && colour !== "natural");
+  }
+
+  return anodizeClass === "2" && (colour === "clear" || colour === "natural");
+}
 
 /**
  * OVD-1166: an anodize callout is normalized to "<Colour> Anodize, Type <I|II|III>" when it says nothing but the
  * anodize, at most one colour, at most one type, the MIL-A-8625 spec and its class, in any order and spelling
- * ("ANODIZE, BLACK, MIL-A-8625F, TYPE II CLASS 2", "Type 2 anodize, black", "MIL-A-8625 TYPE III, BLACK"). The
- * colour and the type are only ever the drawing's own: with no colour it is "Anodize, Type II"; with no type the
- * spec is kept ("Black Anodize, MIL-A-8625"). A callout that says anything else (masking, a note, a choice of two
- * types or colours, a hard coat) is kept as read so nothing it says is lost.
+ * ("ANODIZE, BLACK, MIL-A-8625F, TYPE II CLASS 2", "Type 2 anodize, black", "MIL-A-8625 TYPE III, BLACK",
+ * "MIL-PRF-8625(F)", "MIL A 8625", "CL 2"). The colour and the type are only ever the drawing's own: with no colour
+ * it is "Anodize, Type II" (plus ", Class 1|2" when the drawing gives one); with no type the spec is kept
+ * ("Black Anodize, MIL-A-8625"). A callout that says anything else (masking, a note, a choice of two types or
+ * colours, a hard coat) is kept as read so nothing it says is lost. So is one whose class contradicts its colour
+ * (Class 1 with a dyed colour or "dyed", Class 2 with clear or natural), and a bare "dyed" with no colour and no
+ * Class 2, because the dye would otherwise be dropped. "Sulfuric" is absorbed only beside Type II or III.
  */
 function normalizeAnodizeCallout(value: string) {
   let hasSpec = false;
   const types: string[] = [];
+  const classes: string[] = [];
   const rest = value
     .replace(ANODIZE_SPEC_PATTERN, () => {
       hasSpec = true;
@@ -1969,23 +1984,33 @@ function normalizeAnodizeCallout(value: string) {
       types.push(ANODIZE_TYPES[type.toLowerCase()]);
       return " ";
     })
-    .replace(ANODIZE_CLASS_PATTERN, " ");
-  const words = rest.toLowerCase().split(/[\s,;:.()]+/).filter(Boolean);
+    .replace(ANODIZE_CLASS_PATTERN, (_match, anodizeClass: string) => {
+      classes.push(anodizeClass);
+      return " ";
+    });
+  // A lone "-" (or en/em dash) between words is a separator, not text the callout adds.
+  const words = rest.toLowerCase().split(/[\s,;:.()]+/).filter((word) => word && !/^[-\u2013\u2014]+$/.test(word));
   const colours = words.filter((word) => ANODIZE_COLOURS.has(word));
   const anodized = words.some((word) => word.startsWith("anodi")) || hasSpec;
 
   if (
     !anodized ||
     types.length > 1 ||
+    new Set(classes).size > 1 ||
+    classConflicts(classes[0], colours[0], words.includes("dyed")) ||
+    (words.some((word) => word === "sulfuric" || word === "sulphuric") && !(types.length === 1 && types[0] !== "I")) ||
+    (words.includes("dyed") && !colours[0] && classes[0] !== "2") ||
     colours.length > 1 ||
-    words.some((word) => !ANODIZE_COLOURS.has(word) && !ANODIZE_WORDS.has(word))
+    words.some((word) => !ANODIZE_COLOURS.has(word) && !ANODIZE_WORDS.has(word) && !ANODIZE_SULFURIC.has(word))
   ) {
     return null;
   }
 
   const colour = colours[0] ? `${colours[0][0].toUpperCase()}${colours[0].slice(1)} ` : "";
   const qualifier = types[0] ? `, Type ${types[0]}` : hasSpec ? ", MIL-A-8625" : "";
-  return `${colour}Anodize${qualifier}`;
+  // The class (1 undyed, 2 dyed) is only kept when no colour says which it is.
+  const anodizeClass = !colour && classes[0] ? `, Class ${classes[0]}` : "";
+  return `${colour}Anodize${qualifier}${anodizeClass}`;
 }
 
 export function normalizeQuoteFinish(raw: string | null) {
