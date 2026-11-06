@@ -156,6 +156,13 @@ describe("normalizeQuoteFinish anodize spellings (OVD-1166)", () => {
     ["MIL-A-8625 TYPE II, CLEAR", "Clear Anodize, Type II"],
     ["black anodize per MIL-A-8625", "Black Anodize, MIL-A-8625"],
     ["BLACK ANODIZE PER MIL-A-8625F", "Black Anodize, MIL-A-8625"],
+    ["BLACK ANODIZE PER MIL-PRF-8625 TYPE II", "Black Anodize, Type II"],
+    ["BLACK ANODIZE PER MIL-PRF-8625F, TYPE II, CLASS 2", "Black Anodize, Type II"],
+    ["MIL-PRF-8625", "Anodize, MIL-A-8625"],
+    ["Black Anodize - Type II", "Black Anodize, Type II"],
+    ["ANODIZE, BLACK, TYPE II, CL 2", "Black Anodize, Type II"],
+    ["BLACK ANODIZE MIL A 8625 TYPE II", "Black Anodize, Type II"],
+    ["SULFURIC ANODIZE TYPE II BLACK", "Black Anodize, Type II"],
   ])("normalizes %j to %j", (raw, expected) => {
     expect(normalizeQuoteFinish(raw)).toBe(expected);
   });
@@ -165,6 +172,8 @@ describe("normalizeQuoteFinish anodize spellings (OVD-1166)", () => {
     ["MIL-A-8625 TYPE III", "Anodize, Type III"],
     ["Type 2 anodize", "Anodize, Type II"],
     ["ANODIZE PER MIL-A-8625", "Anodize, MIL-A-8625"],
+    ["MIL-A-8625 TYPE II CLASS 1", "Anodize, Type II, Class 1"],
+    ["ANODIZE TYPE II, CL 2", "Anodize, Type II, Class 2"],
   ])("never invents a colour the drawing does not give: %j", (raw, expected) => {
     expect(normalizeQuoteFinish(raw)).toBe(expected);
   });
@@ -177,6 +186,10 @@ describe("normalizeQuoteFinish anodize spellings (OVD-1166)", () => {
     "Black Oxide",
     "AS MACHINED",
     "ANODIZE, BLACK, TYPE II, SEE NOTE 3",
+    "BLACK CLEAR ANODIZE TYPE II",
+    "ANODIZE TYPE II, BLACK - CLEAR",
+    "ANODIZE TYPE II CLASS 1 OR CLASS 2",
+    "BLACK ANODIZE - MASK THREADS",
   ])("leaves %j, which says more than an anodize callout, as read", (raw) => {
     expect(normalizeQuoteFinish(raw)).toBe(raw);
   });

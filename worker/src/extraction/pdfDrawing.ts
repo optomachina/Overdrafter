@@ -1939,27 +1939,28 @@ export function normalizeQuoteMaterial(raw: string | null) {
     : normalized;
 }
 
-const ANODIZE_SPEC_PATTERN = /\bMIL-?A-?8625[A-Z]?\b/gi;
+const ANODIZE_SPEC_PATTERN = /\bMIL[\s-]*(?:PRF|A)[\s-]*8625[A-Z]?\b/gi;
 const ANODIZE_TYPE_PATTERN = /\bTYPE[\s-]*(III|II|I|3|2|1)\b/gi;
-const ANODIZE_CLASS_PATTERN = /\bCLASS[\s-]*[12]\b/gi;
+const ANODIZE_CLASS_PATTERN = /\b(?:CLASS|CL)[\s-]*([12])\b/gi;
 const ANODIZE_TYPES: Record<string, string> = { i: "I", "1": "I", ii: "II", "2": "II", iii: "III", "3": "III" };
 const ANODIZE_COLOURS = new Set([
   "black", "clear", "natural", "red", "blue", "gold", "green", "grey", "gray", "bronze", "orange", "purple",
   "violet", "yellow", "silver", "brown",
 ]);
-const ANODIZE_WORDS = new Set(["anodize", "anodized", "anodise", "anodised", "per", "color", "colour", "dyed"]);
+const ANODIZE_WORDS = new Set(["anodize", "anodized", "anodise", "anodised", "per", "color", "colour", "dyed", "sulfuric", "sulphuric"]);
 
 /**
  * OVD-1166: an anodize callout is normalized to "<Colour> Anodize, Type <I|II|III>" when it says nothing but the
  * anodize, at most one colour, at most one type, the MIL-A-8625 spec and its class, in any order and spelling
  * ("ANODIZE, BLACK, MIL-A-8625F, TYPE II CLASS 2", "Type 2 anodize, black", "MIL-A-8625 TYPE III, BLACK"). The
- * colour and the type are only ever the drawing's own: with no colour it is "Anodize, Type II"; with no type the
+ * colour and the type are only ever the drawing's own: with no colour it is "Anodize, Type II" (plus ", Class 1|2" when the drawing gives one); with no type the
  * spec is kept ("Black Anodize, MIL-A-8625"). A callout that says anything else (masking, a note, a choice of two
  * types or colours, a hard coat) is kept as read so nothing it says is lost.
  */
 function normalizeAnodizeCallout(value: string) {
   let hasSpec = false;
   const types: string[] = [];
+  const classes: string[] = [];
   const rest = value
     .replace(ANODIZE_SPEC_PATTERN, () => {
       hasSpec = true;
@@ -1969,14 +1970,19 @@ function normalizeAnodizeCallout(value: string) {
       types.push(ANODIZE_TYPES[type.toLowerCase()]);
       return " ";
     })
-    .replace(ANODIZE_CLASS_PATTERN, " ");
-  const words = rest.toLowerCase().split(/[\s,;:.()]+/).filter(Boolean);
+    .replace(ANODIZE_CLASS_PATTERN, (_match, anodizeClass: string) => {
+      classes.push(anodizeClass);
+      return " ";
+    });
+  // A lone "-" (or en/em dash) between words is a separator, not text the callout adds.
+  const words = rest.toLowerCase().split(/[\s,;:.()]+/).filter((word) => word && !/^[-\u2013\u2014]+$/.test(word));
   const colours = words.filter((word) => ANODIZE_COLOURS.has(word));
   const anodized = words.some((word) => word.startsWith("anodi")) || hasSpec;
 
   if (
     !anodized ||
     types.length > 1 ||
+    new Set(classes).size > 1 ||
     colours.length > 1 ||
     words.some((word) => !ANODIZE_COLOURS.has(word) && !ANODIZE_WORDS.has(word))
   ) {
@@ -1985,7 +1991,9 @@ function normalizeAnodizeCallout(value: string) {
 
   const colour = colours[0] ? `${colours[0][0].toUpperCase()}${colours[0].slice(1)} ` : "";
   const qualifier = types[0] ? `, Type ${types[0]}` : hasSpec ? ", MIL-A-8625" : "";
-  return `${colour}Anodize${qualifier}`;
+  // The class (1 undyed, 2 dyed) is only kept when no colour says which it is.
+  const anodizeClass = !colour && classes[0] ? `, Class ${classes[0]}` : "";
+  return `${colour}Anodize${qualifier}${anodizeClass}`;
 }
 
 export function normalizeQuoteFinish(raw: string | null) {
