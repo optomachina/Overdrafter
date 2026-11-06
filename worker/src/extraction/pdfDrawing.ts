@@ -1961,10 +1961,13 @@ function classConflicts(anodizeClass: string | undefined, colour: string | undef
 /**
  * OVD-1166: an anodize callout is normalized to "<Colour> Anodize, Type <I|II|III>" when it says nothing but the
  * anodize, at most one colour, at most one type, the MIL-A-8625 spec and its class, in any order and spelling
- * ("ANODIZE, BLACK, MIL-A-8625F, TYPE II CLASS 2", "Type 2 anodize, black", "MIL-A-8625 TYPE III, BLACK"). The
- * colour and the type are only ever the drawing's own: with no colour it is "Anodize, Type II" (plus ", Class 1|2" when the drawing gives one); with no type the
- * spec is kept ("Black Anodize, MIL-A-8625"). A callout that says anything else (masking, a note, a choice of two
- * types or colours, a hard coat, a Class 1 with a dyed colour or "dyed", a Class 2 with clear or natural) is kept as read so nothing it says is lost.
+ * ("ANODIZE, BLACK, MIL-A-8625F, TYPE II CLASS 2", "Type 2 anodize, black", "MIL-A-8625 TYPE III, BLACK",
+ * "MIL-PRF-8625(F)", "MIL A 8625", "CL 2"). The colour and the type are only ever the drawing's own: with no colour
+ * it is "Anodize, Type II" (plus ", Class 1|2" when the drawing gives one); with no type the spec is kept
+ * ("Black Anodize, MIL-A-8625"). A callout that says anything else (masking, a note, a choice of two types or
+ * colours, a hard coat) is kept as read so nothing it says is lost. So is one whose class contradicts its colour
+ * (Class 1 with a dyed colour or "dyed", Class 2 with clear or natural), and a bare "dyed" with no colour and no
+ * Class 2, because the dye would otherwise be dropped.
  */
 function normalizeAnodizeCallout(value: string) {
   let hasSpec = false;
@@ -1993,6 +1996,7 @@ function normalizeAnodizeCallout(value: string) {
     types.length > 1 ||
     new Set(classes).size > 1 ||
     classConflicts(classes[0], colours[0], words.includes("dyed")) ||
+    (words.includes("dyed") && !colours[0] && classes[0] !== "2") ||
     colours.length > 1 ||
     words.some((word) => !ANODIZE_COLOURS.has(word) && !ANODIZE_WORDS.has(word))
   ) {
