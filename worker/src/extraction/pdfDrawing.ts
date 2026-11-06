@@ -1939,7 +1939,7 @@ export function normalizeQuoteMaterial(raw: string | null) {
     : normalized;
 }
 
-const ANODIZE_SPEC_PATTERN = /\bMIL[\s-]*(?:PRF|A)[\s-]*8625[A-Z]?\b/gi;
+const ANODIZE_SPEC_PATTERN = /\bMIL[\s-]*(?:PRF|A)[\s-]*8625(?:[A-Z]\b|\s*\([A-Z]\))?/gi;
 const ANODIZE_TYPE_PATTERN = /\bTYPE[\s-]*(III|II|I|3|2|1)\b/gi;
 const ANODIZE_CLASS_PATTERN = /\b(?:CLASS|CL)[\s-]*([12])\b/gi;
 const ANODIZE_TYPES: Record<string, string> = { i: "I", "1": "I", ii: "II", "2": "II", iii: "III", "3": "III" };
@@ -1949,13 +1949,22 @@ const ANODIZE_COLOURS = new Set([
 ]);
 const ANODIZE_WORDS = new Set(["anodize", "anodized", "anodise", "anodised", "per", "color", "colour", "dyed", "sulfuric", "sulphuric"]);
 
+/** Class 1 is undyed and class 2 is dyed, so an explicit class that contradicts the colour or dye is a conflict. */
+function classConflicts(anodizeClass: string | undefined, colour: string | undefined, dyed: boolean) {
+  if (anodizeClass === "1") {
+    return dyed || Boolean(colour && colour !== "clear" && colour !== "natural");
+  }
+
+  return anodizeClass === "2" && (colour === "clear" || colour === "natural");
+}
+
 /**
  * OVD-1166: an anodize callout is normalized to "<Colour> Anodize, Type <I|II|III>" when it says nothing but the
  * anodize, at most one colour, at most one type, the MIL-A-8625 spec and its class, in any order and spelling
  * ("ANODIZE, BLACK, MIL-A-8625F, TYPE II CLASS 2", "Type 2 anodize, black", "MIL-A-8625 TYPE III, BLACK"). The
  * colour and the type are only ever the drawing's own: with no colour it is "Anodize, Type II" (plus ", Class 1|2" when the drawing gives one); with no type the
  * spec is kept ("Black Anodize, MIL-A-8625"). A callout that says anything else (masking, a note, a choice of two
- * types or colours, a hard coat) is kept as read so nothing it says is lost.
+ * types or colours, a hard coat, a Class 1 with a dyed colour or "dyed", a Class 2 with clear or natural) is kept as read so nothing it says is lost.
  */
 function normalizeAnodizeCallout(value: string) {
   let hasSpec = false;
@@ -1983,6 +1992,7 @@ function normalizeAnodizeCallout(value: string) {
     !anodized ||
     types.length > 1 ||
     new Set(classes).size > 1 ||
+    classConflicts(classes[0], colours[0], words.includes("dyed")) ||
     colours.length > 1 ||
     words.some((word) => !ANODIZE_COLOURS.has(word) && !ANODIZE_WORDS.has(word))
   ) {

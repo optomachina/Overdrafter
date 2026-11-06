@@ -163,6 +163,11 @@ describe("normalizeQuoteFinish anodize spellings (OVD-1166)", () => {
     ["ANODIZE, BLACK, TYPE II, CL 2", "Black Anodize, Type II"],
     ["BLACK ANODIZE MIL A 8625 TYPE II", "Black Anodize, Type II"],
     ["SULFURIC ANODIZE TYPE II BLACK", "Black Anodize, Type II"],
+    ["BLACK ANODIZE PER MIL-PRF-8625(F), TYPE II", "Black Anodize, Type II"],
+    ["BLACK ANODIZE PER MIL-PRF-8625 (F), TYPE II", "Black Anodize, Type II"],
+    ["ANODIZE, RED, TYPE II, CLASS 2", "Red Anodize, Type II"],
+    ["CLEAR ANODIZE TYPE II CLASS 1", "Clear Anodize, Type II"],
+    ["ANODIZE, DYED, TYPE II, CL 2", "Anodize, Type II, Class 2"],
   ])("normalizes %j to %j", (raw, expected) => {
     expect(normalizeQuoteFinish(raw)).toBe(expected);
   });
@@ -187,6 +192,11 @@ describe("normalizeQuoteFinish anodize spellings (OVD-1166)", () => {
     "AS MACHINED",
     "ANODIZE, BLACK, TYPE II, SEE NOTE 3",
     "BLACK CLEAR ANODIZE TYPE II",
+    "BLACK ANODIZE TYPE II CL 1",
+    "ANODIZE, DYED BLACK, TYPE II, CL 1",
+    "ANODIZE, DYED, TYPE II, CL 1",
+    "CLEAR ANODIZE TYPE II CL 2",
+    "NATURAL ANODIZE TYPE II CLASS 2",
     "ANODIZE TYPE II, BLACK - CLEAR",
     "ANODIZE TYPE II CLASS 1 OR CLASS 2",
     "BLACK ANODIZE - MASK THREADS",
