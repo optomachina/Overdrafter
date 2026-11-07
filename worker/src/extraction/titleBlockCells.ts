@@ -173,6 +173,8 @@ export type CellRead = {
   /** Positive evidence that the whole cell was consumed, not just a plausible candidate. */
   complete: boolean;
   geometryRegion?: GeometryBounds;
+  /** OVD-1174: the word boxes of the value (page points), so a stroke through them can be found. Absent: not located. */
+  valueBoxes?: GeometryBounds[];
   revisionRole?: "current" | "history" | "ambiguous";
   /** Independent evidence survives a rejected suggestion; it can veto but never grant approval. */
   observations?: Array<{ value: string; binding: "label_owned" | "unresolved" }>;
@@ -2175,6 +2177,11 @@ function accountsForCellGeometry(
     y0: top,
     y1: Math.max(valueBottom, Math.min(...(capLine?.words ?? []).map((word) => word.y0 ?? Infinity))),
   };
+  // OVD-1174: the same words valueBottom was taken from; evidence for the strike-through veto only, never for binding.
+  if (column !== undefined) read.valueBoxes = lines.flatMap((line) => read.valueLines.includes(line.lineNumber)
+    ? (line.words ?? []).filter((word) => word.y0 !== undefined && word.y1 !== undefined &&
+      owned.some((run) => run.line === line.lineNumber && word.x1 > run.start && word.x0 < run.end))
+      .map((word) => ({ x0: word.x0 * column, x1: word.x1 * column, y0: word.y0!, y1: word.y1! })) : []);
   if (!read.complete) return false;
   // A rule above OR below a proposed value separates it from its label. A rule below
   // the value can close the cell, but cannot repair an already broken binding.

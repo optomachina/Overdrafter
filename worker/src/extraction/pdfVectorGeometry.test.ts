@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
-import { displayedPageSize, pdfSourceGeometryIssues, readSvgGeometry, wordsFitFrame } from "./pdfVectorGeometry";
+import { MAX_STRIKE_CANDIDATES, MIN_STRIKE_POINTS, displayedPageSize, geometryIssuesInRegion, pdfSourceGeometryIssues, readSvgGeometry, segmentTouchesBox, wordsFitFrame } from "./pdfVectorGeometry";
 import { inferDrawingSignalsFromPdf, type PdfTextExtraction } from "./pdfDrawing";
 import { box, phrase } from "../../test-support/pdfWordBoxes";
 
@@ -153,6 +153,79 @@ describe("I7 complete vector geometry", () => {
     expect(data.pages[0]!.vectorGeometry?.complete).toBe(false);
     expect(data.pages[0]!.vectorGeometry?.issues.map((issue) => issue.cause)).toContain("border_limit");
     expect(infer(data).material.reasons).toContain("geometry_border_limit");
+  });
+
+  // OVD-1174: one long straight stroke through a value's word boxes vetoes it; arcs (many short segments) do not.
+  describe("strike-through strokes", () => {
+    // The value "AL 6061-T6" is set at y 140 with 9.9 pt tall boxes (ending near y 150), from x 100 to about 160.
+    const through = path("M 98 153 L 162 137");
+    const strikes = (content: string) => parse(content).vectorGeometry.strikes!;
+
+    it("keeps individual diagonal strokes of at least the minimum length, and nothing else", () => {
+      expect(MIN_STRIKE_POINTS).toBe(2);
+      expect(strikes(path("M 10 10 L 70 40"))).toEqual([{ x0: 10, y0: 10, x1: 70, y1: 40 }]);
+      expect(strikes(path("M 10 10 L 11 10.5"))).toEqual([]); // an arc step: under the minimum
+      expect(strikes(path("M 10 10 L 70 10 L 70 40"))).toEqual([]); // rules are in `rules`, not here
+      expect(strikes(path("M 10 10 L 70 40").replace("rgb(0%, 0%, 0%)", "white"))).toEqual([]); // white paint has its own issue
+      expect(strikes(path("M 10 10 L 70 40").replace('stroke="rgb(0%, 0%, 0%)"', 'stroke="none"'))).toEqual([]);
+      expect(strikes(path(polygon(200, 120, 60, 3_000)))).toEqual([]);
+      expect(strikes(path("M 10 10 L 70 40 Z"))).toHaveLength(2); // both ways of a closed path are strokes
+    });
+
+    it("sends a value to review when the stroke crosses its words, and not when it stays clear of them", () => {
+      expect(infer(input("")).material.reviewNeeded).toBe(false);
+      const struck = infer(input(through)).material;
+      expect(struck.reviewNeeded).toBe(true);
+      expect(struck.reasons).toContain("geometry_strike_through_value");
+      for (const clear of [path("M 98 165 L 162 175"), path("M 170 130 L 230 160"), path("M 300 300 L 400 380")]) {
+        const result = infer(input(clear)).material;
+        expect(result.reviewNeeded).toBe(false);
+        expect(result.reasons).not.toContain("geometry_strike_through_value");
+      }
+    });
+
+    it("does not let a stroke shorter than the text is tall veto the value it touches", () => {
+      expect(infer(input(path("M 120 142 L 123 145"))).material.reviewNeeded).toBe(false);
+    });
+
+    it("a 3,000-segment circle drawn through the value does not veto it, while one long stroke on top of it does", () => {
+      const circle = path(polygon(130, 145, 40, 3_000));
+      expect(infer(input(circle)).material.reviewNeeded).toBe(false);
+      expect(infer(input(circle + through)).material.reasons).toContain("geometry_strike_through_value");
+    });
+
+    it("keeps at most the cap of candidates and a further one is a limit issue that vetoes", () => {
+      const diagonals = (count: number) => path(Array.from({ length: count }, (_, index) =>
+        `M ${10 + (index % 50) * 10} ${300 + Math.floor(index / 50) * 10} L ${14 + (index % 50) * 10} ${303 + Math.floor(index / 50) * 10}`).join(" "));
+      const atCap = input(diagonals(MAX_STRIKE_CANDIDATES));
+      expect(atCap.pages[0]!.vectorGeometry?.strikes).toHaveLength(MAX_STRIKE_CANDIDATES);
+      expect(atCap.pages[0]!.vectorGeometry?.complete).toBe(true);
+      expect(infer(atCap).material.reviewNeeded).toBe(false);
+      const over = input(diagonals(MAX_STRIKE_CANDIDATES + 1));
+      expect(over.pages[0]!.vectorGeometry?.strikes).toHaveLength(MAX_STRIKE_CANDIDATES);
+      expect(over.pages[0]!.vectorGeometry?.complete).toBe(false);
+      expect(over.pages[0]!.vectorGeometry?.issues.map((issue) => issue.cause)).toContain("strike_limit");
+      expect(infer(over).material.reasons).toContain("geometry_strike_limit");
+    });
+
+    it("judges a value that could not be located against its region, or the whole page, never more loosely", () => {
+      const geometry = parse(through).vectorGeometry;
+      const region = { x0: 90, y0: 130, x1: 200, y1: 160 };
+      const elsewhere = parse(path("M 400 300 L 480 360")).vectorGeometry;
+      expect(geometryIssuesInRegion(geometry, region, { boxes: [] })).toContain("strike_through_value");
+      expect(geometryIssuesInRegion(elsewhere, region, { boxes: [] })).not.toContain("strike_through_value");
+      expect(geometryIssuesInRegion(elsewhere, undefined, {})).toContain("strike_through_value");
+      expect(geometryIssuesInRegion(elsewhere, undefined, undefined)).not.toContain("strike_through_value"); // empty cell
+    });
+
+    it("tests a segment against a box exactly", () => {
+      const b = { x0: 0, y0: 0, x1: 10, y1: 10 };
+      expect(segmentTouchesBox({ x0: -5, y0: -5, x1: 15, y1: 15 }, b)).toBe(true);
+      expect(segmentTouchesBox({ x0: -5, y0: 20, x1: 20, y1: -5 }, b)).toBe(true);
+      expect(segmentTouchesBox({ x0: 11, y0: 0, x1: 30, y1: 30 }, b)).toBe(false);
+      expect(segmentTouchesBox({ x0: -20, y0: 12, x1: 20, y1: 40 }, b)).toBe(false);
+      expect(segmentTouchesBox({ x0: 5, y0: 5, x1: 6, y1: 7 }, b)).toBe(true);
+    });
   });
 
   it("missing or partial SVG geometry cannot prove an empty region", () => {
