@@ -289,3 +289,29 @@ export function formatDelimitedStringList(values: string[]): string {
 export function parseDelimitedStringList(value: string): string[] {
   return normalizeStringArray(value.split(/[\n,]/));
 }
+
+/** Number of optional client RFQ detail fields rendered by RfqLineItemMetadataFields in client mode. */
+export const RFQ_OPTIONAL_DETAIL_FIELD_COUNT = 13;
+
+/** Counts how many of the optional client RFQ detail fields hold a value. Unchecked boxes count as unset. */
+export function countSetRfqOptionalDetails(
+  value: Pick<RfqLineItemExtendedMetadata, "shipping" | "certifications" | "sourcing" | "release">,
+): number {
+  const text = (v: string | null | undefined) => (v ?? "").trim().length > 0;
+  const { shipping, certifications, sourcing, release } = value;
+  return [
+    text(shipping.packagingNotes),
+    text(shipping.shippingNotes),
+    certifications.requiredCertifications.length > 0,
+    Boolean(certifications.inspectionLevel),
+    text(certifications.notes),
+    certifications.materialCertificationRequired === true,
+    certifications.certificateOfConformanceRequired === true,
+    Boolean(sourcing.regionPreferenceOverride),
+    Boolean(sourcing.materialProvisioning),
+    sourcing.preferredSuppliers.length > 0,
+    text(sourcing.notes),
+    Boolean(release.releaseStatus),
+    text(release.notes),
+  ].filter(Boolean).length;
+}
