@@ -1,6 +1,11 @@
 import type { Page } from "@playwright/test";
 import { test, expect } from "./test";
 
+// Reloads wait for domcontentloaded, then for the signals the test asserts.
+// "networkidle" is unreliable here: once the workspace restores, the parts list
+// keeps polling (getWorkspacePollingInterval) and thumbnails keep loading, so
+// the page may never see 500 ms without requests (OVD-1160).
+
 test("anonymous landing opens the auth dialog", async ({ page }) => {
   await page.goto("/?auth=signin&debug=1");
 
@@ -22,7 +27,7 @@ test.describe("client session", () => {
     await page.goto("/?debug=1");
 
     await expect(page.getByRole("button", { name: /open account menu/i })).toBeVisible();
-    await page.reload({ waitUntil: "networkidle" });
+    await page.reload({ waitUntil: "domcontentloaded" });
     await expect(page.getByRole("button", { name: /open account menu/i })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Parts" })).toBeVisible();
     await expect(page.locator("#auth-email")).toHaveCount(0);
@@ -33,7 +38,7 @@ test.describe("client session", () => {
 
     await expect(page).toHaveURL(/\/parts\/job-1/);
     await expect(page.getByRole("button", { name: /open account menu/i })).toBeVisible();
-    await page.reload({ waitUntil: "networkidle" });
+    await page.reload({ waitUntil: "domcontentloaded" });
     await expect(page).toHaveURL(/\/parts\/job-1/);
     await expect(page.getByRole("button", { name: /open account menu/i })).toBeVisible();
     await expect(page.locator("#auth-email")).toHaveCount(0);
@@ -61,7 +66,7 @@ test.describe("client session", () => {
     await expect(page.getByRole("heading", { name: "Parts", exact: true })).toBeVisible();
     await expect(page.locator("#auth-email")).toHaveCount(0);
 
-    await page.reload({ waitUntil: "networkidle" });
+    await page.reload({ waitUntil: "domcontentloaded" });
 
     await expect(page.getByRole("button", { name: /open account menu/i })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Parts", exact: true })).toBeVisible();
