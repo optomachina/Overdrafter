@@ -1,8 +1,9 @@
-import { Loader2, RotateCcw, Upload } from "lucide-react";
+import { ChevronDown, Loader2, RotateCcw, Upload } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { RfqLineItemMetadataFields } from "@/components/quotes/RfqLineItemMetadataFields";
 import { SingleQuantityField } from "@/components/quotes/SingleQuantityField";
 import { Button } from "@/components/ui/button";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -10,6 +11,7 @@ import { QUANTITY_FORMAT_ERROR, type SingleQuantityState } from "@/features/quot
 import { QUOTE_QUANTITIES_FORMAT_ERROR, validateRequestedQuoteQuantitiesInput } from "@/features/quotes/request-intake";
 import type { ClientPartPropertyOverrideField, ClientPartRequestUpdateInput } from "@/features/quotes/types";
 import { CLIENT_PART_PROPERTY_OVERRIDE_FIELDS } from "@/features/quotes/types";
+import { countSetRfqOptionalDetails, RFQ_OPTIONAL_DETAIL_FIELD_COUNT } from "@/features/quotes/rfq-metadata";
 import { useSingleQuantityInput } from "@/features/quotes/use-single-quantity-input";
 
 type ClientPartRequestEditorProps = {
@@ -150,6 +152,9 @@ export function ClientPartRequestEditor({
   const quoteQuantities = validateRequestedQuoteQuantitiesInput(quoteQuantityInput, draft.quantity);
   const quoteQuantitiesBlocked = !singleQuantity && quoteQuantities.invalidTokens.length > 0;
   const showQuoteQuantitiesError = quoteQuantitiesBlocked && quoteQuantitiesTouched;
+  // OVD-1173: optional RFQ details start collapsed; the state lives here so re-renders and typing never reset it.
+  const [optionalDetailsOpen, setOptionalDetailsOpen] = useState(false);
+  const optionalDetailsSet = countSetRfqOptionalDetails(draft);
 
   return (
     <div className="min-w-0 space-y-4">
@@ -349,26 +354,41 @@ export function ClientPartRequestEditor({
         </div>
       </div>
 
-      <div className="space-y-3 rounded-[1.75rem] border border-border bg-accent p-4">
-        <div>
-          <p className="text-sm font-medium text-foreground">RFQ details</p>
-          <p className="mt-1 text-xs text-muted-foreground">
+      <Collapsible
+        open={optionalDetailsOpen}
+        onOpenChange={setOptionalDetailsOpen}
+        className="rounded-[1.75rem] border border-border bg-accent"
+      >
+        <CollapsibleTrigger className="flex w-full items-center justify-between gap-3 rounded-[1.75rem] p-4 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+          <span className="min-w-0">
+            <span className="block text-sm font-medium text-foreground">Optional RFQ details</span>
+            <span className="mt-1 block text-xs text-muted-foreground">
+              {`${optionalDetailsSet} of ${RFQ_OPTIONAL_DETAIL_FIELD_COUNT} set`}
+            </span>
+          </span>
+          <ChevronDown
+            aria-hidden="true"
+            className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform ${optionalDetailsOpen ? "rotate-180" : ""}`}
+          />
+        </CollapsibleTrigger>
+        <CollapsibleContent className="space-y-3 px-4 pb-4">
+          <p className="text-xs text-muted-foreground">
             Shipping, certification, sourcing, and release status details stay client-safe here. Internal
             review-only controls remain on the estimator side.
           </p>
-        </div>
-        <RfqLineItemMetadataFields
-          idPrefix="client-request"
-          value={{
-            shipping: draft.shipping,
-            certifications: draft.certifications,
-            sourcing: draft.sourcing,
-            release: draft.release,
-          }}
-          onChange={onChange}
-          mode="client"
-        />
-      </div>
+          <RfqLineItemMetadataFields
+            idPrefix="client-request"
+            value={{
+              shipping: draft.shipping,
+              certifications: draft.certifications,
+              sourcing: draft.sourcing,
+              release: draft.release,
+            }}
+            onChange={onChange}
+            mode="client"
+          />
+        </CollapsibleContent>
+      </Collapsible>
 
       {footer}
 
