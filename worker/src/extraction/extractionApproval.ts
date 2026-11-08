@@ -56,7 +56,9 @@ export function finalizeExtractionApproval(input: ApprovalInput): { toleranceApp
         (name !== "revision" || read.revisionRole === "current");
       // I7: approval requires a positive complete vector scan for every participating region.
       const geometryIssues = cells.flatMap((read) => geometryIssuesInRegion(
-        input.cellProof!.geometryByPage.get(read.page), read.geometryRegion));
+        input.cellProof!.geometryByPage.get(read.page), read.geometryRegion,
+        // OVD-1174: only a read value can be struck through; an empty cell has nothing to approve.
+        read.status === "value" ? { boxes: read.valueBoxes } : undefined));
       const geometryProven = geometryIssues.length === 0;
       if (!geometryProven) {
         reviewNeeded = true;

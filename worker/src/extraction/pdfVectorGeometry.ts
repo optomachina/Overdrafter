@@ -11,7 +11,21 @@ export type PageVectorGeometry = {
   height?: number;
   /** Horizontal and vertical stroked rules only (OVD-1169): a diagonal is never a cell border. */
   rules?: GeometryBounds[];
+  /**
+   * OVD-1174: individual non-axis-aligned stroked segments of at least MIN_STRIKE_POINTS, as endpoints (x0,y0 to x1,y1),
+   * in the word boxes' frame. A strike-through is one long straight stroke; an arc is thousands of shorter ones. Kept apart
+   * from `rules` so the rule cap and the border logic are untouched. Absent means the scan did not record strokes.
+   */
+  strikes?: GeometryBounds[];
 };
+/** A diagonal segment shorter than this is arc or curve noise and is never kept (most polyline arc segments are under 1 pt). */
+export const MIN_STRIKE_POINTS = 2;
+/** The cap on kept strike candidates; one more trips `strike_limit`, which vetoes like `border_limit`. */
+export const MAX_STRIKE_CANDIDATES = 2_000;
+/** A stroke vetoes a value only if it is at least this share of that word box's height long: arcs are shorter than text. */
+const STRIKE_MIN_SHARE_OF_HEIGHT = 0.75;
+/** Slack around a word box when testing a stroke against it (half a typical stroke width). */
+const STRIKE_BOX_MARGIN = 0.5;
 type Matrix = [number, number, number, number, number, number];
 const IDENTITY: Matrix = [1, 0, 0, 1, 0, 0];
 const COORDINATE_COUNTS: Readonly<Record<string, number>> = { M: 2, L: 2, C: 6, Q: 4 };
@@ -162,8 +176,8 @@ export function pdfSourceGeometryIssues(bytes: Buffer): GeometryIssue[] {
 
 /** I7: unsupported paint is monotonic negative evidence, never a reason to discard earlier rules. */
 export function readSvgGeometry(svg: string, pageSize: { width: number; height: number }): { borders: TitleBlockBorder[]; vectorGeometry: PageVectorGeometry } {
-  const issues: GeometryIssue[] = [], rules: GeometryBounds[] = [];
-  const geometry: PageVectorGeometry = { complete: true, issues, rules, ...pageSize };
+  const issues: GeometryIssue[] = [], rules: GeometryBounds[] = [], strikes: GeometryBounds[] = [];
+  const geometry: PageVectorGeometry = { complete: true, issues, rules, strikes, ...pageSize };
   const issue = (cause: string, bounds: GeometryBounds | null = null) => {
     if (issues.length < 2_000) issues.push({ cause, bounds });
     else geometry.complete = false;
@@ -304,6 +318,14 @@ export function readSvgGeometry(svg: string, pageSize: { width: number; height: 
           if (colour === "white") issue("white_stroke", bounds);
           if (colour === "unknown") issue("unclassified_stroke", bounds);
         }
+        // OVD-1174: a straight diagonal that is long enough to be a stroke, not one step of an arc, is kept so a cell can
+        // test it against its value's word boxes. Any visible non-white stroke counts, clipped or uncertain ones included
+        // (stricter); a cap overflow is a limit issue that vetoes, as border_limit does.
+        if (hasStroke && colour !== "white" && segment.rule && !axisAligned(segment.rule) &&
+          Math.hypot(segment.rule.x1-segment.rule.x0, segment.rule.y1-segment.rule.y0) >= MIN_STRIKE_POINTS) {
+          if (strikes.length >= MAX_STRIKE_CANDIDATES) { geometry.complete = false; issue("strike_limit"); }
+          else strikes.push(segment.rule);
+        }
         // OVD-1169: arcs drawn as thousands of short diagonal segments are not rules and do not count toward the cap;
         // a diagonal never vetoed a cell (borders are horizontal) and still does not.
         if (!clip && !uncertain && bounds && segment.rule && axisAligned(segment.rule) && ((hasStroke && colour === "colour") || thinBar)) {
@@ -318,7 +340,27 @@ export function readSvgGeometry(svg: string, pageSize: { width: number; height: 
   return { borders, vectorGeometry: geometry };
 }
 
-export function geometryIssuesInRegion(geometry: PageVectorGeometry | undefined, region: GeometryBounds | undefined): string[] {
+/** Does the segment (x0,y0 to x1,y1) touch the box grown by `margin`? Slab clipping, exact for a straight segment. */
+export function segmentTouchesBox(s: GeometryBounds, box: GeometryBounds, margin = STRIKE_BOX_MARGIN): boolean {
+  let t0 = 0, t1 = 1;
+  const dx = s.x1-s.x0, dy = s.y1-s.y0;
+  for (const [p, q] of [[-dx, s.x0-(box.x0-margin)], [dx, (box.x1+margin)-s.x0], [-dy, s.y0-(box.y0-margin)], [dy, (box.y1+margin)-s.y0]] as const) {
+    if (p === 0) { if (q < 0) return false; continue; }
+    const r = q / p;
+    if (p < 0) { if (r > t1) return false; t0 = Math.max(t0, r); }
+    else { if (r < t0) return false; t1 = Math.min(t1, r); }
+  }
+  return t0 <= t1;
+}
+
+/**
+ * OVD-1174: the value read from a cell, as the page's word boxes that make it up (`boxes`, in the same frame as the
+ * strokes). `boxes` empty or absent means the value could not be located, so a stroke is judged against `region`
+ * (or, with no region either, anywhere on the page): never looser than the located case.
+ */
+export type CellValue = { boxes?: readonly GeometryBounds[] };
+
+export function geometryIssuesInRegion(geometry: PageVectorGeometry | undefined, region: GeometryBounds | undefined, value?: CellValue): string[] {
   if (!geometry) return ["vector_geometry_unavailable"];
   const causes = geometry.complete ? [] : ["vector_geometry_incomplete"];
   for (const issue of geometry.issues) {
@@ -327,6 +369,16 @@ export function geometryIssuesInRegion(geometry: PageVectorGeometry | undefined,
     const margin = 2;
     if (!region || !b || (b.x0 <= region.x1+margin && b.x1 >= region.x0-margin &&
       b.y0 <= region.y1+margin && b.y1 >= region.y0-margin)) causes.push(issue.cause);
+  }
+  if (value && geometry.strikes) {
+    const boxes = value.boxes?.length ? value.boxes : region ? [region] : null;
+    const struck = geometry.strikes.some((stroke) => {
+      const length = Math.hypot(stroke.x1-stroke.x0, stroke.y1-stroke.y0);
+      // Located value: the stroke must be a meaningful share of its text height. Fallback region: any kept stroke counts.
+      return boxes === null || boxes.some((box) => (value.boxes?.length
+        ? length >= STRIKE_MIN_SHARE_OF_HEIGHT * (box.y1-box.y0) : true) && segmentTouchesBox(stroke, box));
+    });
+    if (struck) causes.push("strike_through_value");
   }
   return [...new Set(causes)];
 }

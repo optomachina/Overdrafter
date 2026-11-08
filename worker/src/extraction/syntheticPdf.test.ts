@@ -723,6 +723,79 @@ describe.skipIf(!hasPoppler)("synthetic sheets through poppler", { timeout: 60_0
     });
   });
 
+  // OVD-1174: a straight stroke through a value's word boxes sends that value to review. Arcs are many SHORT segments and
+  // a strike-through is one long stroke, so a circle crossing a cell does not veto it; a stroke clear of the words does not.
+  describe("a stroke through a title-block value", () => {
+    const FIELDS = [
+      { field: "partNumber", text: "ABC-1001", x: 760, y: 735, size: 24 },
+      { field: "revision", text: "B", x: 900, y: 735, size: 24 },
+      { field: "material", text: "AL 6061-T6", x: 340, y: 732, size: 9 },
+      { field: "finish", text: "AS MACHINED", x: 340, y: 760, size: 9 },
+      { field: "description", text: "SAMPLE BRACKET", x: 760, y: 665, size: 14 },
+    ] as const;
+    type Field = (typeof FIELDS)[number];
+    type Box = { x0: number; y0: number; x1: number; y1: number };
+    const boxOf = (pdfText: PdfTextExtraction, item: Field): Box => {
+      const tokens = item.text.split(" ");
+      const words = (pdfText.pages[0]?.words ?? []).filter((word) => tokens.includes(word.text) &&
+        word.xMin >= item.x - 3 && word.xMin <= item.x + item.size * item.text.length &&
+        word.yMin >= item.y - 3 && word.yMax <= item.y + item.size * 1.6);
+      expect(words.length, item.field).toBe(tokens.length);
+      return { x0: Math.min(...words.map((w) => w.xMin)), x1: Math.max(...words.map((w) => w.xMax)),
+        y0: Math.min(...words.map((w) => w.yMin)), y1: Math.max(...words.map((w) => w.yMax)) };
+    };
+    // Corner to corner of the value's word boxes, a little past them: a diagonal strike-through.
+    const strike = (b: Box) => ({ x0: b.x0 - 3, y0: b.y1 + 3, x1: b.x1 + 3, y1: b.y0 - 3 });
+    // The same slope, wholly clear of the words: to the right of the value and clear of every other word.
+    const clear = (b: Box) => ({ x0: b.x1 + 12, y0: b.y1 + 6, x1: b.x1 + 40, y1: b.y0 - 6 });
+    const circle = (cx: number, cy: number, radius: number, segments: number): Array<[number, number]> =>
+      Array.from({ length: segments + 1 }, (_, index) => {
+        const angle = (2 * Math.PI * index) / segments;
+        return [Number((cx + radius * Math.cos(angle)).toFixed(3)), Number((cy + radius * Math.sin(angle)).toFixed(3))];
+      });
+    const CELL_FIELDS = ["partNumber", "revision", "material", "finish", "description"] as const;
+
+    it.each([0, 90, 270] as const)("sends each field to review when a diagonal strikes through its value, rotation %s", async (rotate) => {
+      const plain = await read({}, { rotate });
+      for (const item of FIELDS) {
+        const { signals } = await read({}, { rotate, rules: [strike(boxOf(plain.pdfText, item))] });
+        expect(signals[item.field].reviewNeeded, item.field).toBe(true);
+        if (fullyRead) {
+          expect(signals[item.field].reasons, item.field).toContain("geometry_strike_through_value");
+          expect(signals[item.field].reasons, item.field).not.toContain("title_block_cell_proven");
+          // Only the struck value is sent to review; the fields it does not touch are still proven.
+          for (const other of FIELDS.filter((f) => f.field !== item.field)) {
+            expect(signals[other.field].reasons, `${item.field} strike, ${other.field}`).not.toContain("geometry_strike_through_value");
+            expect(signals[other.field].reasons, `${item.field} strike, ${other.field}`).toContain("title_block_cell_proven");
+          }
+        }
+        expect(signals[item.field].value, item.field).toBe(item.text);
+      }
+    });
+
+    it.each([0, 90, 270] as const)("does not send a value to review for a diagonal that does not cross its words, rotation %s", async (rotate) => {
+      const plain = await read({}, { rotate });
+      for (const item of FIELDS) {
+        const { signals } = await read({}, { rotate, rules: [clear(boxOf(plain.pdfText, item))] });
+        expect(signals[item.field].reasons, item.field).not.toContain("geometry_strike_through_value");
+        expect(signals[item.field].reviewNeeded, item.field).toBe(!fullyRead);
+        if (fullyRead) expect(signals[item.field].reasons, item.field).toContain("title_block_cell_proven");
+      }
+    });
+
+    it.each([0, 90, 270] as const)("does not send a cell to review for a 3,000-segment circle crossing it, rotation %s", async (rotate) => {
+      const { pdfText, signals } = await read({}, { rotate, polylines: [circle(440, 737, 40, 3000)] });
+      const geometry = pdfText.pages[0]?.vectorGeometry;
+      expect(geometry?.complete).toBe(true);
+      expect(geometry?.issues.map((issue) => issue.cause)).not.toContain("strike_limit");
+      for (const field of CELL_FIELDS) {
+        expect(signals[field].reasons, field).not.toContain("geometry_strike_through_value");
+        expect(signals[field].reviewNeeded, `${field} ${signals[field].reasons}`).toBe(!fullyRead);
+        if (fullyRead) expect(signals[field].reasons, field).toContain("title_block_cell_proven");
+      }
+    });
+  });
+
   // #884 review, rounds 11 and 12, and Codex review, round 7: the sheets the reviews built, through the whole extraction
   // (runHybridExtraction, no model), from poppler's word boxes and from its layout text alone. The field is empty and
   // flagged, and the drawing needs review; nothing is approved from text that is not the cell's value.
