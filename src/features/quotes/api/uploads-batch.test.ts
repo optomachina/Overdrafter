@@ -5,6 +5,11 @@ import {
   getUploadBatchSnapshot,
   resetUploadBatchStoreForTests,
 } from "@/features/quotes/upload-batch-store";
+import {
+  readUploadResume,
+  resetUploadResumeStoreForTests,
+  unfinishedUploadNames,
+} from "@/features/quotes/upload-resume-store";
 
 const { rpcMock, storageUpload } = vi.hoisted(() => ({
   rpcMock: vi.fn(),
@@ -52,6 +57,7 @@ describe("createJobsFromUploadFiles batch isolation", () => {
 
   beforeEach(() => {
     resetUploadBatchStoreForTests();
+    resetUploadResumeStoreForTests();
     failUploadForJobId = null;
     failReconcileForJobId = null;
     timeoutFinalizeForJobId = null;
@@ -108,6 +114,7 @@ describe("createJobsFromUploadFiles batch isolation", () => {
 
   afterEach(() => {
     resetUploadBatchStoreForTests();
+    resetUploadResumeStoreForTests();
   });
 
   it("continues after a mid-batch upload failure, archives the empty draft, and renames from the groups that finished", async () => {
@@ -131,6 +138,9 @@ describe("createJobsFromUploadFiles batch isolation", () => {
       { p_project_id: "project-1", p_name: "a + 1 parts", p_description: null },
     ]);
     expect(getUploadBatchSnapshot()).toMatchObject({ phase: "complete", result });
+    const resume = readUploadResume();
+    expect(resume?.projectId).toBe("project-1");
+    expect(resume && unfinishedUploadNames(resume)).toEqual(["b.step"]);
   });
 
   it("keeps a draft whose finalize timed out, and archives one whose finalize was rejected", async () => {
@@ -157,6 +167,7 @@ describe("createJobsFromUploadFiles batch isolation", () => {
 
     expect(result.jobIds).toEqual(["job-1", "job-2"]);
     expect(result.failed).toEqual([]);
+    expect(readUploadResume()).toBeNull();
     expect(rpcCalls("api_archive_job")).toEqual([]);
     expect(rpcCalls("api_request_extraction").map((args) => args.p_job_id)).toEqual(["job-1", "job-2"]);
   });
@@ -180,6 +191,7 @@ describe("createJobsFromUploadFiles batch isolation", () => {
         result: { jobIds: ["job-1"], failed: [] },
       });
     });
+    expect(readUploadResume()?.doneNames).toEqual(["a.step"]);
 
     releaseSecondDraft?.();
     await expect(pending).resolves.toMatchObject({ jobIds: ["job-1", "job-2"], failed: [] });

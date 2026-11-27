@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { withLocalFixtureContext } from "@/features/quotes/fixture-navigation";
@@ -14,6 +15,21 @@ import {
 export function UploadBatchOutcome() {
   const snapshot = useUploadBatchSnapshot();
   const navigate = useNavigate();
+  const batchRunning = snapshot?.phase === "running";
+
+  useEffect(() => {
+    if (!batchRunning) {
+      return;
+    }
+    const onLeave = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", onLeave);
+    return () => {
+      window.removeEventListener("beforeunload", onLeave);
+    };
+  }, [batchRunning]);
 
   if (!snapshot) {
     return null;

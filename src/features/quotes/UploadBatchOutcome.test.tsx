@@ -79,8 +79,25 @@ describe("UploadBatchOutcome", () => {
 
     renderOutcome();
 
-    expect(screen.getByRole("status", { name: "Upload result" })).toHaveTextContent("Uploading 2 of 5.");
+    expect(screen.getByRole("status", { name: "Upload result" })).toHaveTextContent("Uploading 2 of 5...");
     expect(screen.queryByRole("button", { name: "Add them to this project" })).toBeNull();
+
+    const leaving = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(leaving);
+    expect(leaving.defaultPrevented).toBe(true);
+
+    act(() => {
+      completeUploadBatch({
+        jobIds: ["job-1", "job-2"],
+        projectId: "project-9",
+        failed: [],
+        warnings: [],
+      });
+    });
+
+    const after = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(after);
+    expect(after.defaultPrevented).toBe(false);
   });
 
   it("does not offer a new project when the batch has nowhere to add the files", () => {
