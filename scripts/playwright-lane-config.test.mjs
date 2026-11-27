@@ -305,6 +305,10 @@ describe("Playwright execution lane configuration", () => {
     expect(nextJobStart).toBeGreaterThan(jobStart);
     const browserJob = lines.slice(jobStart, nextJobStart).join("\n");
 
+    // Playwright 1.58.2 cannot install Chromium on the ubuntu-latest 26.04 image.
+    expect(browserJob).toContain("\n    runs-on: ubuntu-24.04\n");
+    expect(browserJob).not.toContain("runs-on: ubuntu-latest");
+
     // Root dependencies come from the shared action: npm ci without lifecycle
     // scripts, or a node_modules cache that only main saves from that same install.
     expect(browserJob).toContain(

@@ -74,7 +74,9 @@ env:
 jobs:
   verify-run:
     name: verify (run journeys at head)
-    runs-on: ubuntu-latest
+    # Pinned to noble: Playwright 1.58.2 has no Chromium build for ubuntu26.04-x64,
+    # and ubuntu-latest now resolves to that image.
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     outputs:
       harness_sha256: ${{ steps.harness-hash.outputs.sha256 }}
