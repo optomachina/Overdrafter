@@ -264,8 +264,10 @@ jobs:
 
   # Three lanes on separate runners. Each lane installs the same browser tooling;
   # only the authenticated lane starts the local Supabase stack.
+  # Pinned to noble: Playwright 1.58.2 cannot install Chromium on the
+  # ubuntu-latest 26.04 image, so that image change must not fail every PR.
   browser-test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
     strategy:
       fail-fast: false
