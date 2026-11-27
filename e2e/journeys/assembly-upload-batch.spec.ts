@@ -75,7 +75,7 @@ async function confirmNotControlled(page: Page) {
 }
 
 test.describe("assembly upload batch", { tag: "@fixture" }, () => {
-  test("finishes the groups after a mid-batch failure and adds the rest to that project", async ({}, testInfo) => {
+  test("finishes the groups after a mid-batch failure and adds the rest to that project", async () => {
     test.setTimeout(180_000);
     const browser = await chromium.launch({
       chromiumSandbox: false,
@@ -131,7 +131,7 @@ test.describe("assembly upload batch", { tag: "@fixture" }, () => {
       expect(drafts.every((draft) => draft.projectId === projectId)).toBe(true);
 
       await page.screenshot({
-        path: testInfo.outputPath("assembly-upload-partial.png"),
+        path: test.info().outputPath("assembly-upload-partial.png"),
         fullPage: false,
       });
 
