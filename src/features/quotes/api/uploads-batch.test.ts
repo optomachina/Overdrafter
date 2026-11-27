@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { RpcTimeoutError } from "./shared/rpc";
 import { createJobsFromUploadFiles } from "./uploads-api";
 import {
   getUploadBatchSnapshot,
@@ -43,6 +44,8 @@ function rpcCalls(name: string): Array<Record<string, unknown>> {
 describe("createJobsFromUploadFiles batch isolation", () => {
   let failUploadForJobId: string | null = null;
   let failReconcileForJobId: string | null = null;
+  let timeoutFinalizeForJobId: string | null = null;
+  let rejectFinalizeForJobId: string | null = null;
   let holdSecondDraft: Promise<void> | null = null;
   let releaseSecondDraft: (() => void) | null = null;
   let draftCount = 0;
@@ -51,6 +54,8 @@ describe("createJobsFromUploadFiles batch isolation", () => {
     resetUploadBatchStoreForTests();
     failUploadForJobId = null;
     failReconcileForJobId = null;
+    timeoutFinalizeForJobId = null;
+    rejectFinalizeForJobId = null;
     holdSecondDraft = null;
     releaseSecondDraft = null;
     draftCount = 0;
@@ -80,6 +85,12 @@ describe("createJobsFromUploadFiles batch isolation", () => {
         };
       }
       if (name === "api_finalize_job_file_upload") {
+        if (args?.p_job_id === timeoutFinalizeForJobId) {
+          throw new RpcTimeoutError("api_finalize_job_file_upload", 30_000);
+        }
+        if (args?.p_job_id === rejectFinalizeForJobId) {
+          return { data: null, error: { message: "finalize_rejected", code: "P0001" } };
+        }
         return { data: "file-1", error: null };
       }
       if (name === "api_reconcile_job_parts") {
@@ -120,6 +131,20 @@ describe("createJobsFromUploadFiles batch isolation", () => {
       { p_project_id: "project-1", p_name: "a + 1 parts", p_description: null },
     ]);
     expect(getUploadBatchSnapshot()).toMatchObject({ phase: "complete", result });
+  });
+
+  it("keeps a draft whose finalize timed out, and archives one whose finalize was rejected", async () => {
+    timeoutFinalizeForJobId = "job-1";
+    rejectFinalizeForJobId = "job-2";
+
+    const result = await createJobsFromUploadFiles({
+      files: [stepFile("a.step"), stepFile("b.step")],
+      exportControlAnswer: "not_controlled",
+    });
+
+    expect(result.jobIds).toEqual([]);
+    expect(result.failed.map((failure) => failure.fileNames)).toEqual([["a.step"], ["b.step"]]);
+    expect(rpcCalls("api_archive_job")).toEqual([{ p_job_id: "job-2" }]);
   });
 
   it("keeps a part whose files uploaded when reconcile fails, and still uploads the next group", async () => {

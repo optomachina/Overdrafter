@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium, expect, test, type Page } from "@playwright/test";
@@ -29,6 +29,10 @@ type DraftCall = {
 
 async function readDrafts(page: Page): Promise<DraftCall[]> {
   return page.evaluate(() => window.__assemblyUploadDrafts ?? []);
+}
+
+async function readPickerOpens(page: Page): Promise<number> {
+  return page.evaluate(() => window.__assemblyFilePickerOpens ?? 0);
 }
 
 async function chooseFiles(page: Page, label: string, files: string[]) {
@@ -71,7 +75,7 @@ async function confirmNotControlled(page: Page) {
 }
 
 test.describe("assembly upload batch", { tag: "@fixture" }, () => {
-  test("finishes the groups after a mid-batch failure and adds the rest to that project", async () => {
+  test("finishes the groups after a mid-batch failure and adds the rest to that project", async ({}, testInfo) => {
     test.setTimeout(180_000);
     const browser = await chromium.launch({
       chromiumSandbox: false,
@@ -114,7 +118,7 @@ test.describe("assembly upload batch", { tag: "@fixture" }, () => {
       const outcome = page.getByRole("status", { name: "Upload result" });
       await expect(outcome).toContainText("Uploaded 2 of 3. 1 didn't finish: baseline-5mm.SLDPRT");
       await expect(page).toHaveURL(/\/projects\/fixture-project-[^/?#]+/);
-      await expect(page.getByText("synthetic-assembly + 1 parts")).toBeVisible();
+      await expect(page.getByRole("heading", { name: "synthetic-assembly + 1 parts" })).toBeVisible();
       const drafts = await readDrafts(page);
       expect(drafts.map((draft) => draft.title)).toEqual([
         "synthetic-assembly",
@@ -126,14 +130,15 @@ test.describe("assembly upload batch", { tag: "@fixture" }, () => {
       expect(projectId.startsWith("fixture-project-")).toBe(true);
       expect(drafts.every((draft) => draft.projectId === projectId)).toBe(true);
 
-      mkdirSync("/opt/cursor/artifacts", { recursive: true });
       await page.screenshot({
-        path: "/opt/cursor/artifacts/assembly-upload-partial.png",
+        path: testInfo.outputPath("assembly-upload-partial.png"),
         fullPage: false,
       });
 
       const draftsBeforeRetry = drafts.length;
+      const opensBeforeRetry = await readPickerOpens(page);
       await outcome.getByRole("button", { name: "Add them to this project" }).click();
+      await expect.poll(() => readPickerOpens(page)).toBeGreaterThan(opensBeforeRetry);
       await expect(page).toHaveURL(new RegExp(`/projects/${projectId}`));
       await chooseFiles(page, "Create new job from files", [BASELINE_PATH, CANDIDATE_PATH]);
       await confirmNotControlled(page);
@@ -155,5 +160,6 @@ declare global {
       title: string;
       projectId: string | null;
     }>;
+    __assemblyFilePickerOpens?: number;
   }
 }
