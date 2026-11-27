@@ -18,6 +18,11 @@ import {
   type UploadGroupFailure,
 } from "@/features/quotes/upload-batch-store";
 import {
+  beginUploadResume,
+  clearUploadResume,
+  noteUploadResumeProgress,
+} from "@/features/quotes/upload-resume-store";
+import {
   buildAutoProjectName,
   findSameStemCadCollisions,
   groupUploadFiles,
@@ -278,6 +283,11 @@ export async function createJobsFromUploadFiles(input: {
 
   beginUploadBatch({ totalGroups: groups.length, warnings, projectId: targetProjectId });
 
+  const expectedNames = groups.flatMap((group) => group.files.map((file) => file.name));
+  if (targetProjectId) {
+    beginUploadResume({ projectId: targetProjectId, expectedNames });
+  }
+
   const jobIds: string[] = [];
   const failed: UploadGroupFailure[] = [];
   const succeededGroups: UploadFileGroup[] = [];
@@ -365,6 +375,9 @@ export async function createJobsFromUploadFiles(input: {
         jobIds,
         failed,
       });
+      if (targetProjectId) {
+        noteUploadResumeProgress(succeededGroups.flatMap((group) => group.files.map((file) => file.name)));
+      }
     }
 
     if (ownsProject && targetProjectId) {
@@ -376,6 +389,10 @@ export async function createJobsFromUploadFiles(input: {
       } catch {
         // The parts are already in the project. A rename failure is not a group failure.
       }
+    }
+
+    if (targetProjectId && failed.length === 0) {
+      clearUploadResume();
     }
 
     const result: UploadBatchResult = {

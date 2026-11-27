@@ -37,6 +37,7 @@ import { useWorkspaceNotifications } from "@/features/notifications/use-workspac
 import { getClientItemPresentation } from "@/features/quotes/client-presentation";
 import { formatTolerance } from "@/features/quotes/format-part-fields";
 import { buildProjectAssigneeBadgeModel } from "@/features/quotes/project-assignee";
+import { UploadResumeBanner } from "@/features/quotes/UploadResumeBanner";
 import { buildAppAwareHref } from "@/features/quotes/quote-intelligence-view-model";
 import { areQuoteOptionsLoading } from "@/features/quotes/quote-options-loading";
 import { buildQuoteRequestViewModel } from "@/features/quotes/quote-request";
@@ -1350,6 +1351,7 @@ const ClientProject = () => {
         }
       >
         <div className="mx-auto flex w-full max-w-[1380px] flex-1 flex-col gap-6 px-6 pb-10 pt-4">
+          <UploadResumeBanner projectId={projectId} />
           <div>
             <h1 className="text-[28px] font-semibold tracking-[-0.02em] text-foreground">
               {projectQuery.data?.name ?? "Project"}

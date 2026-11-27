@@ -31,11 +31,18 @@ async function readDrafts(page: Page): Promise<DraftCall[]> {
   return page.evaluate(() => window.__assemblyUploadDrafts ?? []);
 }
 
-async function chooseFiles(page: Page, label: string, files: string[]) {
-  const payloads = files.map((filePath) => ({
-    name: path.basename(filePath),
-    base64: readFileSync(filePath).toString("base64"),
-  }));
+type UploadChoice = string | { sourcePath: string; name: string };
+
+function chosenFile(choice: UploadChoice) {
+  const sourcePath = typeof choice === "string" ? choice : choice.sourcePath;
+  return {
+    name: typeof choice === "string" ? path.basename(sourcePath) : choice.name,
+    base64: readFileSync(sourcePath).toString("base64"),
+  };
+}
+
+async function chooseFiles(page: Page, label: string, files: UploadChoice[]) {
+  const payloads = files.map((choice) => chosenFile(choice));
   const input = page.locator(`input[aria-label="${label}"]`);
   await expect(input).toHaveCount(1);
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -146,6 +153,100 @@ test.describe("assembly upload batch", { tag: "@fixture" }, () => {
       await browser.close();
     }
   });
+
+  test("reloads after three of five groups and adds the rest to the same project", async () => {
+    test.setTimeout(180_000);
+    const browser = await chromium.launch({
+      chromiumSandbox: false,
+      args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage", "--disable-gpu"],
+    });
+    const page = await browser.newPage();
+    page.setDefaultTimeout(20_000);
+    page.on("pageerror", (error) => console.log("pageerror", error.message));
+    page.on("dialog", (dialog) => {
+      void dialog.accept();
+    });
+
+    await page.route("http://127.0.0.1:9/**", (route) => {
+      if (route.request().method() === "OPTIONS") {
+        return route.fulfill({
+          status: 204,
+          headers: {
+            "access-control-allow-origin": "*",
+            "access-control-allow-headers": "*",
+            "access-control-allow-methods": "GET,POST,PATCH,PUT,DELETE,OPTIONS",
+          },
+        });
+      }
+      return route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        headers: { "access-control-allow-origin": "*" },
+        body: "[]",
+      });
+    });
+    await page.routeWebSocket(/127\.0\.0\.1:9/, () => {});
+    await page.addInitScript(() => {
+      window.__assemblyUploadHoldAfter = 3;
+    });
+    await page.addInitScript({
+      path: fileURLToPath(new URL("./assembly-upload-fixture.js", import.meta.url)),
+    });
+
+    // Five groups from the synthetic assembly and its two parts. The extra two
+    // names reuse those part bytes so the batch has five groups without new CAD.
+    const fiveGroups = [
+      ASSEMBLY_PATH,
+      { sourcePath: BASELINE_PATH, name: "a.SLDPRT" },
+      { sourcePath: CANDIDATE_PATH, name: "b.SLDPRT" },
+      BASELINE_PATH,
+      CANDIDATE_PATH,
+    ];
+
+    try {
+      await page.goto("http://127.0.0.1:4173/projects/fx-project-quoted?fixture=client-quoted", {
+        waitUntil: "commit",
+      });
+      await expect(page.locator('input[aria-label="Create new job from files"]')).toHaveCount(1);
+
+      await chooseFiles(page, "Create new job from files", fiveGroups);
+      await confirmNotControlled(page);
+
+      const progress = page.getByRole("status", { name: "Upload result" });
+      await expect(progress).toContainText("Uploading 3 of 5...");
+      const leaving = await page.evaluate(() => {
+        const event = new Event("beforeunload", { cancelable: true });
+        window.dispatchEvent(event);
+        return event.defaultPrevented;
+      });
+      expect(leaving).toBe(true);
+
+      await page.reload({ waitUntil: "commit" });
+      await expect(page).toHaveURL(/\/projects\/fx-project-quoted/);
+
+      const banner = page.getByRole("status", { name: "Unfinished upload" });
+      await expect(banner).toContainText(
+        "2 files from your last upload didn't finish: baseline-5mm.SLDPRT, candidate-8mm.SLDPRT",
+      );
+      mkdirSync("/opt/cursor/artifacts", { recursive: true });
+      await page.screenshot({
+        path: "/opt/cursor/artifacts/assembly-upload-resume.png",
+        fullPage: false,
+      });
+
+      await banner.getByRole("button", { name: "Add them to this project" }).click();
+      await expect(page).toHaveURL(/\/projects\/fx-project-quoted/);
+      await chooseFiles(page, "Create new job from files", [BASELINE_PATH, CANDIDATE_PATH]);
+      await confirmNotControlled(page);
+
+      await expect.poll(async () => (await readDrafts(page)).length).toBe(2);
+      const added = await readDrafts(page);
+      expect(added.map((draft) => draft.projectId)).toEqual(["fx-project-quoted", "fx-project-quoted"]);
+      await expect(page).toHaveURL(/\/projects\/fx-project-quoted(?:[?#]|$)/);
+    } finally {
+      await browser.close();
+    }
+  });
 });
 
 declare global {
@@ -155,5 +256,6 @@ declare global {
       title: string;
       projectId: string | null;
     }>;
+    __assemblyUploadHoldAfter?: number;
   }
 }

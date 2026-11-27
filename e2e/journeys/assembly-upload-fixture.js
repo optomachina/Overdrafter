@@ -48,6 +48,11 @@ window.fetch = async (input, init) => {
       });
     }
     if (rpc === "api_create_client_draft") {
+      // A journey can stall the next draft so a reload lands after N finished groups.
+      const holdAfter = Number(window.__assemblyUploadHoldAfter || 0);
+      if (holdAfter > 0 && drafts.length >= holdAfter) {
+        await new Promise(() => {});
+      }
       const id = "00000000-0000-4000-8000-" + String(drafts.length + 1).padStart(12, "0");
       drafts.push({
         id,
@@ -58,7 +63,10 @@ window.fetch = async (input, init) => {
     }
     // Assembly files are ordered first, so the second draft is the part that
     // fails. A later retry creates new draft ids and is not this one.
-    if (rpc === "api_prepare_job_file_upload" && drafts[1] && body?.p_job_id === drafts[1].id) {
+    // A reload journey sets __assemblyUploadHoldAfter and needs every group
+    // to succeed until that hold.
+    const holdAfter = Number(window.__assemblyUploadHoldAfter || 0);
+    if (holdAfter === 0 && rpc === "api_prepare_job_file_upload" && drafts[1] && body?.p_job_id === drafts[1].id) {
       return json(400, {
         code: "P0001",
         message: "synthetic_mid_batch_failure",

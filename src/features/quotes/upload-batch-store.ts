@@ -152,7 +152,7 @@ export function navigationPathAfterUploadBatch(
 
 export function formatUploadBatchMessage(batch: UploadBatchSnapshot): string {
   if (batch.phase === "running") {
-    return `Uploading ${batch.finishedGroups} of ${batch.totalGroups}.`;
+    return `Uploading ${batch.finishedGroups} of ${batch.totalGroups}...`;
   }
   const uploaded = batch.result.jobIds.length;
   const failedCount = batch.result.failed.length;
