@@ -17,7 +17,6 @@ import {
   removeStoredSupabaseSession,
 } from "@/features/quotes/api/shared/startup-auth";
 import { clearAllQuoteReferences } from "@/features/quotes/quote-local-reference";
-import { clearUploadBatch } from "@/features/quotes/upload-batch-store";
 import { WORKSPACE_SHARED_STALE_TIME_MS } from "@/features/quotes/workspace-navigation";
 import { supabase } from "@/integrations/supabase/client";
 import { hasVerifiedAuth } from "@/lib/auth-status";
@@ -385,7 +384,6 @@ export function useAppSession() {
             { force: true },
           );
           queryClient.setQueryData(APP_SESSION_QUERY_KEY, EMPTY_APP_SESSION);
-          clearUploadBatch();
           return;
         }
 
@@ -789,7 +787,6 @@ export function useAppSession() {
       { force: true },
     );
     queryClient.setQueryData(APP_SESSION_QUERY_KEY, EMPTY_APP_SESSION);
-    clearUploadBatch();
   }, [isFixtureSession, queryClient, sessionQuery.data?.authState, sessionQuery.isLoading]);
 
   const signOut = async () => {
@@ -802,7 +799,6 @@ export function useAppSession() {
         { force: true },
       );
       queryClient.setQueryData(sessionQueryKey, EMPTY_APP_SESSION);
-      clearUploadBatch();
       return;
     }
 
@@ -835,7 +831,6 @@ export function useAppSession() {
       { force: true },
     );
     queryClient.setQueryData(APP_SESSION_QUERY_KEY, EMPTY_APP_SESSION);
-    clearUploadBatch();
 
     const { error } = await supabase.auth.signOut({ scope: "global" });
 
@@ -858,7 +853,6 @@ export function useAppSession() {
         { force: true },
       );
       queryClient.setQueryData(APP_SESSION_QUERY_KEY, EMPTY_APP_SESSION);
-      clearUploadBatch();
       return;
     }
 

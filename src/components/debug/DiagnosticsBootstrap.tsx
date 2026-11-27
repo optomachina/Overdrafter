@@ -1,7 +1,9 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useLocation } from "react-router-dom";
 import { DiagnosticsPanel } from "@/components/debug/DiagnosticsPanel";
 import { resolveDiagnosticsRouteMode } from "@/components/debug/diagnostics-route-mode";
+import { UploadBatchOutcome } from "@/features/quotes/UploadBatchOutcome";
+import { clearUploadBatch } from "@/features/quotes/upload-batch-store";
 import { useAppSession } from "@/hooks/use-app-session";
 import {
   installDiagnostics,
@@ -14,6 +16,15 @@ import {
 export function DiagnosticsBootstrap() {
   const location = useLocation();
   const { user, activeMembership } = useAppSession();
+  const userId = user?.id ?? null;
+  const previousUserId = useRef<string | null | undefined>(undefined);
+
+  useEffect(() => {
+    if (previousUserId.current && previousUserId.current !== userId) {
+      clearUploadBatch();
+    }
+    previousUserId.current = userId;
+  }, [userId]);
 
   useEffect(() => {
     installDiagnostics();
@@ -51,5 +62,10 @@ export function DiagnosticsBootstrap() {
     });
   }, [activeMembership?.organizationId, activeMembership?.role, user]);
 
-  return <DiagnosticsPanel />;
+  return (
+    <>
+      <UploadBatchOutcome />
+      <DiagnosticsPanel />
+    </>
+  );
 }
