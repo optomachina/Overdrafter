@@ -104,6 +104,9 @@ describe("verify-overdrafter skill structure", () => {
     const wf = readFileSync(path.join(root, ".github/workflows/verify.yml"), "utf8");
     const runJob = wf.slice(wf.indexOf("\n  verify-run:"), wf.indexOf("\n  verify-judge:"));
     const judgeJob = wf.slice(wf.indexOf("\n  verify-judge:"));
+    // Playwright 1.58.2 cannot install Chromium on the ubuntu-latest 26.04 image.
+    expect(runJob).toContain("\n    runs-on: ubuntu-24.04\n");
+    expect(runJob).not.toContain("runs-on: ubuntu-latest");
     expect(runJob).toContain("bash base/.agents/skills/verify-overdrafter/run --app-root head");
     expect(runJob).not.toContain("verify-result-judge");
     expect(judgeJob).toContain("needs: verify-run");
