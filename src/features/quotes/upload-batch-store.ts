@@ -21,6 +21,15 @@ export type UploadBatchSnapshot = {
 
 let snapshot: UploadBatchSnapshot | null = null;
 const listeners = new Set<() => void>();
+// A sign-out or dismiss advances the seal. A batch that started under an older
+// seal cannot publish over whatever the next user is looking at.
+let seal = 0;
+let nextId = 0;
+let activeId = 0;
+
+export function readUploadBatchSeal(): number {
+  return seal;
+}
 
 function emit(): void {
   for (const listener of listeners) {
@@ -43,11 +52,19 @@ export function useUploadBatchSnapshot(): UploadBatchSnapshot | null {
   return useSyncExternalStore(subscribeUploadBatch, getUploadBatchSnapshot, () => null);
 }
 
-export function beginUploadBatch(input: {
-  totalGroups: number;
-  warnings: string[];
-  projectId: string | null;
-}): void {
+export function beginUploadBatch(
+  sealAtStart: number,
+  input: {
+    totalGroups: number;
+    warnings: string[];
+    projectId: string | null;
+  },
+): number | null {
+  if (sealAtStart !== seal) {
+    return null;
+  }
+  const id = ++nextId;
+  activeId = id;
   snapshot = {
     phase: "running",
     totalGroups: input.totalGroups,
@@ -60,15 +77,23 @@ export function beginUploadBatch(input: {
     },
   };
   emit();
+  return id;
 }
 
-export function publishUploadBatchProgress(input: {
-  finishedGroups: number;
-  projectId: string | null;
-  jobIds: string[];
-  failed: UploadGroupFailure[];
-}): void {
-  if (!snapshot || snapshot.phase !== "running") {
+function isActiveBatch(id: number): boolean {
+  return id === activeId && snapshot !== null;
+}
+
+export function publishUploadBatchProgress(
+  id: number,
+  input: {
+    finishedGroups: number;
+    projectId: string | null;
+    jobIds: string[];
+    failed: UploadGroupFailure[];
+  },
+): void {
+  if (!isActiveBatch(id) || !snapshot || snapshot.phase !== "running") {
     return;
   }
   snapshot = {
@@ -87,7 +112,10 @@ export function publishUploadBatchProgress(input: {
   emit();
 }
 
-export function completeUploadBatch(result: UploadBatchResult): void {
+export function completeUploadBatch(result: UploadBatchResult, id?: number): void {
+  if (id !== undefined && !isActiveBatch(id)) {
+    return;
+  }
   const totalGroups = snapshot?.totalGroups ?? result.jobIds.length + result.failed.length;
   snapshot = {
     phase: "complete",
@@ -98,12 +126,20 @@ export function completeUploadBatch(result: UploadBatchResult): void {
   emit();
 }
 
-export function clearUploadBatch(): void {
+export function clearUploadBatch(id?: number): void {
+  if (id !== undefined && id !== activeId) {
+    return;
+  }
+  seal += 1;
+  activeId = 0;
   snapshot = null;
   emit();
 }
 
 export function resetUploadBatchStoreForTests(): void {
+  seal = 0;
+  nextId = 0;
+  activeId = 0;
   snapshot = null;
   emit();
 }
@@ -159,6 +195,11 @@ export function formatUploadBatchMessage(batch: UploadBatchSnapshot): string {
   if (failedCount === 0) {
     return `Uploaded ${uploaded} of ${batch.totalGroups}.`;
   }
-  const names = batch.result.failed.flatMap((failure) => failure.fileNames).join(", ");
-  return `Uploaded ${uploaded} of ${batch.totalGroups}. ${failedCount} didn't finish: ${names}`;
+  const details = batch.result.failed
+    .map((failure) => {
+      const names = failure.fileNames.join(", ");
+      return failure.reason ? `${names} (${failure.reason})` : names;
+    })
+    .join("; ");
+  return `Uploaded ${uploaded} of ${batch.totalGroups}. ${failedCount} didn't finish: ${details}`;
 }

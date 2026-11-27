@@ -4,10 +4,14 @@
 // resolved inside the page does not pause.
 const drafts = [];
 window.__assemblyUploadDrafts = drafts;
+window.__assemblyFilePickerOpens = 0;
 
 const originalClick = HTMLInputElement.prototype.click;
 HTMLInputElement.prototype.click = function () {
-  if (this.type === "file") return;
+  if (this.type === "file") {
+    window.__assemblyFilePickerOpens += 1;
+    return;
+  }
   return originalClick.call(this);
 };
 

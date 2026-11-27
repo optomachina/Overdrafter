@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium, expect, test, type Page } from "@playwright/test";
@@ -29,6 +29,10 @@ type DraftCall = {
 
 async function readDrafts(page: Page): Promise<DraftCall[]> {
   return page.evaluate(() => window.__assemblyUploadDrafts ?? []);
+}
+
+async function readPickerOpens(page: Page): Promise<number> {
+  return page.evaluate(() => window.__assemblyFilePickerOpens ?? 0);
 }
 
 type UploadChoice = string | { sourcePath: string; name: string };
@@ -125,7 +129,7 @@ test.describe("assembly upload batch", { tag: "@fixture" }, () => {
       const outcome = page.getByRole("status", { name: "Upload result" });
       await expect(outcome).toContainText("Uploaded 2 of 3. 1 didn't finish: baseline-5mm.SLDPRT");
       await expect(page).toHaveURL(/\/projects\/fixture-project-[^/?#]+/);
-      await expect(page.getByText("synthetic-assembly + 1 parts")).toBeVisible();
+      await expect(page.getByRole("heading", { name: "synthetic-assembly + 1 parts" })).toBeVisible();
       const drafts = await readDrafts(page);
       expect(drafts.map((draft) => draft.title)).toEqual([
         "synthetic-assembly",
@@ -137,14 +141,15 @@ test.describe("assembly upload batch", { tag: "@fixture" }, () => {
       expect(projectId.startsWith("fixture-project-")).toBe(true);
       expect(drafts.every((draft) => draft.projectId === projectId)).toBe(true);
 
-      mkdirSync("/opt/cursor/artifacts", { recursive: true });
       await page.screenshot({
-        path: "/opt/cursor/artifacts/assembly-upload-partial.png",
+        path: test.info().outputPath("assembly-upload-partial.png"),
         fullPage: false,
       });
 
       const draftsBeforeRetry = drafts.length;
+      const opensBeforeRetry = await readPickerOpens(page);
       await outcome.getByRole("button", { name: "Add them to this project" }).click();
+      await expect.poll(() => readPickerOpens(page)).toBeGreaterThan(opensBeforeRetry);
       await expect(page).toHaveURL(new RegExp(`/projects/${projectId}`));
       await chooseFiles(page, "Create new job from files", [BASELINE_PATH, CANDIDATE_PATH]);
       await confirmNotControlled(page);
@@ -214,9 +219,8 @@ test.describe("assembly upload batch", { tag: "@fixture" }, () => {
       await expect(banner).toContainText(
         "2 files from your last upload didn't finish: baseline-5mm.SLDPRT, candidate-8mm.SLDPRT",
       );
-      mkdirSync("/opt/cursor/artifacts", { recursive: true });
       await page.screenshot({
-        path: "/opt/cursor/artifacts/assembly-upload-resume.png",
+        path: test.info().outputPath("assembly-upload-resume.png"),
         fullPage: false,
       });
 
@@ -243,5 +247,6 @@ declare global {
       projectId: string | null;
     }>;
     __assemblyUploadHoldAfter?: number;
+    __assemblyFilePickerOpens?: number;
   }
 }

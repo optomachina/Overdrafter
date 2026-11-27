@@ -4,7 +4,7 @@ import { act } from "react";
 import { MemoryRouter, useLocation } from "react-router-dom";
 import { afterEach, describe, expect, it } from "vitest";
 import { UploadResumeBanner } from "./UploadResumeBanner";
-import { beginUploadBatch, resetUploadBatchStoreForTests } from "./upload-batch-store";
+import { beginUploadBatch, readUploadBatchSeal, resetUploadBatchStoreForTests } from "./upload-batch-store";
 import {
   UPLOAD_RESUME_KEY,
   UPLOAD_RESUME_MAX_AGE_MS,
@@ -60,7 +60,7 @@ describe("UploadResumeBanner", () => {
         projectId: "project-9",
         expectedNames: ["a.sldprt", "b.sldprt"],
       });
-      beginUploadBatch({ totalGroups: 2, warnings: [], projectId: "project-9" });
+      beginUploadBatch(readUploadBatchSeal(), { totalGroups: 2, warnings: [], projectId: "project-9" });
     });
 
     renderBanner();

@@ -7,6 +7,7 @@ import type {
 import type { JobFileKind, Json } from "@/integrations/supabase/types";
 import { toast } from "sonner";
 import { buildDraftTitleFromPrompt, getEmptyQuoteFileMessage } from "@/features/quotes/file-validation";
+import { RpcTimeoutError } from "@/features/quotes/api/shared/rpc";
 import { getUserFacingErrorMessage } from "@/lib/error-message";
 import { parseRequestIntake } from "@/features/quotes/request-intake";
 import {
@@ -14,6 +15,7 @@ import {
   clearUploadBatch,
   completeUploadBatch,
   publishUploadBatchProgress,
+  readUploadBatchSeal,
   type UploadBatchResult,
   type UploadGroupFailure,
 } from "@/features/quotes/upload-batch-store";
@@ -182,6 +184,15 @@ function groupFailureReason(error: unknown): string {
   return getUserFacingErrorMessage(error, GROUP_FAILURE_FALLBACK);
 }
 
+/**
+ * Finalize is raced against a client timeout that does not cancel the request.
+ * A timeout means the file may already be stored, so the draft must stay.
+ * A rejected finalize, with nothing stored, is still an empty draft.
+ */
+function finalizeMayHaveStoredFile(error: unknown): boolean {
+  return error instanceof RpcTimeoutError && error.message.includes("api_finalize_job_file_upload");
+}
+
 /** An unfinished draft with no stored file should not stay in the project as a part. */
 async function discardUnfinishedDraft(jobId: string): Promise<void> {
   try {
@@ -261,6 +272,7 @@ export async function createJobsFromUploadFiles(input: {
     return { jobIds: [], projectId: input.projectId ?? null, failed: [], warnings: [] };
   }
 
+  const sealAtStart = readUploadBatchSeal();
   const exportControlAnswer = await resolveCleanExportControlAnswer(input, {
     fileNames: input.files.map((file) => file.name),
     fileSetCount: groups.length,
@@ -281,7 +293,11 @@ export async function createJobsFromUploadFiles(input: {
     });
   }
 
-  beginUploadBatch({ totalGroups: groups.length, warnings, projectId: targetProjectId });
+  const batchId = beginUploadBatch(sealAtStart, {
+    totalGroups: groups.length,
+    warnings,
+    projectId: targetProjectId,
+  });
 
   const expectedNames = groups.flatMap((group) => group.files.map((file) => file.name));
   if (targetProjectId) {
@@ -363,18 +379,20 @@ export async function createJobsFromUploadFiles(input: {
         jobIds.push(draftId);
         succeededGroups.push(group);
       } catch (error) {
-        if (draftId && storedCount === 0) {
+        if (draftId && storedCount === 0 && !finalizeMayHaveStoredFile(error)) {
           await discardUnfinishedDraft(draftId);
         }
         failed.push({ fileNames, reason: groupFailureReason(error) });
       }
 
-      publishUploadBatchProgress({
-        finishedGroups: jobIds.length + failed.length,
-        projectId: targetProjectId,
-        jobIds,
-        failed,
-      });
+      if (batchId !== null) {
+        publishUploadBatchProgress(batchId, {
+          finishedGroups: jobIds.length + failed.length,
+          projectId: targetProjectId,
+          jobIds,
+          failed,
+        });
+      }
       if (targetProjectId) {
         noteUploadResumeProgress(succeededGroups.flatMap((group) => group.files.map((file) => file.name)));
       }
@@ -401,10 +419,14 @@ export async function createJobsFromUploadFiles(input: {
       failed,
       warnings,
     };
-    completeUploadBatch(result);
+    if (batchId !== null) {
+      completeUploadBatch(result, batchId);
+    }
     return result;
   } catch (error) {
-    clearUploadBatch();
+    if (batchId !== null) {
+      clearUploadBatch(batchId);
+    }
     throw error;
   }
 }

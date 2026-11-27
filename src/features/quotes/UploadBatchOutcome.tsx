@@ -60,7 +60,7 @@ export function UploadBatchOutcome() {
           </Button>
         ) : null}
         {snapshot.phase === "complete" ? (
-          <Button type="button" size="sm" variant="ghost" onClick={clearUploadBatch}>
+          <Button type="button" size="sm" variant="ghost" onClick={() => clearUploadBatch()}>
             Dismiss
           </Button>
         ) : null}

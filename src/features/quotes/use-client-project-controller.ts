@@ -692,6 +692,7 @@ export function useClientProjectController() {
     },
   });
 
+  const projectOrganizationId = projectQuery.data?.organization_id ?? null;
   const addPartsIntent = searchParams.get("addParts") === "1";
   const addPartsOpenedRef = useRef(false);
   useEffect(() => {
@@ -699,7 +700,7 @@ export function useClientProjectController() {
       addPartsOpenedRef.current = false;
       return;
     }
-    if (addPartsOpenedRef.current) {
+    if (!projectOrganizationId || addPartsOpenedRef.current) {
       return;
     }
     addPartsOpenedRef.current = true;
@@ -707,7 +708,7 @@ export function useClientProjectController() {
     nextSearchParams.delete("addParts");
     setSearchParams(nextSearchParams, { replace: true });
     void newJobFilePicker.openFilePicker();
-  }, [addPartsIntent, newJobFilePicker, searchParams, setSearchParams]);
+  }, [addPartsIntent, newJobFilePicker, projectOrganizationId, searchParams, setSearchParams]);
 
   const updateProjectMutation = useMutation({
     mutationFn: (name: string) => updateProject({ projectId, name }),

@@ -6,9 +6,12 @@ import { afterEach, describe, expect, it } from "vitest";
 import { UploadBatchOutcome } from "./UploadBatchOutcome";
 import {
   beginUploadBatch,
+  clearUploadBatch,
   completeUploadBatch,
   navigationPathAfterUploadBatch,
+  readUploadBatchSeal,
   pathAfterUploadBatch,
+  getUploadBatchSnapshot,
   publishUploadBatchProgress,
   resetUploadBatchStoreForTests,
   uploadLocationKey,
@@ -50,7 +53,7 @@ describe("UploadBatchOutcome", () => {
     renderOutcome();
 
     expect(screen.getByRole("status", { name: "Upload result" })).toHaveTextContent(
-      "Uploaded 3 of 5. 2 didn't finish: d.SLDPRT, e.SLDPRT",
+      "Uploaded 3 of 5. 2 didn't finish: d.SLDPRT (dropped); e.SLDPRT (dropped)",
     );
     expect(screen.getByText("X.SLDASM and X.STEP share a name and were grouped into one part.")).toBeTruthy();
 
@@ -61,8 +64,12 @@ describe("UploadBatchOutcome", () => {
 
   it("keeps a running batch visible and hides the add action until it finishes", () => {
     act(() => {
-      beginUploadBatch({ totalGroups: 5, warnings: [], projectId: "project-9" });
-      publishUploadBatchProgress({
+      const batchId = beginUploadBatch(readUploadBatchSeal(), {
+        totalGroups: 5,
+        warnings: [],
+        projectId: "project-9",
+      });
+      publishUploadBatchProgress(batchId ?? 0, {
         finishedGroups: 2,
         projectId: "project-9",
         jobIds: ["job-1", "job-2"],
@@ -106,9 +113,58 @@ describe("UploadBatchOutcome", () => {
     renderOutcome();
 
     expect(screen.getByRole("status", { name: "Upload result" })).toHaveTextContent(
-      "Uploaded 0 of 1. 1 didn't finish: a.step",
+      "Uploaded 0 of 1. 1 didn't finish: a.step (dropped)",
     );
     expect(screen.queryByRole("button", { name: "Add them to this project" })).toBeNull();
+  });
+});
+
+describe("upload batch identity", () => {
+  afterEach(() => {
+    resetUploadBatchStoreForTests();
+  });
+
+  it("ignores a batch that finished after a newer one started or the banner was cleared", () => {
+    const first = beginUploadBatch(readUploadBatchSeal(), {
+      totalGroups: 2,
+      warnings: [],
+      projectId: "project-old",
+    });
+    const second = beginUploadBatch(readUploadBatchSeal(), {
+      totalGroups: 1,
+      warnings: [],
+      projectId: "project-new",
+    });
+    expect(first).not.toBeNull();
+    expect(second).not.toBeNull();
+
+    publishUploadBatchProgress(first ?? 0, {
+      finishedGroups: 1,
+      projectId: "project-old",
+      jobIds: ["job-old"],
+      failed: [],
+    });
+    completeUploadBatch({
+      jobIds: ["job-old"],
+      projectId: "project-old",
+      failed: [],
+      warnings: [],
+    }, first ?? 0);
+
+    expect(getUploadBatchSnapshot()).toMatchObject({
+      phase: "running",
+      totalGroups: 1,
+      result: { projectId: "project-new", jobIds: [] },
+    });
+
+    clearUploadBatch();
+    completeUploadBatch({
+      jobIds: ["job-new"],
+      projectId: "project-new",
+      failed: [],
+      warnings: [],
+    }, second ?? 0);
+    expect(getUploadBatchSnapshot()).toBeNull();
   });
 });
 
