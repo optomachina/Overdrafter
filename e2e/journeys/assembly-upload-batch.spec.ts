@@ -77,6 +77,28 @@ async function confirmNotControlled(page: Page) {
   await dialog.getByRole("button", { name: "Continue upload" }).click();
 }
 
+async function answerFixtureOrigin(page: Page) {
+  await page.route("http://127.0.0.1:9/**", (route) => {
+    if (route.request().method() === "OPTIONS") {
+      return route.fulfill({
+        status: 204,
+        headers: {
+          "access-control-allow-origin": "*",
+          "access-control-allow-headers": "*",
+          "access-control-allow-methods": "GET,POST,PATCH,PUT,DELETE,OPTIONS",
+        },
+      });
+    }
+    return route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      headers: { "access-control-allow-origin": "*" },
+      body: "[]",
+    });
+  });
+  await page.routeWebSocket(/127\.0\.0\.1:9/, () => {});
+}
+
 test.describe("assembly upload batch", { tag: "@fixture" }, () => {
   test("finishes the groups after a mid-batch failure and adds the rest to that project", async () => {
     test.setTimeout(180_000);
@@ -88,25 +110,7 @@ test.describe("assembly upload batch", { tag: "@fixture" }, () => {
     page.setDefaultTimeout(20_000);
     page.on("pageerror", (error) => console.log("pageerror", error.message));
 
-    await page.route("http://127.0.0.1:9/**", (route) => {
-      if (route.request().method() === "OPTIONS") {
-        return route.fulfill({
-          status: 204,
-          headers: {
-            "access-control-allow-origin": "*",
-            "access-control-allow-headers": "*",
-            "access-control-allow-methods": "GET,POST,PATCH,PUT,DELETE,OPTIONS",
-          },
-        });
-      }
-      return route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        headers: { "access-control-allow-origin": "*" },
-        body: "[]",
-      });
-    });
-    await page.routeWebSocket(/127\.0\.0\.1:9/, () => {});
+    await answerFixtureOrigin(page);
     await page.addInitScript({
       path: fileURLToPath(new URL("./assembly-upload-fixture.js", import.meta.url)),
     });
@@ -167,25 +171,7 @@ test.describe("assembly upload batch", { tag: "@fixture" }, () => {
       void dialog.accept();
     });
 
-    await page.route("http://127.0.0.1:9/**", (route) => {
-      if (route.request().method() === "OPTIONS") {
-        return route.fulfill({
-          status: 204,
-          headers: {
-            "access-control-allow-origin": "*",
-            "access-control-allow-headers": "*",
-            "access-control-allow-methods": "GET,POST,PATCH,PUT,DELETE,OPTIONS",
-          },
-        });
-      }
-      return route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        headers: { "access-control-allow-origin": "*" },
-        body: "[]",
-      });
-    });
-    await page.routeWebSocket(/127\.0\.0\.1:9/, () => {});
+    await answerFixtureOrigin(page);
     await page.addInitScript(() => {
       window.__assemblyUploadHoldAfter = 3;
     });
