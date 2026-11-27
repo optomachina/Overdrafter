@@ -264,8 +264,10 @@ jobs:
 
   # Three lanes on separate runners. Each lane installs the same browser tooling;
   # only the authenticated lane starts the local Supabase stack.
+  # Pinned to noble: Playwright 1.58.2 has no Chromium build for ubuntu26.04-x64,
+  # and ubuntu-latest now resolves to that image. The unit job is already pinned.
   browser-test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
     strategy:
       fail-fast: false
