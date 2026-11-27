@@ -84,7 +84,7 @@ describe("createJobsFromUploadFiles need-by handling (OVD-992)", () => {
 
       await expect(
         createJobsFromUploadFiles({ files: [stepFile("alpha.step")], prompt, exportControlAnswer: "not_controlled" }),
-      ).resolves.toEqual({ jobIds: ["job-1"], projectId: null });
+      ).resolves.toEqual({ jobIds: ["job-1"], projectId: null, failed: [], warnings: [] });
 
       expect(draftRpcArgs()).toEqual([
         {

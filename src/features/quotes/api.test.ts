@@ -3275,6 +3275,8 @@ describe("quotes api helpers", () => {
     ).resolves.toEqual({
       jobIds: ["job-1", "job-2"],
       projectId: "project-1",
+      failed: [],
+      warnings: [],
     });
 
     expect(supabaseMock.rpc).toHaveBeenNthCalledWith(1, "api_create_project", {

@@ -304,7 +304,7 @@ describe("OVD-723 export-control upload gate", () => {
         createJobsFromUploadFiles({
           files: [createUploadFile("a", "alpha.step"), createUploadFile("b", "beta.step")],
         }),
-      ).resolves.toEqual({ jobIds: ["job-1", "job-2"], projectId: "project-1" });
+      ).resolves.toEqual({ jobIds: ["job-1", "job-2"], projectId: "project-1", failed: [], warnings: [] });
 
       expect(prompter).toHaveBeenCalledTimes(1);
       // The one question names every file and how many parts it covers.

@@ -7,12 +7,31 @@ import type {
 import type { JobFileKind, Json } from "@/integrations/supabase/types";
 import { toast } from "sonner";
 import { buildDraftTitleFromPrompt, getEmptyQuoteFileMessage } from "@/features/quotes/file-validation";
+import { RpcTimeoutError } from "@/features/quotes/api/shared/rpc";
+import { getUserFacingErrorMessage } from "@/lib/error-message";
 import { parseRequestIntake } from "@/features/quotes/request-intake";
-import { buildAutoProjectName, groupUploadFiles } from "@/features/quotes/upload-groups";
+import {
+  beginUploadBatch,
+  clearUploadBatch,
+  completeUploadBatch,
+  publishUploadBatchProgress,
+  readUploadBatchSeal,
+  type UploadBatchResult,
+  type UploadGroupFailure,
+} from "@/features/quotes/upload-batch-store";
+import {
+  buildAutoProjectName,
+  findSameStemCadCollisions,
+  groupUploadFiles,
+  orderUploadBatch,
+  sameStemCadCollisionWarning,
+  type UploadFileGroup,
+} from "@/features/quotes/upload-groups";
 import { callUntypedRpc } from "./shared/rpc";
 import { ensureData } from "./shared/response";
+import { archiveJob } from "./archive-api";
 import { createClientDraft } from "./jobs-api";
-import { createProject } from "./projects-api";
+import { createProject, updateProject } from "./projects-api";
 import { reconcileJobParts, requestExtraction } from "./extraction-api";
 import {
   EXPORT_CONTROL_TERMS_VERSION,
@@ -148,7 +167,35 @@ function isStorageObjectExistsError(error: unknown): boolean {
 export type ExportControlUploadOptions = {
   /** Answer already collected by the caller. When absent, the registered prompt asks. */
   exportControlAnswer?: ExportControlAnswer | null;
+  /** Fired once a file is stored or reused, so a later failure can tell an empty draft from one that has files. */
+  onFileStored?: (fileName: string) => void;
 };
+
+export type { UploadBatchResult, UploadGroupFailure };
+
+const GROUP_FAILURE_FALLBACK = "This part didn't finish uploading.";
+
+function groupFailureReason(error: unknown): string {
+  return getUserFacingErrorMessage(error, GROUP_FAILURE_FALLBACK);
+}
+
+/**
+ * Finalize is raced against a client timeout that does not cancel the request.
+ * A timeout means the file may already be stored, so the draft must stay.
+ * A rejected finalize, with nothing stored, is still an empty draft.
+ */
+function finalizeMayHaveStoredFile(error: unknown): boolean {
+  return error instanceof RpcTimeoutError && error.message.includes("api_finalize_job_file_upload");
+}
+
+/** An unfinished draft with no stored file should not stay in the project as a part. */
+async function discardUnfinishedDraft(jobId: string): Promise<void> {
+  try {
+    await archiveJob(jobId);
+  } catch {
+    // The group is already reported as failed. Cleanup must not stop the next group.
+  }
+}
 
 /**
  * OVD-723: resolves the export-control answer for an upload and stops on
@@ -212,78 +259,159 @@ export async function createJobsFromUploadFiles(input: {
   files: File[];
   prompt?: string;
   projectId?: string | null;
-} & ExportControlUploadOptions): Promise<{ jobIds: string[]; projectId: string | null }> {
-  const groups = groupUploadFiles(input.files);
+} & ExportControlUploadOptions): Promise<UploadBatchResult> {
+  const groups = orderUploadBatch(groupUploadFiles(input.files));
   const requestIntake = parseRequestIntake(input.prompt ?? "");
 
   if (groups.length === 0) {
-    return { jobIds: [], projectId: input.projectId ?? null };
+    return { jobIds: [], projectId: input.projectId ?? null, failed: [], warnings: [] };
   }
 
+  const sealAtStart = readUploadBatchSeal();
   const exportControlAnswer = await resolveCleanExportControlAnswer(input, {
     fileNames: input.files.map((file) => file.name),
     fileSetCount: groups.length,
   });
 
+  const warnings = findSameStemCadCollisions(groups)
+    .map((collision) => sameStemCadCollisionWarning(collision.fileNames))
+    .filter((warning) => warning.length > 0);
+
+  // A multi-part upload from home gets one project. Its name is corrected
+  // after the loop to the groups that actually finished.
+  const ownsProject = !input.projectId && groups.length > 1;
   let targetProjectId = input.projectId ?? null;
 
-  if (!targetProjectId && groups.length > 1) {
+  if (ownsProject) {
     targetProjectId = await createProject({
       name: buildAutoProjectName(input.prompt ?? "", groups),
     });
   }
 
+  const batchId = beginUploadBatch(sealAtStart, {
+    totalGroups: groups.length,
+    warnings,
+    projectId: targetProjectId,
+  });
+
   const jobIds: string[] = [];
+  const failed: UploadGroupFailure[] = [];
+  const succeededGroups: UploadFileGroup[] = [];
 
-  for (const group of groups) {
-    const title = buildDraftTitleFromPrompt("", group.files);
-    const hashedGroupFiles = await hashUploadFiles(group.files);
-    const cadHash = hashedGroupFiles.find(
-      ({ file }) => inferFileKind(file.name) === "cad",
-    )?.contentSha256 ?? null;
-    const drawingHash = hashedGroupFiles.find(
-      ({ file }) => inferFileKind(file.name) === "drawing",
-    )?.contentSha256 ?? null;
+  try {
+    for (const group of groups) {
+      const fileNames = group.files.map((file) => file.name);
+      let draftId: string | null = null;
+      let storedCount = 0;
 
-    if (cadHash) {
-      const prepareResponse = await callUntypedRpc("api_prepare_part_intake", {
-        p_cad_content_sha256: cadHash,
-        p_drawing_content_sha256: drawingHash,
-      });
-      const missingPrepareRpc = prepareResponse.error
-        && String((prepareResponse.error as { message?: unknown }).message ?? "")
-          .toLowerCase()
-          .includes("api_prepare_part_intake");
-      if (prepareResponse.error && !missingPrepareRpc) {
-        throw prepareResponse.error;
+      try {
+        const title = buildDraftTitleFromPrompt("", group.files);
+        const hashedGroupFiles = await hashUploadFiles(group.files);
+        const cadHash = hashedGroupFiles.find(
+          ({ file }) => inferFileKind(file.name) === "cad",
+        )?.contentSha256 ?? null;
+        const drawingHash = hashedGroupFiles.find(
+          ({ file }) => inferFileKind(file.name) === "drawing",
+        )?.contentSha256 ?? null;
+
+        if (cadHash) {
+          const prepareResponse = await callUntypedRpc("api_prepare_part_intake", {
+            p_cad_content_sha256: cadHash,
+            p_drawing_content_sha256: drawingHash,
+          });
+          const missingPrepareRpc = prepareResponse.error
+            && String((prepareResponse.error as { message?: unknown }).message ?? "")
+              .toLowerCase()
+              .includes("api_prepare_part_intake");
+          if (prepareResponse.error && !missingPrepareRpc) {
+            throw prepareResponse.error;
+          }
+          // The browser digest is only a preflight hint. Every package uploads so
+          // the worker can verify the downloaded bytes before assigning or reusing
+          // a canonical version.
+          void prepareResponse.data;
+        }
+
+        draftId = await createClientDraft({
+          title,
+          description: input.prompt?.trim() || undefined,
+          projectId: targetProjectId,
+          tags: [],
+          requestedServiceKinds: requestIntake.requestedServiceKinds,
+          primaryServiceKind: requestIntake.primaryServiceKind,
+          serviceNotes: requestIntake.serviceNotes,
+          requestedQuoteQuantities: requestIntake.requestedQuoteQuantities,
+          // OVD-992: a need-by date parsed from the prompt is a display filter only. Saving it into
+          // jobs.requested_by_date copies it into the approved requirement, which every controlled
+          // dispatch denies. The prompt text itself is still kept as the description.
+        });
+
+        await uploadFilesToJob(draftId, group.files, {
+          exportControlAnswer,
+          onFileStored: () => {
+            storedCount += 1;
+          },
+        });
+
+        // The part exists once its files are stored. Reconcile and extraction
+        // can fail without dropping the job or stopping the next group.
+        try {
+          await reconcileJobParts(draftId);
+        } catch {
+          // Kept in jobIds below.
+        }
+        try {
+          await requestExtraction(draftId);
+        } catch {
+          // Kept in jobIds below.
+        }
+
+        jobIds.push(draftId);
+        succeededGroups.push(group);
+      } catch (error) {
+        if (draftId && storedCount === 0 && !finalizeMayHaveStoredFile(error)) {
+          await discardUnfinishedDraft(draftId);
+        }
+        failed.push({ fileNames, reason: groupFailureReason(error) });
       }
-      // The browser digest is only a preflight hint. Every package uploads so
-      // the worker can verify the downloaded bytes before assigning or reusing
-      // a canonical version.
-      void prepareResponse.data;
+
+      if (batchId !== null) {
+        publishUploadBatchProgress(batchId, {
+          finishedGroups: jobIds.length + failed.length,
+          projectId: targetProjectId,
+          jobIds,
+          failed,
+        });
+      }
     }
 
-    const jobId = await createClientDraft({
-      title,
-      description: input.prompt?.trim() || undefined,
+    if (ownsProject && targetProjectId) {
+      try {
+        await updateProject({
+          projectId: targetProjectId,
+          name: buildAutoProjectName(input.prompt ?? "", succeededGroups),
+        });
+      } catch {
+        // The parts are already in the project. A rename failure is not a group failure.
+      }
+    }
+
+    const result: UploadBatchResult = {
+      jobIds,
       projectId: targetProjectId,
-      tags: [],
-      requestedServiceKinds: requestIntake.requestedServiceKinds,
-      primaryServiceKind: requestIntake.primaryServiceKind,
-      serviceNotes: requestIntake.serviceNotes,
-      requestedQuoteQuantities: requestIntake.requestedQuoteQuantities,
-      // OVD-992: a need-by date parsed from the prompt is a display filter only. Saving it into
-      // jobs.requested_by_date copies it into the approved requirement, which every controlled
-      // dispatch denies. The prompt text itself is still kept as the description.
-    });
-
-    await uploadFilesToJob(jobId, group.files, { exportControlAnswer });
-    await reconcileJobParts(jobId);
-    await requestExtraction(jobId);
-    jobIds.push(jobId);
+      failed,
+      warnings,
+    };
+    if (batchId !== null) {
+      completeUploadBatch(result, batchId);
+    }
+    return result;
+  } catch (error) {
+    if (batchId !== null) {
+      clearUploadBatch(batchId);
+    }
+    throw error;
   }
-
-  return { jobIds, projectId: targetProjectId };
 }
 
 export async function uploadFilesToJob(
@@ -344,6 +472,7 @@ export async function uploadFilesToJob(
 
     if (prepareResult.status === "reused") {
       reusedCount += 1;
+      options.onFileStored?.(file.name);
       continue;
     }
 
@@ -372,6 +501,7 @@ export async function uploadFilesToJob(
     }
 
     uploadedCount += 1;
+    options.onFileStored?.(file.name);
   }
 
   if (reusedCount > 0) {

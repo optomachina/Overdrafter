@@ -47,6 +47,11 @@ import {
 } from "@/features/quotes/api/vendor-preferences-api";
 import { isProjectCollaborationSchemaUnavailable } from "@/features/quotes/api/shared/schema-runtime";
 import { createJobsFromUploadFiles, uploadFilesToJob } from "@/features/quotes/api/uploads-api";
+import { withLocalFixtureContext } from "@/features/quotes/fixture-navigation";
+import {
+  navigationPathAfterUploadBatch,
+  uploadLocationKey,
+} from "@/features/quotes/upload-batch-store";
 import {
   fetchClientActivityEventsByJobIds,
   fetchClientQuoteWorkspaceByJobIds,
@@ -631,19 +636,17 @@ export function useClientProjectController() {
     userId: user?.id,
     onRequireAuth: () => navigate("/?auth=signin"),
     onFilesSelected: async (files) => {
+      const locationAtStart = uploadLocationKey();
       const result = await createJobsFromUploadFiles({
         files,
         projectId,
       });
 
       await invalidateClientWorkspaceQueries(queryClient, { projectId });
-
-      if (result.projectId && result.jobIds.length > 1) {
-        navigate(`/projects/${result.projectId}`);
-        return;
+      const path = navigationPathAfterUploadBatch(result, locationAtStart);
+      if (path) {
+        navigate(withLocalFixtureContext(path));
       }
-
-      navigate(`/parts/${result.jobIds[0]}`);
     },
   });
 
@@ -688,6 +691,24 @@ export function useClientProjectController() {
       }
     },
   });
+
+  const projectOrganizationId = projectQuery.data?.organization_id ?? null;
+  const addPartsIntent = searchParams.get("addParts") === "1";
+  const addPartsOpenedRef = useRef(false);
+  useEffect(() => {
+    if (!addPartsIntent) {
+      addPartsOpenedRef.current = false;
+      return;
+    }
+    if (!projectOrganizationId || addPartsOpenedRef.current) {
+      return;
+    }
+    addPartsOpenedRef.current = true;
+    const nextSearchParams = new URLSearchParams(searchParams);
+    nextSearchParams.delete("addParts");
+    setSearchParams(nextSearchParams, { replace: true });
+    void newJobFilePicker.openFilePicker();
+  }, [addPartsIntent, newJobFilePicker, projectOrganizationId, searchParams, setSearchParams]);
 
   const updateProjectMutation = useMutation({
     mutationFn: (name: string) => updateProject({ projectId, name }),
@@ -1544,6 +1565,7 @@ export function useClientProjectController() {
     files: File[];
     clear: () => void;
   }) => {
+    const locationAtStart = uploadLocationKey();
     const result =
       input.files.length > 0
         ? await createJobsFromUploadFiles({
@@ -1568,18 +1590,16 @@ export function useClientProjectController() {
                 });
               })(),
             ],
+            failed: [],
           };
 
     input.clear();
     setShowAddPart(false);
     await invalidateClientWorkspaceQueries(queryClient, { projectId });
-
-    if (result.projectId && result.jobIds.length > 1) {
-      navigate(`/projects/${result.projectId}`);
-      return;
+    const path = navigationPathAfterUploadBatch(result, locationAtStart);
+    if (path) {
+      navigate(withLocalFixtureContext(path));
     }
-
-    navigate(`/parts/${result.jobIds[0]}`);
   };
 
   const handleInviteProjectMember = async (email: string) => {
