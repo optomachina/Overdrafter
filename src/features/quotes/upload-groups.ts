@@ -200,3 +200,57 @@ export function buildAutoProjectName(_prompt: string, groups: UploadFileGroup[])
     groups.map((group) => (group.files.length === 1 ? buildDraftTitleFromPrompt("", group.files) : group.displayStem)),
   );
 }
+
+const ASSEMBLY_EXTENSIONS = new Set(["sldasm", "asm"]);
+
+export function isAssemblyUploadFile(fileName: string): boolean {
+  const extension = fileName.split(".").pop()?.toLowerCase() ?? "";
+  return ASSEMBLY_EXTENSIONS.has(extension);
+}
+
+/**
+ * Assembly groups go first, and an assembly file goes first inside its group.
+ * A reload or a later failure then leaves the assembly in place ahead of its parts.
+ * Relative order of everything else stays as `groupUploadFiles` staged it.
+ */
+export function orderUploadBatch(groups: UploadFileGroup[]): UploadFileGroup[] {
+  const withAssemblyFirst = groups.map((group) => {
+    const assemblies = group.files.filter((file) => isAssemblyUploadFile(file.name));
+    if (assemblies.length === 0) {
+      return group;
+    }
+    const rest = group.files.filter((file) => !isAssemblyUploadFile(file.name));
+    return { ...group, files: [...assemblies, ...rest] };
+  });
+
+  return [...withAssemblyFirst].sort((left, right) => {
+    const leftAssembly = left.files.some((file) => isAssemblyUploadFile(file.name)) ? 0 : 1;
+    const rightAssembly = right.files.some((file) => isAssemblyUploadFile(file.name)) ? 0 : 1;
+    if (leftAssembly !== rightAssembly) {
+      return leftAssembly - rightAssembly;
+    }
+    return left.displayStem.localeCompare(right.displayStem);
+  });
+}
+
+/** Two or more CAD files in one group share a stem, so they become one part. */
+export function findSameStemCadCollisions(groups: UploadFileGroup[]): Array<{ fileNames: string[] }> {
+  return groups.flatMap((group) => {
+    const cadFiles = group.files.filter((file) => isCadUploadFile(file.name));
+    if (cadFiles.length < 2) {
+      return [];
+    }
+    return [{ fileNames: cadFiles.map((file) => file.name) }];
+  });
+}
+
+export function sameStemCadCollisionWarning(fileNames: readonly string[]): string {
+  if (fileNames.length < 2) {
+    return "";
+  }
+  if (fileNames.length === 2) {
+    return `${fileNames[0]} and ${fileNames[1]} share a name and were grouped into one part.`;
+  }
+  const leading = fileNames.slice(0, -1).join(", ");
+  return `${leading}, and ${fileNames[fileNames.length - 1]} share a name and were grouped into one part.`;
+}

@@ -62,6 +62,10 @@ import {
 } from "@/features/quotes/workspace-navigation";
 import { parseRequestIntake } from "@/features/quotes/request-intake";
 import { buildProjectNameFromLabels } from "@/features/quotes/upload-groups";
+import {
+  navigationPathAfterUploadBatch,
+  uploadLocationKey,
+} from "@/features/quotes/upload-batch-store";
 import { withLocalFixtureContext } from "@/features/quotes/fixture-navigation";
 import { useClientJobFilePicker } from "@/features/quotes/use-client-job-file-picker";
 import { useWorkspaceNavigationModel } from "@/features/quotes/use-workspace-navigation-model";
@@ -290,17 +294,15 @@ export function useClientHomeController({
     onRequireAuth: () => openAuth("signin"),
     onFilesSelected: async (files) => {
       await ensureWorkspaceReady();
+      const locationAtStart = uploadLocationKey();
 
       const result = await createJobsFromUploadFiles({ files });
 
       await invalidateClientWorkspaceQueries(queryClient);
-
-      if (result.projectId && result.jobIds.length > 1) {
-        navigate(withLocalFixtureContext(`/projects/${result.projectId}`));
-        return;
+      const path = navigationPathAfterUploadBatch(result, locationAtStart);
+      if (path) {
+        navigate(withLocalFixtureContext(path));
       }
-
-      navigate(withLocalFixtureContext(`/parts/${result.jobIds[0]}`));
     },
   });
 
@@ -855,6 +857,7 @@ export function useClientHomeController({
     clear: () => void;
   }) => {
     await ensureWorkspaceReady();
+    const locationAtStart = uploadLocationKey();
 
     const result =
       files.length > 0
@@ -876,17 +879,15 @@ export function useClientHomeController({
                 });
               })(),
             ],
+            failed: [],
           };
 
     clear();
     await invalidateClientWorkspaceQueries(queryClient);
-
-    if (result.projectId && result.jobIds.length > 1) {
-      navigate(withLocalFixtureContext(`/projects/${result.projectId}`));
-      return;
+    const path = navigationPathAfterUploadBatch(result, locationAtStart);
+    if (path) {
+      navigate(withLocalFixtureContext(path));
     }
-
-    navigate(withLocalFixtureContext(`/parts/${result.jobIds[0]}`));
   };
 
   const prefetchProject = (projectId: string) => {

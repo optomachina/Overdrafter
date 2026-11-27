@@ -1,11 +1,15 @@
 import { describe, expect, it } from "vitest";
 import {
   buildAutoProjectName,
+  findSameStemCadCollisions,
   findUnpairedUploadFiles,
   groupUploadFiles,
+  isAssemblyUploadFile,
   isCadUploadFile,
   isDrawingUploadFile,
   normalizeUploadStem,
+  orderUploadBatch,
+  sameStemCadCollisionWarning,
 } from "./upload-groups";
 import stemFixtures from "./upload-stem-fixtures.json";
 
@@ -556,5 +560,53 @@ describe("findUnpairedUploadFiles", () => {
         partsWithoutDrawing: ["Деталь 1.step", "Корпус 1.step"],
       });
     });
+  });
+});
+
+describe("assembly-first batch order", () => {
+  it("recognizes SolidWorks and generic assembly extensions", () => {
+    expect(isAssemblyUploadFile("Widget.SLDASM")).toBe(true);
+    expect(isAssemblyUploadFile("widget.asm")).toBe(true);
+    expect(isAssemblyUploadFile("widget.sldprt")).toBe(false);
+    expect(isAssemblyUploadFile("widget.step")).toBe(false);
+  });
+
+  it("puts assembly groups ahead of part groups and assembly files ahead of their siblings", () => {
+    const ordered = orderUploadBatch(groupUploadFiles([
+      makeFile("zeta.step"),
+      makeFile("alpha.SLDPRT"),
+      makeFile("bracket.STEP"),
+      makeFile("bracket.SLDASM"),
+    ]));
+
+    expect(ordered.map((group) => group.files.map((file) => file.name))).toEqual([
+      ["bracket.SLDASM", "bracket.STEP"],
+      ["alpha.SLDPRT"],
+      ["zeta.step"],
+    ]);
+  });
+});
+
+describe("same-stem CAD collisions", () => {
+  it("warns when an assembly and a STEP file share a stem", () => {
+    const groups = groupUploadFiles([
+      makeFile("X.SLDASM"),
+      makeFile("X.STEP"),
+      makeFile("Y.SLDPRT"),
+      makeFile("Y.pdf", "application/pdf"),
+    ]);
+    const collisions = findSameStemCadCollisions(groups);
+
+    expect(collisions).toEqual([{ fileNames: ["X.SLDASM", "X.STEP"] }]);
+    expect(sameStemCadCollisionWarning(collisions[0]!.fileNames)).toBe(
+      "X.SLDASM and X.STEP share a name and were grouped into one part.",
+    );
+  });
+
+  it("does not warn for a part and its drawing", () => {
+    expect(findSameStemCadCollisions(groupUploadFiles([
+      makeFile("bracket.step"),
+      makeFile("bracket.pdf", "application/pdf"),
+    ]))).toEqual([]);
   });
 });
