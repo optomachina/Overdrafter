@@ -8,14 +8,14 @@ select no_plan();
 
 insert into auth.users (id, aud, role, email, email_confirmed_at, raw_app_meta_data)
 values
-  ('a4a40000-0000-4000-8000-000000000001', 'authenticated', 'authenticated', 'pdm-editor@example.test', timezone('utc', now()), '{"provider":"email"}'::jsonb), -- NOSONAR: deterministic fixture identity
-  ('a4a40000-0000-4000-8000-000000000002', 'authenticated', 'authenticated', 'pdm-other@example.test', timezone('utc', now()), '{"provider":"email"}'::jsonb), -- NOSONAR: deterministic fixture identity
-  ('a4a40000-0000-4000-8000-000000000003', 'authenticated', 'authenticated', 'pdm-reader@example.test', timezone('utc', now()), '{"provider":"email"}'::jsonb); -- NOSONAR: deterministic fixture identity
+  ('a4a40000-0000-4000-8000-000000000001', 'authenticated', 'authenticated', 'pdm-editor@example.test', timezone('utc', now()), '{"provider":"email"}'::jsonb),
+  ('a4a40000-0000-4000-8000-000000000002', 'authenticated', 'authenticated', 'pdm-other@example.test', timezone('utc', now()), '{"provider":"email"}'::jsonb),
+  ('a4a40000-0000-4000-8000-000000000003', 'authenticated', 'authenticated', 'pdm-reader@example.test', timezone('utc', now()), '{"provider":"email"}'::jsonb);
 
 insert into public.organizations (id, name, slug)
 values
-  ('a4a40000-0000-4000-8000-000000000010', 'PDM org', 'pdm-org'), -- NOSONAR: deterministic fixture identifier
-  ('a4a40000-0000-4000-8000-000000000011', 'PDM other org', 'pdm-other-org'); -- NOSONAR: deterministic fixture identifier
+  ('a4a40000-0000-4000-8000-000000000010', 'PDM org', 'pdm-org'),
+  ('a4a40000-0000-4000-8000-000000000011', 'PDM other org', 'pdm-other-org');
 
 insert into public.organization_memberships (organization_id, user_id, role)
 values
@@ -29,7 +29,7 @@ values (
   'a4a40000-0000-4000-8000-000000000010',
   'a4a40000-0000-4000-8000-000000000001',
   'PDM project'
-); -- NOSONAR: deterministic fixture identifier
+);
 
 insert into public.project_memberships (project_id, user_id, role)
 values (
@@ -40,13 +40,13 @@ values (
 
 insert into public.jobs (id, organization_id, created_by, title, project_id)
 values
-  ('a4a40000-0000-4000-8000-000000000020', 'a4a40000-0000-4000-8000-000000000010', 'a4a40000-0000-4000-8000-000000000001', 'PDM behavior', 'a4a40000-0000-4000-8000-000000000030'), -- NOSONAR: deterministic fixture identifier
-  ('a4a40000-0000-4000-8000-000000000021', 'a4a40000-0000-4000-8000-000000000010', 'a4a40000-0000-4000-8000-000000000001', 'PDM unscoped', null), -- NOSONAR: deterministic fixture identifier
-  ('a4a40000-0000-4000-8000-000000000022', 'a4a40000-0000-4000-8000-000000000010', 'a4a40000-0000-4000-8000-000000000001', 'PDM backfill A', 'a4a40000-0000-4000-8000-000000000030'), -- NOSONAR: deterministic fixture identifier
-  ('a4a40000-0000-4000-8000-000000000025', 'a4a40000-0000-4000-8000-000000000010', 'a4a40000-0000-4000-8000-000000000001', 'PDM backfill B', 'a4a40000-0000-4000-8000-000000000030'), -- NOSONAR: deterministic fixture identifier
-  ('a4a40000-0000-4000-8000-000000000023', 'a4a40000-0000-4000-8000-000000000010', 'a4a40000-0000-4000-8000-000000000001', 'PDM single quote', 'a4a40000-0000-4000-8000-000000000030'), -- NOSONAR: deterministic fixture identifier
-  ('a4a40000-0000-4000-8000-000000000026', 'a4a40000-0000-4000-8000-000000000010', 'a4a40000-0000-4000-8000-000000000001', 'PDM multi quote', 'a4a40000-0000-4000-8000-000000000030'), -- NOSONAR: deterministic fixture identifier
-  ('a4a40000-0000-4000-8000-000000000027', 'a4a40000-0000-4000-8000-000000000011', 'a4a40000-0000-4000-8000-000000000002', 'PDM other job', null); -- NOSONAR: deterministic fixture identifier
+  ('a4a40000-0000-4000-8000-000000000020', 'a4a40000-0000-4000-8000-000000000010', 'a4a40000-0000-4000-8000-000000000001', 'PDM behavior', 'a4a40000-0000-4000-8000-000000000030'),
+  ('a4a40000-0000-4000-8000-000000000021', 'a4a40000-0000-4000-8000-000000000010', 'a4a40000-0000-4000-8000-000000000001', 'PDM unscoped', null),
+  ('a4a40000-0000-4000-8000-000000000022', 'a4a40000-0000-4000-8000-000000000010', 'a4a40000-0000-4000-8000-000000000001', 'PDM backfill A', 'a4a40000-0000-4000-8000-000000000030'),
+  ('a4a40000-0000-4000-8000-000000000025', 'a4a40000-0000-4000-8000-000000000010', 'a4a40000-0000-4000-8000-000000000001', 'PDM backfill B', 'a4a40000-0000-4000-8000-000000000030'),
+  ('a4a40000-0000-4000-8000-000000000023', 'a4a40000-0000-4000-8000-000000000010', 'a4a40000-0000-4000-8000-000000000001', 'PDM single quote', 'a4a40000-0000-4000-8000-000000000030'),
+  ('a4a40000-0000-4000-8000-000000000026', 'a4a40000-0000-4000-8000-000000000010', 'a4a40000-0000-4000-8000-000000000001', 'PDM multi quote', 'a4a40000-0000-4000-8000-000000000030'),
+  ('a4a40000-0000-4000-8000-000000000027', 'a4a40000-0000-4000-8000-000000000011', 'a4a40000-0000-4000-8000-000000000002', 'PDM other job', null);
 
 insert into public.project_jobs (project_id, job_id, created_by)
 values
@@ -59,25 +59,25 @@ values
 insert into public.job_files (
   id, job_id, organization_id, uploaded_by, storage_path, original_name, normalized_name, file_kind
 ) values
-  ('a4a40000-0000-4000-8000-000000000040', 'a4a40000-0000-4000-8000-000000000020', 'a4a40000-0000-4000-8000-000000000010', 'a4a40000-0000-4000-8000-000000000001', 'pdm/frame.sldprt', 'frame.sldprt', 'frame.sldprt', 'cad'), -- NOSONAR: deterministic fixture identifier
-  ('a4a40000-0000-4000-8000-000000000041', 'a4a40000-0000-4000-8000-000000000022', 'a4a40000-0000-4000-8000-000000000010', 'a4a40000-0000-4000-8000-000000000001', 'pdm/bracket-a.sldprt', 'bracket.sldprt', 'bracket', 'cad'), -- NOSONAR: deterministic fixture identifier
-  ('a4a40000-0000-4000-8000-000000000042', 'a4a40000-0000-4000-8000-000000000022', 'a4a40000-0000-4000-8000-000000000010', 'a4a40000-0000-4000-8000-000000000001', 'pdm/bracket-a.slddrw', 'bracket.slddrw', 'bracket-drawing', 'drawing'), -- NOSONAR: deterministic fixture identifier
-  ('a4a40000-0000-4000-8000-000000000043', 'a4a40000-0000-4000-8000-000000000022', 'a4a40000-0000-4000-8000-000000000010', 'a4a40000-0000-4000-8000-000000000001', 'pdm/loose.sldprt', 'loose.sldprt', 'loose.sldprt', 'cad'), -- NOSONAR: deterministic fixture identifier
-  ('a4a40000-0000-4000-8000-000000000044', 'a4a40000-0000-4000-8000-000000000022', 'a4a40000-0000-4000-8000-000000000010', 'a4a40000-0000-4000-8000-000000000001', 'pdm/dolly.sldasm', 'dolly.SLDASM', 'dolly.sldasm', 'cad'); -- NOSONAR: deterministic fixture identifier
+  ('a4a40000-0000-4000-8000-000000000040', 'a4a40000-0000-4000-8000-000000000020', 'a4a40000-0000-4000-8000-000000000010', 'a4a40000-0000-4000-8000-000000000001', 'pdm/frame.sldprt', 'frame.sldprt', 'frame.sldprt', 'cad'),
+  ('a4a40000-0000-4000-8000-000000000041', 'a4a40000-0000-4000-8000-000000000022', 'a4a40000-0000-4000-8000-000000000010', 'a4a40000-0000-4000-8000-000000000001', 'pdm/bracket-a.sldprt', 'bracket.sldprt', 'bracket', 'cad'),
+  ('a4a40000-0000-4000-8000-000000000042', 'a4a40000-0000-4000-8000-000000000022', 'a4a40000-0000-4000-8000-000000000010', 'a4a40000-0000-4000-8000-000000000001', 'pdm/bracket-a.slddrw', 'bracket.slddrw', 'bracket-drawing', 'drawing'),
+  ('a4a40000-0000-4000-8000-000000000043', 'a4a40000-0000-4000-8000-000000000022', 'a4a40000-0000-4000-8000-000000000010', 'a4a40000-0000-4000-8000-000000000001', 'pdm/loose.sldprt', 'loose.sldprt', 'loose.sldprt', 'cad'),
+  ('a4a40000-0000-4000-8000-000000000044', 'a4a40000-0000-4000-8000-000000000022', 'a4a40000-0000-4000-8000-000000000010', 'a4a40000-0000-4000-8000-000000000001', 'pdm/dolly.sldasm', 'dolly.SLDASM', 'dolly.sldasm', 'cad');
 
 insert into public.parts (id, job_id, organization_id, name, normalized_key, cad_file_id, drawing_file_id, created_at)
 values
-  ('a4a40000-0000-4000-8000-000000000050', 'a4a40000-0000-4000-8000-000000000022', 'a4a40000-0000-4000-8000-000000000010', 'Bracket', 'bracket', 'a4a40000-0000-4000-8000-000000000041', 'a4a40000-0000-4000-8000-000000000042', '2020-01-01 00:00:00+00'), -- NOSONAR: deterministic fixture identifier
-  ('a4a40000-0000-4000-8000-000000000051', 'a4a40000-0000-4000-8000-000000000025', 'a4a40000-0000-4000-8000-000000000010', 'Bracket later', 'bracket', null, null, '2020-02-01 00:00:00+00'), -- NOSONAR: deterministic fixture identifier
-  ('a4a40000-0000-4000-8000-000000000052', 'a4a40000-0000-4000-8000-000000000021', 'a4a40000-0000-4000-8000-000000000010', 'Bracket other job', 'bracket', null, null, '2020-03-01 00:00:00+00'), -- NOSONAR: deterministic fixture identifier
-  ('a4a40000-0000-4000-8000-000000000053', 'a4a40000-0000-4000-8000-000000000023', 'a4a40000-0000-4000-8000-000000000010', 'Pin me', 'pin-me', null, null, '2020-04-01 00:00:00+00'), -- NOSONAR: deterministic fixture identifier
-  ('a4a40000-0000-4000-8000-000000000054', 'a4a40000-0000-4000-8000-000000000026', 'a4a40000-0000-4000-8000-000000000010', 'Left', 'left-plate', null, null, '2020-05-01 00:00:00+00'), -- NOSONAR: deterministic fixture identifier
-  ('a4a40000-0000-4000-8000-000000000055', 'a4a40000-0000-4000-8000-000000000026', 'a4a40000-0000-4000-8000-000000000010', 'Right', 'right-plate', null, null, '2020-05-02 00:00:00+00'); -- NOSONAR: deterministic fixture identifier
+  ('a4a40000-0000-4000-8000-000000000050', 'a4a40000-0000-4000-8000-000000000022', 'a4a40000-0000-4000-8000-000000000010', 'Bracket', 'bracket', 'a4a40000-0000-4000-8000-000000000041', 'a4a40000-0000-4000-8000-000000000042', '2020-01-01 00:00:00+00'),
+  ('a4a40000-0000-4000-8000-000000000051', 'a4a40000-0000-4000-8000-000000000025', 'a4a40000-0000-4000-8000-000000000010', 'Bracket later', 'bracket', null, null, '2020-02-01 00:00:00+00'),
+  ('a4a40000-0000-4000-8000-000000000052', 'a4a40000-0000-4000-8000-000000000021', 'a4a40000-0000-4000-8000-000000000010', 'Bracket other job', 'bracket', null, null, '2020-03-01 00:00:00+00'),
+  ('a4a40000-0000-4000-8000-000000000053', 'a4a40000-0000-4000-8000-000000000023', 'a4a40000-0000-4000-8000-000000000010', 'Pin me', 'pin-me', null, null, '2020-04-01 00:00:00+00'),
+  ('a4a40000-0000-4000-8000-000000000054', 'a4a40000-0000-4000-8000-000000000026', 'a4a40000-0000-4000-8000-000000000010', 'Left', 'left-plate', null, null, '2020-05-01 00:00:00+00'),
+  ('a4a40000-0000-4000-8000-000000000055', 'a4a40000-0000-4000-8000-000000000026', 'a4a40000-0000-4000-8000-000000000010', 'Right', 'right-plate', null, null, '2020-05-02 00:00:00+00');
 
 insert into public.quote_requests (id, organization_id, job_id, requested_by, requested_vendors)
 values
-  ('a4a40000-0000-4000-8000-000000000060', 'a4a40000-0000-4000-8000-000000000010', 'a4a40000-0000-4000-8000-000000000023', 'a4a40000-0000-4000-8000-000000000001', array['xometry']::public.vendor_name[]), -- NOSONAR: deterministic fixture identifier
-  ('a4a40000-0000-4000-8000-000000000061', 'a4a40000-0000-4000-8000-000000000010', 'a4a40000-0000-4000-8000-000000000026', 'a4a40000-0000-4000-8000-000000000001', array['xometry']::public.vendor_name[]); -- NOSONAR: deterministic fixture identifier
+  ('a4a40000-0000-4000-8000-000000000060', 'a4a40000-0000-4000-8000-000000000010', 'a4a40000-0000-4000-8000-000000000023', 'a4a40000-0000-4000-8000-000000000001', array['xometry']::public.vendor_name[]),
+  ('a4a40000-0000-4000-8000-000000000061', 'a4a40000-0000-4000-8000-000000000010', 'a4a40000-0000-4000-8000-000000000026', 'a4a40000-0000-4000-8000-000000000001', array['xometry']::public.vendor_name[]);
 
 insert into public.quote_runs (id, job_id, organization_id, initiated_by, quote_request_id)
 values (
@@ -86,7 +86,7 @@ values (
   'a4a40000-0000-4000-8000-000000000010',
   'a4a40000-0000-4000-8000-000000000001',
   'a4a40000-0000-4000-8000-000000000061'
-); -- NOSONAR: deterministic fixture identifier
+);
 
 insert into public.quote_request_lanes (
   id, organization_id, quote_request_id, quote_run_id, part_id, vendor, requested_quantity,
@@ -101,7 +101,7 @@ insert into public.quote_request_lanes (
   1,
   'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
   '{}'::jsonb
-); -- NOSONAR: deterministic fixture identifier
+);
 
 -- Version numbers are assigned. A matching part number stays one item.
 select public.pdm_record_upload(
@@ -699,42 +699,42 @@ reset role;
 
 -- deny: other_user public.items
 set local role authenticated;
-select set_config('request.jwt.claims', '{"sub":"a4a40000-0000-4000-8000-000000000002","role":"authenticated","aal":"aal1"}', true); -- NOSONAR: deterministic fixture identity
+select set_config('request.jwt.claims', '{"sub":"a4a40000-0000-4000-8000-000000000002","role":"authenticated","aal":"aal1"}', true);
 select is_empty($$select id from public.items$$, 'another organization sees no items');
 reset role;
 -- end deny
 
 -- deny: other_user public.item_versions
 set local role authenticated;
-select set_config('request.jwt.claims', '{"sub":"a4a40000-0000-4000-8000-000000000002","role":"authenticated","aal":"aal1"}', true); -- NOSONAR: deterministic fixture identity
+select set_config('request.jwt.claims', '{"sub":"a4a40000-0000-4000-8000-000000000002","role":"authenticated","aal":"aal1"}', true);
 select is_empty($$select id from public.item_versions$$, 'another organization sees no versions');
 reset role;
 -- end deny
 
 -- deny: other_user public.item_revisions
 set local role authenticated;
-select set_config('request.jwt.claims', '{"sub":"a4a40000-0000-4000-8000-000000000002","role":"authenticated","aal":"aal1"}', true); -- NOSONAR: deterministic fixture identity
+select set_config('request.jwt.claims', '{"sub":"a4a40000-0000-4000-8000-000000000002","role":"authenticated","aal":"aal1"}', true);
 select is_empty($$select id from public.item_revisions$$, 'another organization sees no revisions');
 reset role;
 -- end deny
 
 -- deny: other_user public.assembly_bom_lines
 set local role authenticated;
-select set_config('request.jwt.claims', '{"sub":"a4a40000-0000-4000-8000-000000000002","role":"authenticated","aal":"aal1"}', true); -- NOSONAR: deterministic fixture identity
+select set_config('request.jwt.claims', '{"sub":"a4a40000-0000-4000-8000-000000000002","role":"authenticated","aal":"aal1"}', true);
 select is_empty($$select id from public.assembly_bom_lines$$, 'another organization sees no BOM lines');
 reset role;
 -- end deny
 
 -- deny: other_user public.item_shares
 set local role authenticated;
-select set_config('request.jwt.claims', '{"sub":"a4a40000-0000-4000-8000-000000000002","role":"authenticated","aal":"aal1"}', true); -- NOSONAR: deterministic fixture identity
+select set_config('request.jwt.claims', '{"sub":"a4a40000-0000-4000-8000-000000000002","role":"authenticated","aal":"aal1"}', true);
 select is_empty($$select id from public.item_shares$$, 'another organization sees no shares');
 reset role;
 -- end deny
 
 -- deny: role_boundary public.items
 set local role authenticated;
-select set_config('request.jwt.claims', '{"sub":"a4a40000-0000-4000-8000-000000000003","role":"authenticated","aal":"aal1"}', true); -- NOSONAR: deterministic fixture identity
+select set_config('request.jwt.claims', '{"sub":"a4a40000-0000-4000-8000-000000000003","role":"authenticated","aal":"aal1"}', true);
 select throws_ok(
   $$select public.pdm_record_upload(
     'a4a40000-0000-4000-8000-000000000010',
@@ -751,7 +751,7 @@ reset role;
 
 -- deny: role_boundary public.item_versions
 set local role authenticated;
-select set_config('request.jwt.claims', '{"sub":"a4a40000-0000-4000-8000-000000000003","role":"authenticated","aal":"aal1"}', true); -- NOSONAR: deterministic fixture identity
+select set_config('request.jwt.claims', '{"sub":"a4a40000-0000-4000-8000-000000000003","role":"authenticated","aal":"aal1"}', true);
 select is(
   (select count(*)::integer from public.item_versions where state = 'released' and organization_id <> 'a4a40000-0000-4000-8000-000000000010'),
   0,
@@ -762,7 +762,7 @@ reset role;
 
 -- deny: role_boundary public.item_revisions
 set local role authenticated;
-select set_config('request.jwt.claims', '{"sub":"a4a40000-0000-4000-8000-000000000003","role":"authenticated","aal":"aal1"}', true); -- NOSONAR: deterministic fixture identity
+select set_config('request.jwt.claims', '{"sub":"a4a40000-0000-4000-8000-000000000003","role":"authenticated","aal":"aal1"}', true);
 select is(
   (select count(*)::integer from public.item_revisions where organization_id <> 'a4a40000-0000-4000-8000-000000000010'),
   0,
@@ -773,7 +773,7 @@ reset role;
 
 -- deny: role_boundary public.assembly_bom_lines
 set local role authenticated;
-select set_config('request.jwt.claims', '{"sub":"a4a40000-0000-4000-8000-000000000003","role":"authenticated","aal":"aal1"}', true); -- NOSONAR: deterministic fixture identity
+select set_config('request.jwt.claims', '{"sub":"a4a40000-0000-4000-8000-000000000003","role":"authenticated","aal":"aal1"}', true);
 select is(
   (select count(*)::integer from public.assembly_bom_lines where organization_id <> 'a4a40000-0000-4000-8000-000000000010'),
   0,
@@ -784,7 +784,7 @@ reset role;
 
 -- deny: role_boundary public.item_shares
 set local role authenticated;
-select set_config('request.jwt.claims', '{"sub":"a4a40000-0000-4000-8000-000000000003","role":"authenticated","aal":"aal1"}', true); -- NOSONAR: deterministic fixture identity
+select set_config('request.jwt.claims', '{"sub":"a4a40000-0000-4000-8000-000000000003","role":"authenticated","aal":"aal1"}', true);
 select is(
   (select count(*)::integer from public.item_shares where organization_id <> 'a4a40000-0000-4000-8000-000000000010'),
   0,
@@ -794,7 +794,7 @@ reset role;
 -- end deny
 
 set local role authenticated;
-select set_config('request.jwt.claims', '{"sub":"a4a40000-0000-4000-8000-000000000001","role":"authenticated","aal":"aal1"}', true); -- NOSONAR: deterministic fixture identity
+select set_config('request.jwt.claims', '{"sub":"a4a40000-0000-4000-8000-000000000001","role":"authenticated","aal":"aal1"}', true);
 select ok(
   (select count(*) > 0 from public.items),
   'the job editor can read the organization items'
@@ -811,7 +811,7 @@ select lives_ok(
 reset role;
 
 set local role authenticated;
-select set_config('request.jwt.claims', '{"sub":"a4a40000-0000-4000-8000-000000000003","role":"authenticated","aal":"aal1"}', true); -- NOSONAR: deterministic fixture identity
+select set_config('request.jwt.claims', '{"sub":"a4a40000-0000-4000-8000-000000000003","role":"authenticated","aal":"aal1"}', true);
 select ok(
   (select count(*) > 0 from public.items),
   'another member of the same organization can read items'
@@ -825,7 +825,7 @@ to authenticated
 using (true)
 with check (true);
 set local role authenticated;
-select set_config('request.jwt.claims', '{"sub":"a4a40000-0000-4000-8000-000000000003","role":"authenticated","aal":"aal1"}', true); -- NOSONAR: deterministic fixture identity
+select set_config('request.jwt.claims', '{"sub":"a4a40000-0000-4000-8000-000000000003","role":"authenticated","aal":"aal1"}', true);
 select throws_ok(
   $$update public.quote_requests set free_quote_unlimited = true where id = 'a4a40000-0000-4000-8000-000000000060'$$,
   'P0001',

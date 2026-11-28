@@ -41,6 +41,7 @@ export const detail: PartDetailAggregate = {
   part: {
     id: ID.part, job_id: ID.job, organization_id: ID.organization, name: "Synthetic quote bracket",
     normalized_key: "synthetic-quote-bracket", cad_file_id: "synthetic-cad-metadata", drawing_file_id: null,
+    pdm_item_id: null, pdm_item_version_id: null,
     quantity: 1, created_at: timestamp, updated_at: timestamp, extraction: null,
     drawingFile: null, clientRequirement: null, clientExtraction: null, vendorQuotes: [],
     cadFile: {
