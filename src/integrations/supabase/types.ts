@@ -115,6 +115,67 @@ export type Database = {
           },
         ]
       }
+      assembly_bom_lines: {
+        Row: {
+          assembly_item_version_id: string
+          child_item_version_id: string
+          configuration_name: string | null
+          created_at: string
+          id: string
+          instance_path: string
+          is_bought_part: boolean
+          organization_id: string
+          quantity: number
+          transform: Json | null
+        }
+        Insert: {
+          assembly_item_version_id: string
+          child_item_version_id: string
+          configuration_name?: string | null
+          created_at?: string
+          id?: string
+          instance_path: string
+          is_bought_part?: boolean
+          organization_id: string
+          quantity: number
+          transform?: Json | null
+        }
+        Update: {
+          assembly_item_version_id?: string
+          child_item_version_id?: string
+          configuration_name?: string | null
+          created_at?: string
+          id?: string
+          instance_path?: string
+          is_bought_part?: boolean
+          organization_id?: string
+          quantity?: number
+          transform?: Json | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "assembly_bom_lines_assembly_item_version_id_fkey"
+            columns: ["assembly_item_version_id"]
+            isOneToOne: false
+            referencedRelation: "item_versions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "assembly_bom_lines_child_item_version_id_fkey"
+            columns: ["child_item_version_id"]
+            isOneToOne: false
+            referencedRelation: "item_versions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "assembly_bom_lines_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       audit_events: {
         Row: {
           actor_user_id: string | null
@@ -1631,6 +1692,280 @@ export type Database = {
           },
         ]
       }
+      item_revisions: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          id: string
+          item_id: string
+          item_version_id: string
+          label: string
+          organization_id: string
+          scheme: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          item_id: string
+          item_version_id: string
+          label: string
+          organization_id: string
+          scheme: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          item_id?: string
+          item_version_id?: string
+          label?: string
+          organization_id?: string
+          scheme?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "item_revisions_item_id_fkey"
+            columns: ["item_id"]
+            isOneToOne: false
+            referencedRelation: "items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "item_revisions_item_version_id_fkey"
+            columns: ["item_version_id"]
+            isOneToOne: false
+            referencedRelation: "item_versions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "item_revisions_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      item_shares: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          id: string
+          item_id: string
+          mode: string
+          organization_id: string
+          pinned_item_version_id: string | null
+          project_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          item_id: string
+          mode: string
+          organization_id: string
+          pinned_item_version_id?: string | null
+          project_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          item_id?: string
+          mode?: string
+          organization_id?: string
+          pinned_item_version_id?: string | null
+          project_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "item_shares_item_id_fkey"
+            columns: ["item_id"]
+            isOneToOne: false
+            referencedRelation: "items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "item_shares_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "item_shares_pinned_item_version_id_fkey"
+            columns: ["pinned_item_version_id"]
+            isOneToOne: false
+            referencedRelation: "item_versions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "item_shares_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      item_versions: {
+        Row: {
+          comment: string | null
+          configuration_name: string | null
+          content_sha256: string | null
+          created_at: string
+          created_by: string | null
+          drawing_file_id: string | null
+          id: string
+          item_id: string
+          job_file_id: string | null
+          organization_id: string
+          source_part_id: string | null
+          state: string
+          updated_at: string
+          version_number: number
+        }
+        Insert: {
+          comment?: string | null
+          configuration_name?: string | null
+          content_sha256?: string | null
+          created_at?: string
+          created_by?: string | null
+          drawing_file_id?: string | null
+          id?: string
+          item_id: string
+          job_file_id?: string | null
+          organization_id: string
+          source_part_id?: string | null
+          state?: string
+          updated_at?: string
+          version_number: number
+        }
+        Update: {
+          comment?: string | null
+          configuration_name?: string | null
+          content_sha256?: string | null
+          created_at?: string
+          created_by?: string | null
+          drawing_file_id?: string | null
+          id?: string
+          item_id?: string
+          job_file_id?: string | null
+          organization_id?: string
+          source_part_id?: string | null
+          state?: string
+          updated_at?: string
+          version_number?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "item_versions_drawing_file_id_fkey"
+            columns: ["drawing_file_id"]
+            isOneToOne: false
+            referencedRelation: "job_files"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "item_versions_item_id_fkey"
+            columns: ["item_id"]
+            isOneToOne: false
+            referencedRelation: "items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "item_versions_job_file_id_fkey"
+            columns: ["job_file_id"]
+            isOneToOne: false
+            referencedRelation: "job_files"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "item_versions_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "item_versions_source_part_id_fkey"
+            columns: ["source_part_id"]
+            isOneToOne: true
+            referencedRelation: "parts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      items: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          display_name: string
+          filename: string | null
+          id: string
+          identity_key: string
+          job_id: string | null
+          kind: string
+          organization_id: string
+          part_number: string | null
+          project_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          display_name: string
+          filename?: string | null
+          id?: string
+          identity_key: string
+          job_id?: string | null
+          kind: string
+          organization_id: string
+          part_number?: string | null
+          project_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          display_name?: string
+          filename?: string | null
+          id?: string
+          identity_key?: string
+          job_id?: string | null
+          kind?: string
+          organization_id?: string
+          part_number?: string | null
+          project_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "items_job_id_fkey"
+            columns: ["job_id"]
+            isOneToOne: false
+            referencedRelation: "jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "items_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "items_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       job_files: {
         Row: {
           blob_id: string | null
@@ -2106,6 +2441,8 @@ export type Database = {
           normalized_key: string
           organization_id: string
           part_version_id: string | null
+          pdm_item_id: string | null
+          pdm_item_version_id: string | null
           quantity: number
           updated_at: string
         }
@@ -2119,6 +2456,8 @@ export type Database = {
           normalized_key: string
           organization_id: string
           part_version_id?: string | null
+          pdm_item_id?: string | null
+          pdm_item_version_id?: string | null
           quantity?: number
           updated_at?: string
         }
@@ -2132,6 +2471,8 @@ export type Database = {
           normalized_key?: string
           organization_id?: string
           part_version_id?: string | null
+          pdm_item_id?: string | null
+          pdm_item_version_id?: string | null
           quantity?: number
           updated_at?: string
         }
@@ -2169,6 +2510,20 @@ export type Database = {
             columns: ["part_version_id"]
             isOneToOne: false
             referencedRelation: "part_versions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "parts_pdm_item_id_fkey"
+            columns: ["pdm_item_id"]
+            isOneToOne: false
+            referencedRelation: "items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "parts_pdm_item_version_id_fkey"
+            columns: ["pdm_item_version_id"]
+            isOneToOne: false
+            referencedRelation: "item_versions"
             referencedColumns: ["id"]
           },
         ]
@@ -2656,6 +3011,7 @@ export type Database = {
           cooldown_released_by_offer_id: string | null
           created_at: string
           id: string
+          item_version_id: string | null
           organization_id: string
           part_id: string
           quote_request_id: string
@@ -2672,6 +3028,7 @@ export type Database = {
           cooldown_released_by_offer_id?: string | null
           created_at?: string
           id?: string
+          item_version_id?: string | null
           organization_id: string
           part_id: string
           quote_request_id: string
@@ -2688,6 +3045,7 @@ export type Database = {
           cooldown_released_by_offer_id?: string | null
           created_at?: string
           id?: string
+          item_version_id?: string | null
           organization_id?: string
           part_id?: string
           quote_request_id?: string
@@ -2705,6 +3063,13 @@ export type Database = {
             columns: ["cooldown_released_by_offer_id"]
             isOneToOne: false
             referencedRelation: "vendor_quote_offers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quote_request_lanes_item_version_id_fkey"
+            columns: ["item_version_id"]
+            isOneToOne: false
+            referencedRelation: "item_versions"
             referencedColumns: ["id"]
           },
           {
@@ -2750,7 +3115,10 @@ export type Database = {
           created_at: string
           failed_at: string | null
           failure_reason: string | null
+          free_quote_item_id: string | null
+          free_quote_unlimited: boolean
           id: string
+          item_version_id: string | null
           job_id: string
           organization_id: string
           received_at: string | null
@@ -2766,7 +3134,10 @@ export type Database = {
           created_at?: string
           failed_at?: string | null
           failure_reason?: string | null
+          free_quote_item_id?: string | null
+          free_quote_unlimited?: boolean
           id?: string
+          item_version_id?: string | null
           job_id: string
           organization_id: string
           received_at?: string | null
@@ -2782,7 +3153,10 @@ export type Database = {
           created_at?: string
           failed_at?: string | null
           failure_reason?: string | null
+          free_quote_item_id?: string | null
+          free_quote_unlimited?: boolean
           id?: string
+          item_version_id?: string | null
           job_id?: string
           organization_id?: string
           received_at?: string | null
@@ -2794,6 +3168,20 @@ export type Database = {
           updated_at?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "quote_requests_free_quote_item_id_fkey"
+            columns: ["free_quote_item_id"]
+            isOneToOne: false
+            referencedRelation: "items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quote_requests_item_version_id_fkey"
+            columns: ["item_version_id"]
+            isOneToOne: false
+            referencedRelation: "item_versions"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "quote_requests_job_id_fkey"
             columns: ["job_id"]
@@ -5328,6 +5716,74 @@ export type Database = {
       normalize_vendor_name_array: {
         Args: { p_vendors: Database["public"]["Enums"]["vendor_name"][] }
         Returns: Database["public"]["Enums"]["vendor_name"][]
+      }
+      pdm_apply_prerelease_revision: {
+        Args: { p_created_by: string; p_version_id: string }
+        Returns: string
+      }
+      pdm_backfill_legacy_placements: { Args: never; Returns: Json }
+      pdm_identity_key: {
+        Args: { p_filename: string; p_part_number: string }
+        Returns: string
+      }
+      pdm_item_editable: {
+        Args: {
+          p_job_id: string
+          p_organization_id: string
+          p_project_id: string
+        }
+        Returns: boolean
+      }
+      pdm_item_readable: {
+        Args: {
+          p_job_id: string
+          p_organization_id: string
+          p_project_id: string
+        }
+        Returns: boolean
+      }
+      pdm_next_revision_label: {
+        Args: { p_item_id: string; p_scheme: string }
+        Returns: string
+      }
+      pdm_record_upload: {
+        Args: {
+          p_comment: string
+          p_created_by: string
+          p_display_name: string
+          p_filename: string
+          p_job_file_id: string
+          p_job_id: string
+          p_kind: string
+          p_organization_id: string
+          p_part_number: string
+          p_project_id: string
+        }
+        Returns: string
+      }
+      pdm_release_item_version: {
+        Args: { p_created_by: string; p_version_id: string }
+        Returns: string
+      }
+      pdm_released_assembly_unreleased_children: {
+        Args: { p_assembly_version_id: string }
+        Returns: {
+          bom_line_id: string
+          child_item_version_id: string
+          child_state: string
+        }[]
+      }
+      pdm_resolve_share_version: {
+        Args: { p_share_id: string }
+        Returns: string
+      }
+      pdm_version_writable: {
+        Args: {
+          p_item_id: string
+          p_job_file_id: string
+          p_organization_id: string
+        }
+        Returns: boolean
       }
       reconcile_vendor_quote_offers: {
         Args: {
