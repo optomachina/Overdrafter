@@ -723,6 +723,8 @@ function createPartAggregate(input: {
       normalized_key: input.stem,
       cad_file_id: cadFile.id,
       drawing_file_id: drawingFile.id,
+      pdm_item_id: null,
+      pdm_item_version_id: null,
       quantity: input.quantity,
       created_at: FIXTURE_TIMESTAMP,
       updated_at: FIXTURE_TIMESTAMP,

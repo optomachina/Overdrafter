@@ -105,6 +105,8 @@ function makePart(overrides: Partial<PartAggregate> = {}): PartAggregate {
     normalized_key: "bracket",
     cad_file_id: "cad-1",
     drawing_file_id: null,
+    pdm_item_id: null,
+    pdm_item_version_id: null,
     quantity: 10,
     created_at: "2026-03-07T16:00:00.000Z",
     updated_at: "2026-03-07T16:00:00.000Z",

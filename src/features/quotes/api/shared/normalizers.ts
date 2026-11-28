@@ -151,6 +151,8 @@ export function buildClientPartAggregateFromMetadata(input: {
     normalized_key: normalizeUploadStem(normalizedKeySource),
     cad_file_id: cadFile?.id ?? null,
     drawing_file_id: drawingFile?.id ?? null,
+    pdm_item_id: null,
+    pdm_item_version_id: null,
     quantity: input.metadata.requirement.quantity,
     created_at: input.job.created_at,
     updated_at: input.metadata.extraction.updatedAt ?? input.job.updated_at,

@@ -207,6 +207,8 @@ const MANUAL_QUOTE_PARTS: PartAggregate[] = [
     normalized_key: QUOTED_SAMPLE_PART.normalizedKey,
     cad_file_id: null,
     drawing_file_id: null,
+    pdm_item_id: null,
+    pdm_item_version_id: null,
     quantity: QUOTED_SAMPLE_PART.quantity,
     created_at: "2026-03-16T09:00:00.000Z",
     updated_at: "2026-03-16T09:00:00.000Z",
