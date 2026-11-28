@@ -1403,14 +1403,14 @@ revoke all on function public.pdm_identity_key(text, text) from public, anon;
 revoke all on function public.pdm_item_readable(uuid, uuid, uuid) from public, anon;
 revoke all on function public.pdm_item_editable(uuid, uuid, uuid) from public, anon;
 revoke all on function public.pdm_version_writable(uuid, uuid, uuid) from public, anon;
-revoke all on function public.pdm_guard_item_scope() from public, anon;
-revoke all on function public.pdm_assert_version_files(uuid, uuid, uuid, uuid) from public, anon;
-revoke all on function public.pdm_assign_version_number() from public, anon;
-revoke all on function public.pdm_guard_version_mutation() from public, anon;
-revoke all on function public.pdm_guard_revision_mutation() from public, anon;
-revoke all on function public.pdm_guard_bom_mutation() from public, anon;
-revoke all on function public.pdm_guard_released_file() from public, anon;
-revoke all on function public.pdm_guard_share_pin() from public, anon;
+revoke all on function public.pdm_guard_item_scope() from public, anon, authenticated;
+revoke all on function public.pdm_assert_version_files(uuid, uuid, uuid, uuid) from public, anon, authenticated;
+revoke all on function public.pdm_assign_version_number() from public, anon, authenticated;
+revoke all on function public.pdm_guard_version_mutation() from public, anon, authenticated;
+revoke all on function public.pdm_guard_revision_mutation() from public, anon, authenticated;
+revoke all on function public.pdm_guard_bom_mutation() from public, anon, authenticated;
+revoke all on function public.pdm_guard_released_file() from public, anon, authenticated;
+revoke all on function public.pdm_guard_share_pin() from public, anon, authenticated;
 revoke all on function public.pdm_guard_quote_pin() from public, anon;
 revoke all on function public.pdm_guard_lane_pin() from public, anon;
 revoke all on function public.pdm_next_revision_label(uuid, text) from public, anon;
@@ -1425,14 +1425,14 @@ grant execute on function public.pdm_identity_key(text, text) to authenticated, 
 grant execute on function public.pdm_item_readable(uuid, uuid, uuid) to authenticated, service_role;
 grant execute on function public.pdm_item_editable(uuid, uuid, uuid) to authenticated, service_role;
 grant execute on function public.pdm_version_writable(uuid, uuid, uuid) to authenticated, service_role;
-grant execute on function public.pdm_guard_item_scope() to authenticated, service_role;
-grant execute on function public.pdm_assert_version_files(uuid, uuid, uuid, uuid) to authenticated, service_role;
-grant execute on function public.pdm_assign_version_number() to authenticated, service_role;
-grant execute on function public.pdm_guard_version_mutation() to authenticated, service_role;
-grant execute on function public.pdm_guard_revision_mutation() to authenticated, service_role;
-grant execute on function public.pdm_guard_bom_mutation() to authenticated, service_role;
-grant execute on function public.pdm_guard_released_file() to authenticated, service_role;
-grant execute on function public.pdm_guard_share_pin() to authenticated, service_role;
+grant execute on function public.pdm_guard_item_scope() to service_role;
+grant execute on function public.pdm_assert_version_files(uuid, uuid, uuid, uuid) to service_role;
+grant execute on function public.pdm_assign_version_number() to service_role;
+grant execute on function public.pdm_guard_version_mutation() to service_role;
+grant execute on function public.pdm_guard_revision_mutation() to service_role;
+grant execute on function public.pdm_guard_bom_mutation() to service_role;
+grant execute on function public.pdm_guard_released_file() to service_role;
+grant execute on function public.pdm_guard_share_pin() to service_role;
 grant execute on function public.pdm_guard_quote_pin() to authenticated, service_role;
 grant execute on function public.pdm_guard_lane_pin() to authenticated, service_role;
 grant execute on function public.pdm_next_revision_label(uuid, text) to authenticated, service_role;
@@ -1748,10 +1748,10 @@ begin
 end;
 $$;
 
-revoke all on function public.pdm_delete_unlocked_item(uuid) from public, anon;
-revoke all on function public.pdm_guard_scope_delete() from public, anon;
-grant execute on function public.pdm_delete_unlocked_item(uuid) to authenticated, service_role;
-grant execute on function public.pdm_guard_scope_delete() to authenticated, service_role;
+revoke all on function public.pdm_delete_unlocked_item(uuid) from public, anon, authenticated;
+revoke all on function public.pdm_guard_scope_delete() from public, anon, authenticated;
+grant execute on function public.pdm_delete_unlocked_item(uuid) to service_role;
+grant execute on function public.pdm_guard_scope_delete() to service_role;
 
 create trigger pdm_guard_job_delete
 before delete on public.jobs
