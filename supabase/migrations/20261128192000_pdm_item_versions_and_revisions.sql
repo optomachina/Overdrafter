@@ -76,8 +76,12 @@ create table public.item_revisions (
   created_at timestamptz not null default timezone('utc', now()),
   constraint item_revisions_scheme_check check (scheme in ('numeric', 'alpha')),
   constraint item_revisions_label_check check (
-    (scheme = 'numeric' and label ~ '^[0-9]{2,}$')
-    or (scheme = 'alpha' and label ~ '^[ABCDEFGHJKLMNPRTUWY]$')
+    (
+      scheme = 'numeric'
+      and label ~ '^[0-9]{2,10}$'
+      and case when label ~ '^[0-9]{1,10}$' then label::numeric else null end between 1 and 2147483646
+    )
+    or (scheme = 'alpha' and label ~ '^[ABCDEFGHJKLMNPRTUVWY]$')
   ),
   unique (item_id, label),
   unique (item_version_id, scheme)
@@ -197,7 +201,10 @@ immutable
 set search_path = ''
 as $$
   select nullif(
-    lower(btrim(coalesce(nullif(btrim(p_part_number), ''), nullif(btrim(p_filename), '')))),
+    lower(btrim(coalesce(
+      nullif(btrim(p_part_number), ''),
+      nullif(public.normalize_file_basename(p_filename), '')
+    ))),
     ''
   );
 $$;
@@ -232,8 +239,26 @@ security definer
 set search_path = ''
 as $$
   select auth.uid() is not null and (
-    (p_job_id is not null and public.user_can_edit_job(p_job_id))
-    or (p_project_id is not null and public.user_can_edit_project(p_project_id))
+    (p_project_id is not null and public.user_can_edit_project(p_project_id))
+    or (
+      p_job_id is not null
+      and public.user_can_edit_job(p_job_id)
+      and (
+        p_project_id is null
+        or exists (
+          select 1
+          from public.project_jobs project_job
+          where project_job.project_id = p_project_id
+            and project_job.job_id = p_job_id
+        )
+        or exists (
+          select 1
+          from public.jobs job
+          where job.id = p_job_id
+            and job.project_id = p_project_id
+        )
+      )
+    )
   );
 $$;
 
@@ -329,6 +354,23 @@ begin
     end if;
   end if;
 
+  if new.project_id is not null and new.job_id is not null
+    and not exists (
+      select 1
+      from public.project_jobs project_job
+      where project_job.project_id = new.project_id
+        and project_job.job_id = new.job_id
+    )
+    and not exists (
+      select 1
+      from public.jobs job
+      where job.id = new.job_id
+        and job.project_id = new.project_id
+    )
+  then
+    raise exception 'pdm_item_job_not_in_project' using errcode = 'P0001';
+  end if;
+
   if tg_op = 'UPDATE' then
     new.updated_at := timezone('utc', now());
   end if;
@@ -339,6 +381,64 @@ $$;
 create trigger pdm_guard_item_scope
 before insert or update on public.items
 for each row execute function public.pdm_guard_item_scope();
+
+create or replace function public.pdm_assert_version_files(
+  p_item_id uuid,
+  p_organization_id uuid,
+  p_job_file_id uuid,
+  p_drawing_file_id uuid
+)
+returns void
+language plpgsql
+stable
+security definer
+set search_path = ''
+as $$
+declare
+  v_item public.items%rowtype;
+  v_file public.job_files%rowtype;
+  v_file_id uuid;
+begin
+  select item.* into v_item
+  from public.items item
+  where item.id = p_item_id;
+  if v_item.id is null or v_item.organization_id is distinct from p_organization_id then
+    raise exception 'pdm_version_organization_mismatch' using errcode = 'P0001';
+  end if;
+
+  foreach v_file_id in array array[p_job_file_id, p_drawing_file_id] loop
+    if v_file_id is null then
+      continue;
+    end if;
+    select file.* into v_file
+    from public.job_files file
+    where file.id = v_file_id;
+    if v_file.id is null or v_file.organization_id is distinct from p_organization_id then
+      raise exception 'pdm_version_file_scope' using errcode = 'P0001';
+    end if;
+    if v_item.project_id is null and v_item.job_id is distinct from v_file.job_id then
+      raise exception 'pdm_version_file_scope' using errcode = 'P0001';
+    end if;
+    if v_item.project_id is not null
+      and v_file.job_id is distinct from v_item.job_id
+      and not exists (
+        select 1
+        from public.project_jobs project_job
+        where project_job.project_id = v_item.project_id
+          and project_job.job_id = v_file.job_id
+      )
+      and not exists (
+        select 1
+        from public.jobs job
+        where job.id = v_file.job_id
+          and job.project_id = v_item.project_id
+      )
+    then
+      raise exception 'pdm_version_file_scope' using errcode = 'P0001';
+    end if;
+  end loop;
+end;
+$$;
 
 create or replace function public.pdm_assign_version_number()
 returns trigger
@@ -365,6 +465,7 @@ begin
     into new.version_number
   from public.item_versions version
   where version.item_id = new.item_id;
+  perform public.pdm_assert_version_files(new.item_id, new.organization_id, new.job_file_id, new.drawing_file_id);
   return new;
 end;
 $$;
@@ -397,10 +498,15 @@ begin
     or new.version_number is distinct from old.version_number
     or new.created_by is distinct from old.created_by
     or new.created_at is distinct from old.created_at
-    or new.source_part_id is distinct from old.source_part_id
+    or (
+      new.source_part_id is distinct from old.source_part_id
+      and not (old.source_part_id is not null and new.source_part_id is null)
+    )
   then
     raise exception 'pdm_version_identity_immutable' using errcode = 'P0001';
   end if;
+
+  perform public.pdm_assert_version_files(new.item_id, new.organization_id, new.job_file_id, new.drawing_file_id);
 
   if new.state is distinct from old.state and not (
     (old.state = 'work_in_progress' and new.state in ('pending_approval', 'obsolete'))
@@ -436,8 +542,26 @@ as $$
 declare
   v_version public.item_versions%rowtype;
 begin
-  if tg_op = 'DELETE' or tg_op = 'UPDATE' then
+  if tg_op = 'UPDATE' then
     raise exception 'pdm_revision_immutable' using errcode = 'P0001';
+  end if;
+
+  if tg_op = 'DELETE' then
+    if current_setting('pdm.item_cleanup', true) = old.item_id::text
+      or not exists (
+        select 1 from public.item_versions version where version.id = old.item_version_id
+      )
+    then
+      return old;
+    end if;
+    raise exception 'pdm_revision_immutable' using errcode = 'P0001';
+  end if;
+
+  if new.scheme = 'alpha'
+    and auth.uid() is not null
+    and current_setting('pdm.releasing', true) is distinct from 'on'
+  then
+    raise exception 'pdm_alpha_revision_requires_release' using errcode = 'P0001';
   end if;
 
   select version.* into v_version
@@ -479,6 +603,10 @@ declare
   v_parent_kind text;
   v_line public.assembly_bom_lines%rowtype;
 begin
+  if tg_op = 'UPDATE' and new.assembly_item_version_id is distinct from old.assembly_item_version_id then
+    raise exception 'pdm_bom_parent_immutable' using errcode = 'P0001';
+  end if;
+
   if tg_op = 'DELETE' then
     v_line := old;
   else
@@ -487,9 +615,21 @@ begin
 
   select version.* into v_parent
   from public.item_versions version
-  where version.id = v_line.assembly_item_version_id;
+  where version.id = v_line.assembly_item_version_id
+  for update;
 
-  if v_parent.id is null or v_parent.organization_id is distinct from v_line.organization_id then
+  if v_parent.id is null then
+    if tg_op = 'DELETE' then
+      return old;
+    end if;
+    raise exception 'pdm_bom_organization_mismatch' using errcode = 'P0001';
+  end if;
+
+  if current_setting('pdm.item_cleanup', true) = v_parent.item_id::text and tg_op = 'DELETE' then
+    return old;
+  end if;
+
+  if v_parent.organization_id is distinct from v_line.organization_id then
     raise exception 'pdm_bom_organization_mismatch' using errcode = 'P0001';
   end if;
 
@@ -529,10 +669,17 @@ security definer
 set search_path = ''
 as $$
 begin
+  perform 1
+  from public.item_versions version
+  where version.job_file_id = old.id
+    or version.drawing_file_id = old.id
+  order by version.id
+  for update;
+
   if exists (
     select 1
     from public.item_versions version
-    where version.state = 'released'
+    where version.state in ('released', 'obsolete')
       and (version.job_file_id = old.id or version.drawing_file_id = old.id)
   ) then
     raise exception 'pdm_released_version_file_locked' using errcode = 'P0001';
@@ -645,8 +792,20 @@ begin
   if new.item_version_id is not null and not exists (
     select 1
     from public.item_versions version
+    join public.parts part on part.id = new.part_id
     where version.id = new.item_version_id
       and version.organization_id = new.organization_id
+      and part.organization_id = new.organization_id
+      and (
+        part.pdm_item_id = version.item_id
+        or version.source_part_id = part.id
+        or exists (
+          select 1
+          from public.item_versions sibling
+          where sibling.item_id = version.item_id
+            and sibling.source_part_id = part.id
+        )
+      )
   ) then
     raise exception 'pdm_quote_pin_mismatch' using errcode = 'P0001';
   end if;
@@ -688,11 +847,15 @@ begin
   perform pg_advisory_xact_lock(hashtextextended('pdm-revision:' || p_item_id::text, 0));
 
   if p_scheme = 'numeric' then
-    select coalesce(max(revision.label::integer), 0) + 1
+    select coalesce(max(revision.label::integer), 0)
       into v_next
     from public.item_revisions revision
     where revision.item_id = p_item_id
       and revision.scheme = 'numeric';
+    if v_next >= 2147483646 then
+      raise exception 'pdm_revision_numeric_exhausted' using errcode = 'P0001';
+    end if;
+    v_next := v_next + 1;
     return lpad(v_next::text, greatest(2, char_length(v_next::text)), '0');
   end if;
 
@@ -800,12 +963,14 @@ begin
   end if;
 
   v_label := public.pdm_next_revision_label(v_version.item_id, 'alpha');
+  perform set_config('pdm.releasing', 'on', true);
   insert into public.item_revisions (
     item_id, item_version_id, organization_id, scheme, label, created_by
   ) values (
     v_version.item_id, v_version.id, v_version.organization_id, 'alpha', v_label, p_created_by
   )
   returning id into v_revision_id;
+  perform set_config('pdm.releasing', '', true);
 
   update public.item_versions
   set state = 'released'
@@ -835,9 +1000,14 @@ set search_path = ''
 as $$
 declare
   v_key text;
+  v_part_key text;
+  v_file_key text;
   v_item_id uuid;
+  v_part_item_id uuid;
+  v_file_item_id uuid;
   v_version_id uuid;
   v_created_by uuid;
+  v_candidate record;
 begin
   if p_kind not in ('part', 'assembly') then
     raise exception 'pdm_item_kind' using errcode = 'P0001';
@@ -849,38 +1019,77 @@ begin
   if v_key is null then
     raise exception 'pdm_identity_required' using errcode = 'P0001';
   end if;
-  if auth.uid() is not null and not (
-    (p_job_id is not null and public.user_can_edit_job(p_job_id))
-    or (p_project_id is not null and public.user_can_edit_project(p_project_id))
-  ) then
+  if auth.uid() is not null and not public.pdm_item_editable(p_organization_id, p_project_id, p_job_id) then
     raise exception 'pdm_item_write_denied' using errcode = 'P0001';
   end if;
 
-  v_created_by := coalesce(p_created_by, auth.uid());
+  v_created_by := case when auth.uid() is not null then auth.uid() else p_created_by end;
+  v_part_key := nullif(lower(btrim(p_part_number)), '');
+  v_file_key := nullif(public.normalize_file_basename(p_filename), '');
 
-  if p_project_id is not null then
-    select item.id into v_item_id
+  for v_candidate in
+    select item.id, item.part_number, item.identity_key, item.filename
     from public.items item
     where item.organization_id = p_organization_id
-      and item.project_id = p_project_id
-      and item.identity_key = v_key
-    for update;
-  else
-    select item.id into v_item_id
-    from public.items item
-    where item.organization_id = p_organization_id
-      and item.project_id is null
-      and item.job_id = p_job_id
-      and item.identity_key = v_key
-    for update;
+      and (
+        (p_project_id is not null and item.project_id = p_project_id)
+        or (p_project_id is null and item.project_id is null and item.job_id = p_job_id)
+      )
+      and (
+        (
+          v_part_key is not null
+          and (item.identity_key = v_part_key or lower(btrim(item.part_number)) = v_part_key)
+        )
+        or (
+          v_file_key is not null
+          and item.part_number is null
+          and (
+            item.identity_key = v_file_key
+            or public.normalize_file_basename(item.filename) = v_file_key
+          )
+        )
+      )
+    order by item.id
+    for update
+  loop
+    if v_part_key is not null and (
+      v_candidate.identity_key = v_part_key
+      or lower(btrim(v_candidate.part_number)) = v_part_key
+    ) then
+      if v_part_item_id is not null and v_part_item_id is distinct from v_candidate.id then
+        raise exception 'pdm_identity_conflict' using errcode = 'P0001';
+      end if;
+      v_part_item_id := v_candidate.id;
+    end if;
+    if v_file_key is not null
+      and v_candidate.part_number is null
+      and (
+        v_candidate.identity_key = v_file_key
+        or public.normalize_file_basename(v_candidate.filename) = v_file_key
+      )
+    then
+      if v_file_item_id is not null and v_file_item_id is distinct from v_candidate.id then
+        raise exception 'pdm_identity_conflict' using errcode = 'P0001';
+      end if;
+      v_file_item_id := v_candidate.id;
+    end if;
+  end loop;
+
+  if v_part_item_id is not null and v_file_item_id is not null
+    and v_part_item_id is distinct from v_file_item_id
+  then
+    raise exception 'pdm_identity_conflict' using errcode = 'P0001';
   end if;
+  v_item_id := coalesce(v_part_item_id, v_file_item_id);
 
   if v_item_id is null then
     begin
       insert into public.items (
         organization_id, project_id, job_id, kind, part_number, filename, display_name, created_by
       ) values (
-        p_organization_id, p_project_id, p_job_id, p_kind, nullif(btrim(p_part_number), ''),
+        p_organization_id, p_project_id,
+        case when p_project_id is null then p_job_id else null end,
+        p_kind, nullif(btrim(p_part_number), ''),
         nullif(btrim(p_filename), ''), p_display_name, v_created_by
       )
       returning id into v_item_id;
@@ -996,9 +1205,11 @@ declare
 begin
   for v_part in
     select part.id, part.organization_id, part.job_id, part.name, part.normalized_key,
-      part.cad_file_id, part.drawing_file_id, part.created_at, job.created_by as job_created_by
+      part.cad_file_id, part.drawing_file_id, part.created_at, job.created_by as job_created_by,
+      cad_file.original_name as cad_original_name
     from public.parts part
     join public.jobs job on job.id = part.job_id
+    left join public.job_files cad_file on cad_file.id = part.cad_file_id
     where part.pdm_item_version_id is null
     order by part.created_at, part.id
   loop
@@ -1034,7 +1245,12 @@ begin
       insert into public.items (
         organization_id, project_id, job_id, kind, filename, display_name, created_by
       ) values (
-        v_part.organization_id, v_project_id, v_part.job_id, 'part',
+        v_part.organization_id, v_project_id,
+        case when v_project_id is null then v_part.job_id else null end,
+        case
+          when lower(v_part.cad_original_name) ~ '\.(sldasm|asm)$' then 'assembly'
+          else 'part'
+        end,
         v_part.normalized_key, v_part.name, v_part.job_created_by
       )
       returning id into v_item_id;
@@ -1106,7 +1322,9 @@ begin
       insert into public.items (
         organization_id, project_id, job_id, kind, filename, display_name, created_by
       ) values (
-        v_file.organization_id, v_project_id, v_file.job_id, v_kind,
+        v_file.organization_id, v_project_id,
+        case when v_project_id is null then v_file.job_id else null end,
+        v_kind,
         v_file.normalized_name, v_file.original_name, v_file.uploaded_by
       )
       returning id into v_item_id;
@@ -1127,10 +1345,17 @@ begin
   update public.quote_request_lanes lane
   set item_version_id = part.pdm_item_version_id
   from public.parts part
+  join public.item_versions version on version.id = part.pdm_item_version_id
+  left join public.job_files cad_file on cad_file.id = version.job_file_id
   where lane.part_id = part.id
     and lane.item_version_id is null
     and part.pdm_item_version_id is not null
-    and part.organization_id = lane.organization_id;
+    and part.organization_id = lane.organization_id
+    and (
+      nullif(lane.scope_snapshot #>> '{part,cad,sha256}', '') is null
+      or nullif(lane.scope_snapshot #>> '{part,cad,sha256}', '')
+        in (cad_file.content_sha256, cad_file.trusted_content_sha256)
+    );
   get diagnostics v_lanes = row_count;
 
   update public.quote_requests request
@@ -1147,7 +1372,20 @@ begin
   ) pinned
   where request.job_id = pinned.job_id
     and request.item_version_id is null
-    and request.free_quote_item_id is null;
+    and request.free_quote_item_id is null
+    and not exists (
+      select 1
+      from public.quote_request_lanes lane
+      join public.parts part on part.id = lane.part_id
+      join public.item_versions version on version.id = part.pdm_item_version_id
+      left join public.job_files cad_file on cad_file.id = version.job_file_id
+      where lane.quote_request_id = request.id
+        and nullif(lane.scope_snapshot #>> '{part,cad,sha256}', '') is not null
+        and nullif(lane.scope_snapshot #>> '{part,cad,sha256}', '')
+          is distinct from cad_file.content_sha256
+        and nullif(lane.scope_snapshot #>> '{part,cad,sha256}', '')
+          is distinct from cad_file.trusted_content_sha256
+    );
   get diagnostics v_requests = row_count;
 
   return jsonb_build_object(
@@ -1166,6 +1404,7 @@ revoke all on function public.pdm_item_readable(uuid, uuid, uuid) from public, a
 revoke all on function public.pdm_item_editable(uuid, uuid, uuid) from public, anon;
 revoke all on function public.pdm_version_writable(uuid, uuid, uuid) from public, anon;
 revoke all on function public.pdm_guard_item_scope() from public, anon;
+revoke all on function public.pdm_assert_version_files(uuid, uuid, uuid, uuid) from public, anon;
 revoke all on function public.pdm_assign_version_number() from public, anon;
 revoke all on function public.pdm_guard_version_mutation() from public, anon;
 revoke all on function public.pdm_guard_revision_mutation() from public, anon;
@@ -1187,6 +1426,7 @@ grant execute on function public.pdm_item_readable(uuid, uuid, uuid) to authenti
 grant execute on function public.pdm_item_editable(uuid, uuid, uuid) to authenticated, service_role;
 grant execute on function public.pdm_version_writable(uuid, uuid, uuid) to authenticated, service_role;
 grant execute on function public.pdm_guard_item_scope() to authenticated, service_role;
+grant execute on function public.pdm_assert_version_files(uuid, uuid, uuid, uuid) to authenticated, service_role;
 grant execute on function public.pdm_assign_version_number() to authenticated, service_role;
 grant execute on function public.pdm_guard_version_mutation() to authenticated, service_role;
 grant execute on function public.pdm_guard_revision_mutation() to authenticated, service_role;
@@ -1442,5 +1682,83 @@ using (
       and public.pdm_item_editable(item.organization_id, item.project_id, item.job_id)
   )
 );
+
+create or replace function public.pdm_delete_unlocked_item(p_item_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if exists (
+    select 1
+    from public.item_versions version
+    where version.item_id = p_item_id
+      and version.state in ('released', 'obsolete')
+  ) or exists (
+    select 1
+    from public.assembly_bom_lines line
+    join public.item_versions parent on parent.id = line.assembly_item_version_id
+    join public.item_versions child on child.id = line.child_item_version_id
+    where child.item_id = p_item_id
+      and parent.state in ('released', 'obsolete')
+  ) then
+    raise exception 'pdm_released_history_blocks_delete' using errcode = 'P0001';
+  end if;
+
+  perform set_config('pdm.item_cleanup', p_item_id::text, true);
+  delete from public.item_shares where item_id = p_item_id;
+  delete from public.assembly_bom_lines line
+  where line.assembly_item_version_id in (
+      select version.id from public.item_versions version where version.item_id = p_item_id
+    )
+    or line.child_item_version_id in (
+      select version.id from public.item_versions version where version.item_id = p_item_id
+    );
+  delete from public.item_revisions where item_id = p_item_id;
+  delete from public.item_versions where item_id = p_item_id;
+  delete from public.items where id = p_item_id;
+  perform set_config('pdm.item_cleanup', '', true);
+end;
+$$;
+
+create or replace function public.pdm_guard_scope_delete()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_item_id uuid;
+begin
+  if tg_table_name = 'jobs' then
+    for v_item_id in
+      select item.id from public.items item where item.job_id = old.id
+    loop
+      perform public.pdm_delete_unlocked_item(v_item_id);
+    end loop;
+  else
+    for v_item_id in
+      select item.id from public.items item where item.project_id = old.id
+    loop
+      perform public.pdm_delete_unlocked_item(v_item_id);
+    end loop;
+  end if;
+  return old;
+end;
+$$;
+
+revoke all on function public.pdm_delete_unlocked_item(uuid) from public, anon;
+revoke all on function public.pdm_guard_scope_delete() from public, anon;
+grant execute on function public.pdm_delete_unlocked_item(uuid) to authenticated, service_role;
+grant execute on function public.pdm_guard_scope_delete() to authenticated, service_role;
+
+create trigger pdm_guard_job_delete
+before delete on public.jobs
+for each row execute function public.pdm_guard_scope_delete();
+
+create trigger pdm_guard_project_delete
+before delete on public.projects
+for each row execute function public.pdm_guard_scope_delete();
 
 select public.pdm_backfill_legacy_placements();

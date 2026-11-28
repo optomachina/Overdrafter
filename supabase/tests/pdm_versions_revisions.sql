@@ -63,7 +63,8 @@ insert into public.job_files (
   ('a4a40000-0000-4000-8000-000000000041', 'a4a40000-0000-4000-8000-000000000022', 'a4a40000-0000-4000-8000-000000000010', 'a4a40000-0000-4000-8000-000000000001', 'pdm/bracket-a.sldprt', 'bracket.sldprt', 'bracket', 'cad'),
   ('a4a40000-0000-4000-8000-000000000042', 'a4a40000-0000-4000-8000-000000000022', 'a4a40000-0000-4000-8000-000000000010', 'a4a40000-0000-4000-8000-000000000001', 'pdm/bracket-a.slddrw', 'bracket.slddrw', 'bracket-drawing', 'drawing'),
   ('a4a40000-0000-4000-8000-000000000043', 'a4a40000-0000-4000-8000-000000000022', 'a4a40000-0000-4000-8000-000000000010', 'a4a40000-0000-4000-8000-000000000001', 'pdm/loose.sldprt', 'loose.sldprt', 'loose.sldprt', 'cad'),
-  ('a4a40000-0000-4000-8000-000000000044', 'a4a40000-0000-4000-8000-000000000022', 'a4a40000-0000-4000-8000-000000000010', 'a4a40000-0000-4000-8000-000000000001', 'pdm/dolly.sldasm', 'dolly.SLDASM', 'dolly.sldasm', 'cad');
+  ('a4a40000-0000-4000-8000-000000000044', 'a4a40000-0000-4000-8000-000000000022', 'a4a40000-0000-4000-8000-000000000010', 'a4a40000-0000-4000-8000-000000000001', 'pdm/dolly.sldasm', 'dolly.SLDASM', 'dolly.sldasm', 'cad'),
+  ('a4a40000-0000-4000-8000-000000000045', 'a4a40000-0000-4000-8000-000000000022', 'a4a40000-0000-4000-8000-000000000010', 'a4a40000-0000-4000-8000-000000000001', 'pdm/frame-assy.sldasm', 'frame.SLDASM', 'frame', 'cad');
 
 insert into public.parts (id, job_id, organization_id, name, normalized_key, cad_file_id, drawing_file_id, created_at)
 values
@@ -72,7 +73,8 @@ values
   ('a4a40000-0000-4000-8000-000000000052', 'a4a40000-0000-4000-8000-000000000021', 'a4a40000-0000-4000-8000-000000000010', 'Bracket other job', 'bracket', null, null, '2020-03-01 00:00:00+00'),
   ('a4a40000-0000-4000-8000-000000000053', 'a4a40000-0000-4000-8000-000000000023', 'a4a40000-0000-4000-8000-000000000010', 'Pin me', 'pin-me', null, null, '2020-04-01 00:00:00+00'),
   ('a4a40000-0000-4000-8000-000000000054', 'a4a40000-0000-4000-8000-000000000026', 'a4a40000-0000-4000-8000-000000000010', 'Left', 'left-plate', null, null, '2020-05-01 00:00:00+00'),
-  ('a4a40000-0000-4000-8000-000000000055', 'a4a40000-0000-4000-8000-000000000026', 'a4a40000-0000-4000-8000-000000000010', 'Right', 'right-plate', null, null, '2020-05-02 00:00:00+00');
+  ('a4a40000-0000-4000-8000-000000000055', 'a4a40000-0000-4000-8000-000000000026', 'a4a40000-0000-4000-8000-000000000010', 'Right', 'right-plate', null, null, '2020-05-02 00:00:00+00'),
+  ('a4a40000-0000-4000-8000-000000000056', 'a4a40000-0000-4000-8000-000000000022', 'a4a40000-0000-4000-8000-000000000010', 'Frame assembly', 'frame', 'a4a40000-0000-4000-8000-000000000045', null, '2020-01-15 00:00:00+00');
 
 insert into public.quote_requests (id, organization_id, job_id, requested_by, requested_vendors)
 values
@@ -262,7 +264,7 @@ select is(
 
 create temporary table pdm_alpha_seed (seed text primary key, expected text not null);
 insert into pdm_alpha_seed (seed, expected)
-values ('H', 'J'), ('N', 'P'), ('P', 'R'), ('R', 'T'), ('W', 'Y');
+values ('H', 'J'), ('N', 'P'), ('P', 'R'), ('R', 'T'), ('U', 'V'), ('W', 'Y');
 
 create temporary table pdm_alpha_item (seed text primary key, item_id uuid not null);
 do $$
@@ -589,7 +591,7 @@ select is(
 
 -- Legacy placements become work-in-progress history. Nothing is released.
 select public.pdm_backfill_legacy_placements() as result \gset backfill_
-select is((:'backfill_result'::jsonb ->> 'partsLinked')::integer, 6, 'backfill links every unlinked part');
+select is((:'backfill_result'::jsonb ->> 'partsLinked')::integer, 7, 'backfill links every unlinked part');
 select is(
   (select count(*)::integer from public.items item
     join public.item_versions version on version.item_id = item.id
@@ -646,6 +648,30 @@ select is(
   'assembly',
   'an orphan SolidWorks assembly file backfills as an assembly'
 );
+select is(
+  (select item.kind from public.items item
+    join public.item_versions version on version.item_id = item.id
+    where version.source_part_id = 'a4a40000-0000-4000-8000-000000000056'),
+  'assembly',
+  'a placement whose CAD file is an assembly backfills as an assembly'
+);
+select public.pdm_record_upload(
+  'a4a40000-0000-4000-8000-000000000010',
+  'a4a40000-0000-4000-8000-000000000030',
+  'a4a40000-0000-4000-8000-000000000022',
+  'part',
+  'BR-9',
+  'bracket.SLDPRT',
+  'Bracket with a part number',
+  null,
+  null,
+  'a4a40000-0000-4000-8000-000000000001'
+) as version_id \gset stem_
+select is(
+  (select item_id from public.item_versions where id = :'stem_version_id'::uuid),
+  (select item_id from public.item_versions where source_part_id = 'a4a40000-0000-4000-8000-000000000050'),
+  'a filename stem matches a backfilled item even when the new upload has a part number'
+);
 select ok(
   (select item_version_id is not null and free_quote_item_id is not null and free_quote_unlimited = false
     from public.quote_requests where id = 'a4a40000-0000-4000-8000-000000000060'),
@@ -665,6 +691,72 @@ select is(
   ((public.pdm_backfill_legacy_placements()) ->> 'partsLinked')::integer,
   0,
   'running the backfill again does not create another part version'
+);
+
+select lives_ok(
+  $$delete from public.parts where id = 'a4a40000-0000-4000-8000-000000000055'$$,
+  'deleting a draft placement clears its version link'
+);
+select is(
+  (select count(*)::integer from public.item_versions version
+    join public.items item on item.id = version.item_id
+    where item.filename = 'right-plate'
+      and version.source_part_id is null
+      and version.state = 'work_in_progress'),
+  1,
+  'the draft version remains after its placement is deleted'
+);
+
+select lives_ok(
+  $$delete from public.jobs where id = 'a4a40000-0000-4000-8000-000000000021'$$,
+  'deleting a job removes its unreleased PDM history'
+);
+select is(
+  (select count(*)::integer from public.items where job_id = 'a4a40000-0000-4000-8000-000000000021'),
+  0,
+  'the unscoped job no longer has an item'
+);
+
+insert into public.jobs (id, organization_id, created_by, title, project_id)
+values (
+  'a4a40000-0000-4000-8000-000000000028',
+  'a4a40000-0000-4000-8000-000000000010',
+  'a4a40000-0000-4000-8000-000000000001',
+  'PDM released lock',
+  null
+);
+select public.pdm_record_upload(
+  'a4a40000-0000-4000-8000-000000000010',
+  null,
+  'a4a40000-0000-4000-8000-000000000028',
+  'part',
+  null,
+  'locked-part.sldprt',
+  'Locked',
+  null,
+  null,
+  'a4a40000-0000-4000-8000-000000000001'
+) as version_id \gset locked_
+update public.item_versions set state = 'pending_approval' where id = :'locked_version_id'::uuid;
+select public.pdm_release_item_version(
+  :'locked_version_id'::uuid,
+  'a4a40000-0000-4000-8000-000000000001'
+);
+select throws_ok(
+  $$delete from public.jobs where id = 'a4a40000-0000-4000-8000-000000000028'$$,
+  'P0001',
+  'pdm_released_history_blocks_delete',
+  'a released version blocks deletion of its job'
+);
+
+select throws_ok(
+  $$insert into public.item_revisions (item_id, item_version_id, organization_id, scheme, label)
+    select item_id, id, organization_id, 'numeric', '2147483647'
+    from public.item_versions
+    where source_part_id = 'a4a40000-0000-4000-8000-000000000054'$$,
+  '23514',
+  null,
+  'a numeric revision above the allocator domain is rejected'
 );
 
 -- deny: anon public.items
